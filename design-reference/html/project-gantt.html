@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>한미르톡 — P-2410 간트</title>
+<link rel="stylesheet" href="assets/shared.css">
+<style>
+  .ph { background: var(--surface); border-bottom: 1px solid var(--border); padding: 18px 28px 0; }
+  .ph__top { display: flex; align-items: center; gap: 14px; }
+  .ph__cover { width: 40px; height: 40px; background: var(--brand-blue); color: white; border-radius: var(--r-md); display: grid; place-items: center; font-weight: 800; font-size: 11px; }
+  .ph__title { font-size: 18px; font-weight: 800; }
+  .ph__sub { font-size: 12px; color: var(--text-3); }
+  .ph__actions { margin-left: auto; display: flex; gap: 8px; }
+  .ph__tabs { display: flex; gap: 18px; margin-top: 14px; }
+  .ph__tab { font-size: 13.5px; font-weight: 600; color: var(--text-3); padding: 8px 0 12px; border-bottom: 2px solid transparent; }
+  .ph__tab.is-active { color: var(--brand-blue); border-bottom-color: var(--brand-blue); }
+  .ph__tab a { color: inherit; }
+  .ph__tab .num { color: var(--text-4); font-size: 12px; font-weight: 500; margin-left: 4px; }
+
+  .toolbar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 28px; background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .seg { display: flex; background: var(--bg-soft); border-radius: var(--r-sm); padding: 3px; gap: 2px; }
+  .seg-btn { font-size: 12px; font-weight: 600; color: var(--text-3); padding: 5px 10px; border-radius: 4px; border: none; background: transparent; }
+  .seg-btn.is-active { background: var(--surface); color: var(--text-1); box-shadow: var(--shadow-sm); }
+  .filter-btn { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; padding: 6px 10px; border-radius: var(--r-sm); background: var(--surface); border: 1px solid var(--border-strong); color: var(--text-2); }
+  .filter-btn b { color: var(--text-1); }
+  .legend { display: flex; gap: 12px; align-items: center; margin-left: auto; font-size: 11.5px; color: var(--text-3); }
+  .legend__dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin-right: 4px; vertical-align: -1px; }
+
+  /* Gantt -------------------------------------- */
+  .gantt-wrap {
+    background: var(--surface);
+    margin: 18px 28px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    overflow: hidden;
+  }
+  .gantt {
+    --col-w: 36px;
+    --label-w: 320px;
+    --row-h: 40px;
+    display: grid;
+    grid-template-columns: var(--label-w) 1fr;
+  }
+
+  .gantt__labels {
+    border-right: 1px solid var(--border);
+    background: var(--surface);
+    z-index: 2;
+  }
+  .gantt__labels-head {
+    height: 56px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-muted);
+    padding: 0 16px;
+    display: flex; align-items: center;
+    font-size: 11.5px; font-weight: 700; color: var(--text-3);
+  }
+  .label-row {
+    height: var(--row-h);
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    align-items: center;
+    gap: 8px;
+    padding: 0 14px;
+    border-bottom: 1px solid var(--border-soft);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .label-row:hover { background: var(--bg-soft); }
+  .label-row__chev { color: var(--text-4); width: 10px; }
+  .label-row__name { font-weight: 500; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .label-row__name.is-group { font-weight: 700; }
+  .label-row__name .id { font-size: 10.5px; color: var(--text-4); margin-left: 6px; font-family: 'SF Mono', monospace; }
+  .label-row__avatar .avatar { width: 22px; height: 22px; font-size: 9px; }
+  .label-row__progress {
+    font-size: 11px; font-weight: 600; color: var(--text-3);
+    min-width: 32px; text-align: right;
+  }
+
+  .gantt__timeline { overflow-x: auto; position: relative; }
+
+  .gantt__months {
+    display: flex;
+    height: 28px;
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--surface-muted);
+  }
+  .gantt__month {
+    border-right: 1px solid var(--border-soft);
+    padding: 0 12px;
+    font-size: 11.5px; font-weight: 700; color: var(--text-2);
+    display: flex; align-items: center;
+  }
+  .gantt__days {
+    display: flex;
+    height: 28px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .gantt__day {
+    width: var(--col-w);
+    flex-shrink: 0;
+    text-align: center;
+    border-right: 1px solid var(--border-soft);
+    font-size: 10.5px; color: var(--text-3);
+    line-height: 28px;
+  }
+  .gantt__day.is-mon { color: var(--text-2); font-weight: 600; }
+  .gantt__day.is-weekend { background: var(--bg-soft); color: var(--text-4); }
+  .gantt__day.is-today { background: var(--brand-orange-50); color: var(--brand-orange); font-weight: 700; }
+
+  .gantt__rows { position: relative; }
+  .gantt__row {
+    height: var(--row-h);
+    border-bottom: 1px solid var(--border-soft);
+    position: relative;
+    display: flex;
+  }
+  .gantt__row.is-group { background: var(--surface-muted); }
+  .gantt__row .cell {
+    width: var(--col-w);
+    flex-shrink: 0;
+    border-right: 1px solid var(--border-soft);
+  }
+  .gantt__row .cell.is-weekend { background: var(--bg-soft); }
+  .gantt__row.is-group .cell.is-weekend { background: var(--bg-soft); }
+
+  /* Today line */
+  .today-line {
+    position: absolute; top: 0; bottom: 0;
+    width: 2px;
+    background: var(--brand-orange);
+    z-index: 3;
+    pointer-events: none;
+  }
+  .today-line::before {
+    content: '오늘';
+    position: absolute;
+    top: -22px;
+    transform: translateX(-50%);
+    background: var(--brand-orange);
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 3px;
+  }
+
+  /* Bars */
+  .bar {
+    position: absolute;
+    top: 8px;
+    height: 24px;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    font-size: 11px;
+    font-weight: 600;
+    color: white;
+    white-space: nowrap;
+    overflow: hidden;
+    cursor: pointer;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+  }
+  .bar.is-done { background: var(--success); }
+  .bar.is-progress {
+    background: var(--brand-blue);
+    background: linear-gradient(to right, var(--brand-blue) var(--p, 50%), #94B1DD var(--p, 50%));
+  }
+  .bar.is-pending { background: #B9BEC6; }
+  .bar.is-late { background: var(--danger); }
+  .bar.is-group { background: var(--text-2); height: 8px; top: 16px; border-radius: 2px; color: transparent; }
+  .bar.is-group::before, .bar.is-group::after {
+    content: '';
+    position: absolute;
+    bottom: -4px;
+    width: 0; height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 4px solid var(--text-2);
+  }
+  .bar.is-group::before { left: 0; }
+  .bar.is-group::after  { right: 0; }
+
+  .milestone-diamond {
+    position: absolute;
+    top: 12px;
+    width: 16px; height: 16px;
+    background: var(--brand-orange);
+    transform: rotate(45deg);
+    border-radius: 2px;
+    z-index: 2;
+  }
+  .milestone-diamond.is-done { background: var(--success); }
+</style>
+</head>
+<body data-nav="project" data-screen-label="06 Project gantt">
+<div class="app">
+  <div id="side"></div>
+
+  <main class="main">
+    <div id="top"></div>
+
+    <section class="ph">
+      <div class="ph__top">
+        <div class="ph__cover">P-2410</div>
+        <div>
+          <div class="ph__title">강판 자동화 라인 도입 (Phase 2)</div>
+          <div class="ph__sub">생산기술팀 · 박지영 책임 · <span class="tag tag--blue tag--dot">실행 단계</span></div>
+        </div>
+        <div class="ph__actions">
+          <button class="btn btn--outline btn--sm">PDF 내보내기</button>
+          <button class="btn btn--primary btn--sm">+ 일정 추가</button>
+        </div>
+      </div>
+      <div class="ph__tabs">
+        <div class="ph__tab"><a href="project-detail.html">개요</a></div>
+        <div class="ph__tab"><a href="project-tasks.html">업무 <span class="num">24</span></a></div>
+        <div class="ph__tab is-active">간트</div>
+        <div class="ph__tab"><a href="chat-room.html">대화</a></div>
+        <div class="ph__tab">파일 <span class="num">42</span></div>
+        <div class="ph__tab">결정 기록 <span class="num">7</span></div>
+        <div class="ph__tab">설정</div>
+      </div>
+    </section>
+
+    <div class="toolbar">
+      <div class="seg">
+        <button class="seg-btn">일</button>
+        <button class="seg-btn is-active">주</button>
+        <button class="seg-btn">월</button>
+        <button class="seg-btn">분기</button>
+      </div>
+      <button class="filter-btn">기간: <b>5월 — 6월</b></button>
+      <button class="filter-btn">담당자: <b>전체</b></button>
+      <button class="filter-btn">상태: <b>완료 제외</b></button>
+
+      <div class="legend">
+        <span><span class="legend__dot" style="background: var(--success)"></span>완료</span>
+        <span><span class="legend__dot" style="background: var(--brand-blue)"></span>진행중</span>
+        <span><span class="legend__dot" style="background: #B9BEC6"></span>대기</span>
+        <span><span class="legend__dot" style="background: var(--danger)"></span>지연</span>
+        <span><span class="legend__dot" style="background: var(--brand-orange); transform: rotate(45deg); width: 8px; height: 8px;"></span>마일스톤</span>
+      </div>
+    </div>
+
+    <div class="content no-pad">
+    <div class="gantt-wrap">
+      <div class="gantt" id="gantt">
+
+        <!-- LABELS COLUMN -->
+        <div class="gantt__labels">
+          <div class="gantt__labels-head">업무 / 마일스톤</div>
+
+          <div class="label-row">
+            <svg class="label-row__chev" width="10" height="10" viewBox="0 0 12 12"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+            <div class="label-row__name is-group">M3. 시험 운영 및 시험성적서</div>
+            <div></div>
+            <div class="label-row__progress">100%</div>
+          </div>
+
+          <div class="label-row" style="padding-left: 28px;">
+            <svg class="label-row__chev" width="10" height="10" viewBox="0 0 12 12"></svg>
+            <div class="label-row__name">시험성적서 v0.2 작성 <span class="id">T-1015</span></div>
+            <div class="label-row__avatar"><div class="avatar avatar--orange">박지</div></div>
+            <div class="label-row__progress">100%</div>
+          </div>
+          <div class="label-row" style="padding-left: 28px;">
+            <svg class="label-row__chev" width="10" height="10" viewBox="0 0 12 12"></svg>
+            <div class="label-row__name">시험성적서 v0.2 결재 <span class="id">T-1018</span></div>
+            <div class="label-row__avatar"><div class="avatar avatar--purple">이수</div></div>
+            <div class="label-row__progress">100%</div>
+          </div>
+
+          <div class="label-row">
+            <svg class="label-row__chev" width="10" height="10" viewBox="0 0 12 12"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+            <div class="label-row__name is-group">M4. 시험성적서 v1.0 확정</div>
+            <div></div>
+            <div class="label-row__progress">52%</div>
+          </div>
+
+          <div class="label-row" style="padding-left: 28px;">
+            <svg class="label-row__chev" width="10" height="10" viewBox="0 0 12 12"></svg>
+            <div class="label-row__name">시험성적서 v0.3 검토 회신 <span class="id">T-1024</span></div>
+            <div class="label-row__avatar"><div class="avatar avatar--orange">박지</div></div>
+            <div class="label-row__progress" style="color: var(--danger);">80%</div>
+          </div>
+          <div class="label-row" style="padding-left: 28px;">
+            <svg class="label-row__chev" width="10" height="10" viewBox="0 0 12 12"></svg>
+            <div class="label-row__name">비고란 영업상태 반영 <span class="id">T-1031</span></div>
+            <div class="label-row__avatar"><div class="avatar avatar--green">윤</div></div>
+            <div class="label-row__progress" style="color: var(--danger);">25%</div>
+          </div>
+          <div class="label-row" style="padding-left: 28px;">
+            <svg class="label-row__chev" width="10" height="10" viewBox="0 0 12 12"></svg>
+            <div class="label-row__name">v1.0 결재 상신 및 승인 <span class="id">T-1033</span></div>
+            <div class="label-row__avatar"><div class="avatar avatar--purple">이수</div></div>
+            <div class="label-row__progress">0%</div>
+          </div>
+
+          <div class="label-row">
+            <svg class="label-row__chev" width="10" height="10" viewBox="0 0 12 12"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+            <div class="label-row__name is-group">병행 업무</div>
+            <div></div>
+            <div class="label-row__progress">38%</div>
+          </div>
+
+          <div class="label-row" style="padding-left: 28px;">
+            <svg class="label-row__chev" width="10" height="10" viewBox="0 0 12 12"></svg>
+            <div class="label-row__name">7월 생산일정 초안 <span class="id">T-1042</span></div>
+            <div class="label-row__avatar"><div class="avatar">김민</div></div>
+            <div class="label-row__progress">45%</div>
+          </div>
+          <div class="label-row" style="padding-left: 28px;">
+            <svg class="label-row__chev" width="10" height="10" viewBox="0 0 12 12"></svg>
+            <div class="label-row__name">자동검사기 작동 매뉴얼 <span class="id">T-1045</span></div>
+            <div class="label-row__avatar"><div class="avatar avatar--orange">박지</div></div>
+            <div class="label-row__progress">60%</div>
+          </div>
+          <div class="label-row" style="padding-left: 28px;">
+            <svg class="label-row__chev" width="10" height="10" viewBox="0 0 12 12"></svg>
+            <div class="label-row__name">SOP 표준양식 v1.0 초안 <span class="id">T-1052</span></div>
+            <div class="label-row__avatar"><div class="avatar avatar--orange">박지</div></div>
+            <div class="label-row__progress">10%</div>
+          </div>
+          <div class="label-row" style="padding-left: 28px;">
+            <svg class="label-row__chev" width="10" height="10" viewBox="0 0 12 12"></svg>
+            <div class="label-row__name">현장 교육자료 작성 <span class="id">T-1058</span></div>
+            <div class="label-row__avatar"><div class="avatar avatar--gray">미</div></div>
+            <div class="label-row__progress">0%</div>
+          </div>
+
+          <div class="label-row">
+            <svg class="label-row__chev" width="10" height="10" viewBox="0 0 12 12"></svg>
+            <div class="label-row__name is-group" style="color: var(--brand-orange);">⬥ M5. 라인 본가동</div>
+            <div></div>
+            <div class="label-row__progress">—</div>
+          </div>
+        </div>
+
+        <!-- TIMELINE COLUMN -->
+        <div class="gantt__timeline">
+          <div id="gtl" style="position: relative; min-width: calc(var(--col-w) * 42); min-height: 100%;">
+            <div class="gantt__months" id="gm"></div>
+            <div class="gantt__days" id="gd"></div>
+            <div class="gantt__rows" id="gr"></div>
+            <div class="today-line" id="todayLine"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+    </div>
+  </main>
+</div>
+
+<script src="assets/chrome.js"></script>
+<script>HanmirChrome.mount({ title: '프로젝트', sub: 'P-2410 강판 자동화 라인' });</script>
+
+<script>
+// Build a 42-day timeline: May 1 — Jun 11, 2026 (Fri=May 1)
+(function () {
+  const COL = 36;
+  const START = new Date(2026, 4, 1); // May 1, 2026
+  const DAYS = 42;
+  const TODAY_INDEX = 12; // May 13 = day index 12 (0-indexed)
+
+  const months = [];
+  const days = [];
+  for (let i = 0; i < DAYS; i++) {
+    const d = new Date(START); d.setDate(START.getDate() + i);
+    days.push(d);
+  }
+
+  // month bands
+  const gm = document.getElementById('gm');
+  let i = 0;
+  while (i < DAYS) {
+    const m = days[i].getMonth();
+    let span = 0;
+    while (i + span < DAYS && days[i + span].getMonth() === m) span++;
+    const div = document.createElement('div');
+    div.className = 'gantt__month';
+    div.style.width = (span * COL) + 'px';
+    div.textContent = (m + 1) + '월 ' + days[i].getFullYear();
+    gm.appendChild(div);
+    i += span;
+  }
+
+  // day cells
+  const gd = document.getElementById('gd');
+  days.forEach((d, idx) => {
+    const cell = document.createElement('div');
+    cell.className = 'gantt__day';
+    const dow = d.getDay();
+    if (dow === 0 || dow === 6) cell.classList.add('is-weekend');
+    if (dow === 1) cell.classList.add('is-mon');
+    if (idx === TODAY_INDEX) cell.classList.add('is-today');
+    cell.textContent = d.getDate();
+    gd.appendChild(cell);
+  });
+
+  // 12 rows; pattern matches labels above
+  const rowDefs = [
+    { group: true,   from: 0,  to: 6  },   // M3
+    { state: 'done', from: 0,  to: 3 },    // v0.2 작성
+    { state: 'done', from: 3,  to: 6 },    // v0.2 결재
+    { group: true,   from: 7, to: 18 },    // M4
+    { state: 'late', from: 7,  to: 12, progress: 80 },  // v0.3 검토 (ends today, late)
+    { state: 'late', from: 7,  to: 11, progress: 25 },  // 비고
+    { state: 'pending', from: 13, to: 18 }, // v1.0 결재
+    { group: true,   from: 11, to: 27 },   // 병행
+    { state: 'progress', from: 11, to: 14, progress: 45 },  // 7월 생산일정
+    { state: 'progress', from: 12, to: 17, progress: 60 },  // 매뉴얼
+    { state: 'progress', from: 18, to: 22, progress: 10 },  // SOP
+    { state: 'pending',  from: 24, to: 27 },   // 교육자료
+    { milestone: true,   day: 30 }          // M5
+  ];
+
+  const gr = document.getElementById('gr');
+
+  rowDefs.forEach(r => {
+    const row = document.createElement('div');
+    row.className = 'gantt__row' + (r.group ? ' is-group' : '');
+
+    // background cells
+    for (let c = 0; c < DAYS; c++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      const dow = days[c].getDay();
+      if (dow === 0 || dow === 6) cell.classList.add('is-weekend');
+      row.appendChild(cell);
+    }
+
+    if (r.milestone) {
+      const dia = document.createElement('div');
+      dia.className = 'milestone-diamond';
+      dia.style.left = (r.day * COL + COL/2 - 8) + 'px';
+      row.appendChild(dia);
+    } else {
+      const bar = document.createElement('div');
+      const stateCls = r.group ? 'is-group' : ('is-' + (r.state || 'pending'));
+      bar.className = 'bar ' + stateCls;
+      bar.style.left = (r.from * COL + 2) + 'px';
+      bar.style.width = ((r.to - r.from + 1) * COL - 4) + 'px';
+      if (r.state === 'progress' && r.progress != null) {
+        bar.style.setProperty('--p', r.progress + '%');
+      }
+      if (!r.group && !r.milestone) {
+        if (r.state === 'done')     bar.textContent = '완료';
+        else if (r.state === 'progress') bar.textContent = (r.progress || 0) + '%';
+        else if (r.state === 'late') bar.textContent = '지연 · ' + (r.progress || 0) + '%';
+        else if (r.state === 'pending') bar.textContent = '대기';
+      }
+      row.appendChild(bar);
+    }
+
+    gr.appendChild(row);
+  });
+
+  // today vertical line
+  document.getElementById('todayLine').style.left = (TODAY_INDEX * COL + COL/2) + 'px';
+})();
+</script>
+</body>
+</html>

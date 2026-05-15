@@ -1,0 +1,92 @@
+.pane {
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  width: 280px;
+  flex-shrink: 0;
+}
+
+.head {
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border-soft);
+  display: flex;
+  align-items: center;
+}
+.head h3 { margin: 0; font-size: 14px; font-weight: 700; }
+.headBtn { margin-left: auto; }
+
+.section {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.section h4 {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-4);
+  margin: 0 0 10px;
+  letter-spacing: 0.04em;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  font-size: 13px;
+}
+.k { color: var(--text-3); }
+.v { color: var(--text-1); font-weight: 500; }
+.rowProgress { margin-top: 6px; }
+.fullBtn { width: 100%; margin-top: 10px; }
+
+.member { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+.memberName { font-size: 13px; font-weight: 500; }
+.memberRole { font-size: 11px; color: var(--text-3); }
+.memberOwner {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--brand-orange);
+  font-weight: 700;
+}
+
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 12.5px;
+}
+.fileRow:last-child { border-bottom: none; }
+.fileIc {
+  width: 22px; height: 28px;
+  background: #DC2626;
+  border-radius: 3px;
+  color: white;
+  font-size: 8px;
+  font-weight: 700;
+  display: grid; place-items: center;
+  flex-shrink: 0;
+}
+.icPdf { background: #DC2626; }
+.icXls { background: #16A34A; }
+.icDoc { background: #2563EB; }
+.icPpt { background: #E55A1F; }
+.icImg { background: #6D45B8; }
+.icZip { background: #5C6068; }
+
+.fileName {
+  font-weight: 500;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fileMeta { font-size: 10.5px; color: var(--text-3); margin-top: 1px; }
+
+@media (max-width: 1100px) {
+  .pane { display: none; }
+}

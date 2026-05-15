@@ -1,0 +1,80 @@
+.ph {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 18px 28px 0;
+}
+.phDetail { padding: 22px 28px 0; }
+
+.crumb {
+  font-size: 12px;
+  color: var(--text-3);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.crumb b { color: var(--text-2); font-weight: 500; }
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.topDetail {
+  display: flex;
+  align-items: flex-end;
+  gap: 18px;
+  margin-top: 12px;
+}
+
+.cover {
+  width: 40px; height: 40px;
+  background: var(--brand-blue);
+  color: white;
+  border-radius: var(--r-md);
+  display: grid; place-items: center;
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: -0.02em;
+  flex-shrink: 0;
+}
+.coverDetail {
+  width: 56px; height: 56px;
+  font-size: 14px;
+}
+
+.title { font-size: 18px; font-weight: 800; }
+.titleDetail { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+.sub { font-size: 12px; color: var(--text-3); margin-top: 2px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.subSpacer {}
+
+.actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+
+.tabs {
+  display: flex;
+  gap: 18px;
+  margin-top: 14px;
+  overflow-x: auto;
+}
+
+.tab {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-3);
+  padding: 8px 0 12px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  background: none;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  white-space: nowrap;
+}
+.tab:hover { color: var(--text-1); }
+.tabActive { color: var(--brand-blue); border-bottom-color: var(--brand-blue); }
+.tabNum {
+  font-weight: 500;
+  color: var(--text-4);
+  margin-left: 4px;
+  font-size: 12px;
+}
+.tabActive .tabNum { color: var(--brand-blue); opacity: 0.7; }

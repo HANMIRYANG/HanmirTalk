@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>한미르톡 — 프로젝트 P-2410</title>
+<link rel="stylesheet" href="assets/shared.css">
+<style>
+  /* Project header section above tabs */
+  .ph {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 22px 28px 0;
+  }
+  .ph__breadcrumb {
+    font-size: 12px; color: var(--text-3);
+    display: flex; gap: 6px; align-items: center;
+  }
+  .ph__breadcrumb b { color: var(--text-2); font-weight: 500; }
+
+  .ph__row {
+    display: flex; align-items: flex-end; gap: 18px;
+    margin-top: 12px;
+  }
+  .ph__cover {
+    width: 56px; height: 56px;
+    background: var(--brand-blue);
+    color: white;
+    border-radius: var(--r-md);
+    display: grid; place-items: center;
+    font-weight: 800; font-size: 14px;
+    letter-spacing: -0.02em;
+  }
+  .ph__title { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+  .ph__sub { font-size: 13px; color: var(--text-3); margin-top: 4px; }
+  .ph__actions { margin-left: auto; display: flex; gap: 8px; }
+
+  .ph__tabs {
+    display: flex; gap: 18px;
+    margin-top: 18px;
+  }
+  .ph__tab {
+    font-size: 13.5px; font-weight: 600; color: var(--text-3);
+    padding: 8px 0 12px; cursor: pointer;
+    border-bottom: 2px solid transparent;
+  }
+  .ph__tab:hover { color: var(--text-1); }
+  .ph__tab.is-active { color: var(--brand-blue); border-bottom-color: var(--brand-blue); }
+  .ph__tab .num { font-weight: 500; color: var(--text-4); margin-left: 4px; font-size: 12px; }
+  .ph__tab.is-active .num { color: var(--brand-blue); opacity: .7; }
+
+  /* Body grid */
+  .pdetail { display: grid; grid-template-columns: 1fr 320px; gap: 18px; padding: 22px 28px; }
+
+  .stat-grid-3 {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+  }
+  .stat {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--r-md); padding: 14px 16px;
+  }
+  .stat__label { font-size: 12px; color: var(--text-3); }
+  .stat__value {
+    font-size: 24px; font-weight: 800; letter-spacing: -0.02em; margin-top: 6px;
+    display: flex; align-items: baseline; gap: 6px;
+  }
+  .stat__value small { font-size: 12px; font-weight: 600; color: var(--text-3); }
+
+  /* Overview cards */
+  .overview-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--r-md); margin-top: 14px;
+  }
+  .ovc__head {
+    padding: 14px 18px; display: flex; align-items: center; gap: 12px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .ovc__head h3 { margin: 0; font-size: 14px; font-weight: 700; }
+  .ovc__head .muted { font-size: 12px; color: var(--text-3); }
+  .ovc__head .right { margin-left: auto; display: flex; gap: 6px; }
+
+  .ovc__body { padding: 16px 18px; }
+
+  /* Description */
+  .desc { font-size: 14px; line-height: 1.7; color: var(--text-2); }
+  .desc h4 { font-size: 13px; font-weight: 700; color: var(--text-1); margin: 16px 0 6px; }
+  .desc ul { padding-left: 20px; margin: 6px 0; }
+  .desc li { margin: 4px 0; }
+
+  /* Milestones */
+  .milestone {
+    display: grid; grid-template-columns: 14px 1fr auto auto; gap: 14px;
+    align-items: center; padding: 12px 0;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .milestone:last-child { border-bottom: none; }
+  .milestone__dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    border: 2px solid var(--success);
+    background: var(--success);
+  }
+  .milestone__dot.is-current { background: var(--surface); border-color: var(--brand-orange); box-shadow: 0 0 0 4px var(--brand-orange-50); }
+  .milestone__dot.is-future { background: var(--surface); border-color: var(--border-strong); }
+  .milestone__title { font-size: 13.5px; font-weight: 600; }
+  .milestone__sub { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
+  .milestone__date { font-size: 12px; color: var(--text-2); }
+
+  /* Side */
+  .meta-list { font-size: 13px; }
+  .meta-list dt {
+    font-size: 11.5px; color: var(--text-3); margin-top: 14px; margin-bottom: 4px;
+    font-weight: 500;
+  }
+  .meta-list dt:first-child { margin-top: 0; }
+  .meta-list dd { margin: 0; color: var(--text-1); font-weight: 500; }
+
+  .member-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+  .member-row:not(:last-child) { border-bottom: 1px solid var(--border-soft); }
+  .member-row__name { font-size: 13px; font-weight: 600; }
+  .member-row__role { font-size: 11px; color: var(--text-3); }
+  .member-row__tag { margin-left: auto; }
+
+  .activity-row { display: grid; grid-template-columns: 28px 1fr; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border-soft); }
+  .activity-row:last-child { border-bottom: none; }
+  .activity-row__body { font-size: 13px; line-height: 1.5; }
+  .activity-row__body b { font-weight: 600; }
+  .activity-row__time { font-size: 11px; color: var(--text-4); margin-top: 2px; }
+</style>
+</head>
+<body data-nav="project" data-screen-label="04 Project detail">
+<div class="app">
+  <div id="side"></div>
+
+  <main class="main">
+    <div id="top"></div>
+
+    <section class="ph">
+      <div class="ph__breadcrumb">
+        <span>프로젝트</span>
+        <span>›</span>
+        <b>생산기술팀</b>
+        <span>›</span>
+        <b>P-2410 강판 자동화 라인</b>
+      </div>
+
+      <div class="ph__row">
+        <div class="ph__cover">P-2410</div>
+        <div>
+          <div class="ph__title">강판 자동화 라인 도입 (Phase 2)</div>
+          <div class="ph__sub">
+            <span class="tag tag--blue tag--dot">실행 단계</span>
+            <span style="margin-left: 8px;">시작 2026.03.04 · 마감 2026.08.30 · 책임 박지영 책임 · 멤버 8명</span>
+          </div>
+        </div>
+        <div class="ph__actions">
+          <button class="btn btn--outline btn--sm">
+            <svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M11 3l6 6-4 1-3 7-1-5-5-1 7-3 1-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+            즐겨찾기
+          </button>
+          <button class="btn btn--outline btn--sm">상태 변경</button>
+          <button class="btn btn--primary btn--sm">+ 업무 추가</button>
+        </div>
+      </div>
+
+      <div class="ph__tabs">
+        <div class="ph__tab is-active">개요</div>
+        <div class="ph__tab"><a href="project-tasks.html" style="color: inherit;">업무 <span class="num">24</span></a></div>
+        <div class="ph__tab"><a href="project-gantt.html" style="color: inherit;">간트</a></div>
+        <div class="ph__tab"><a href="chat-room.html" style="color: inherit;">대화</a></div>
+        <div class="ph__tab">파일 <span class="num">42</span></div>
+        <div class="ph__tab">결정 기록 <span class="num">7</span></div>
+        <div class="ph__tab">설정</div>
+      </div>
+    </section>
+
+    <div class="content no-pad">
+    <div class="pdetail">
+
+      <div>
+        <!-- Stats -->
+        <div class="stat-grid-3">
+          <div class="stat">
+            <div class="stat__label">진행률</div>
+            <div class="stat__value">62%<small>/ 100</small></div>
+            <div class="progress" style="margin-top: 10px;"><span style="width:62%"></span></div>
+          </div>
+          <div class="stat">
+            <div class="stat__label">업무</div>
+            <div class="stat__value">15<small>/ 24 완료</small></div>
+            <div class="t-xs muted" style="margin-top: 10px;">진행 6 · 대기 3</div>
+          </div>
+          <div class="stat">
+            <div class="stat__label">지연 업무</div>
+            <div class="stat__value" style="color: var(--brand-orange);">2</div>
+            <div class="t-xs muted" style="margin-top: 10px;">시험성적서 v0.3 등</div>
+          </div>
+          <div class="stat">
+            <div class="stat__label">마감까지</div>
+            <div class="stat__value">D-109</div>
+            <div class="t-xs muted" style="margin-top: 10px;">2026.08.30 종료 예정</div>
+          </div>
+        </div>
+
+        <!-- Description -->
+        <section class="overview-card">
+          <div class="ovc__head">
+            <h3>프로젝트 개요</h3>
+            <span class="muted">최근 수정: 박지영 · 5월 11일</span>
+            <div class="right">
+              <button class="icon-btn"><svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M4 14V16h2L15 7l-2-2L4 14ZM12 5l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            </div>
+          </div>
+          <div class="ovc__body desc">
+            <p>제2공장 강판 가공 라인의 자동화 도입 2단계 프로젝트입니다. 기존 반자동 라인을 SPC 기반 자동 검사 라인으로 전환하여 인장강도 측정과 표면조도 측정 공정의 표준화를 목표로 합니다.</p>
+
+            <h4>주요 목표</h4>
+            <ul>
+              <li>SUS304 / SUS316 강종 자동 검사 라인 도입</li>
+              <li>시험성적서 발급 리드타임 평균 3.2일 → 1.0일 단축</li>
+              <li>품질 데이터 SPC 시스템 연동 (한미르 ERP 연계)</li>
+              <li>영업본부 영업 가능 상태 자동 갱신 연동</li>
+            </ul>
+
+            <h4>주요 산출물</h4>
+            <ul>
+              <li>시험성적서 표준 양식 v1.0 확정</li>
+              <li>자동 검사 라인 SOP 문서</li>
+              <li>운영 인력 교육자료 및 이수 기록</li>
+            </ul>
+          </div>
+        </section>
+
+        <!-- Milestones -->
+        <section class="overview-card">
+          <div class="ovc__head">
+            <h3>주요 일정</h3>
+            <span class="muted">6개 마일스톤 · 3개 완료</span>
+            <div class="right">
+              <a href="project-gantt.html" class="btn btn--ghost btn--sm">간트 보기 →</a>
+            </div>
+          </div>
+          <div class="ovc__body" style="padding: 4px 18px 12px;">
+            <div class="milestone">
+              <div class="milestone__dot"></div>
+              <div>
+                <div class="milestone__title">M1. 요구사항 정의 및 사양 확정</div>
+                <div class="milestone__sub">박지영 · 생산기술팀 / 결재 완료</div>
+              </div>
+              <span class="tag tag--green">완료</span>
+              <div class="milestone__date">2026.03.20</div>
+            </div>
+            <div class="milestone">
+              <div class="milestone__dot"></div>
+              <div>
+                <div class="milestone__title">M2. 라인 설계 및 BOM 확정</div>
+                <div class="milestone__sub">윤서연 · 생산기술팀</div>
+              </div>
+              <span class="tag tag--green">완료</span>
+              <div class="milestone__date">2026.04.18</div>
+            </div>
+            <div class="milestone">
+              <div class="milestone__dot"></div>
+              <div>
+                <div class="milestone__title">M3. 시험 운영 및 시험성적서 작성</div>
+                <div class="milestone__sub">박지영 · 김민준 / 시험성적서 v0.2 결재 완료</div>
+              </div>
+              <span class="tag tag--green">완료</span>
+              <div class="milestone__date">2026.05.06</div>
+            </div>
+            <div class="milestone">
+              <div class="milestone__dot is-current"></div>
+              <div>
+                <div class="milestone__title">M4. 시험성적서 v1.0 확정 및 결재</div>
+                <div class="milestone__sub">김민준 · 이수현 / 시험성적서 v0.3 검토 중 · <b style="color:var(--danger)">지연 1일</b></div>
+              </div>
+              <span class="tag tag--amber">진행중</span>
+              <div class="milestone__date">2026.05.14</div>
+            </div>
+            <div class="milestone">
+              <div class="milestone__dot is-future"></div>
+              <div>
+                <div class="milestone__title">M5. 라인 본가동 및 운영 인력 교육</div>
+                <div class="milestone__sub">제조1팀 · 외주(다온테크) 협업</div>
+              </div>
+              <span class="tag">대기</span>
+              <div class="milestone__date">2026.07.10</div>
+            </div>
+            <div class="milestone">
+              <div class="milestone__dot is-future"></div>
+              <div>
+                <div class="milestone__title">M6. 최종 검수 및 프로젝트 종료</div>
+                <div class="milestone__sub">박지영 책임</div>
+              </div>
+              <span class="tag">대기</span>
+              <div class="milestone__date">2026.08.30</div>
+            </div>
+          </div>
+        </section>
+
+      </div>
+
+      <!-- Side column -->
+      <aside class="col gap-16">
+
+        <section class="overview-card">
+          <div class="ovc__head"><h3>프로젝트 정보</h3></div>
+          <div class="ovc__body">
+            <dl class="meta-list">
+              <dt>프로젝트 코드</dt><dd>P-2410</dd>
+              <dt>유형</dt><dd>설비도입 / Phase 2</dd>
+              <dt>주관 부서</dt><dd>생산기술팀</dd>
+              <dt>예산</dt><dd>₩ 480,000,000</dd>
+              <dt>관련 제품</dt><dd>SUS304 강판, SUS316 강판</dd>
+              <dt>외부 협력사</dt><dd>다온테크 / 신원오토메이션</dd>
+            </dl>
+          </div>
+        </section>
+
+        <section class="overview-card">
+          <div class="ovc__head">
+            <h3>멤버 8명</h3>
+            <button class="btn btn--ghost btn--sm" style="margin-left:auto">+ 초대</button>
+          </div>
+          <div class="ovc__body" style="padding: 4px 18px 12px;">
+            <div class="member-row">
+              <div class="avatar avatar--orange">박지</div>
+              <div><div class="member-row__name">박지영</div><div class="member-row__role">책임 · 생산기술팀</div></div>
+              <span class="tag tag--orange member-row__tag">담당자</span>
+            </div>
+            <div class="member-row">
+              <div class="avatar">김민</div>
+              <div><div class="member-row__name">김민준</div><div class="member-row__role">책임 · 생산기술팀</div></div>
+              <span class="tag member-row__tag">관리자</span>
+            </div>
+            <div class="member-row">
+              <div class="avatar avatar--green">윤</div>
+              <div><div class="member-row__name">윤서연</div><div class="member-row__role">책임 · 생산기술팀</div></div>
+            </div>
+            <div class="member-row">
+              <div class="avatar avatar--purple">이수</div>
+              <div><div class="member-row__name">이수현</div><div class="member-row__role">수석 · 품질보증팀</div></div>
+            </div>
+            <div class="member-row">
+              <div class="avatar avatar--gray">+4</div>
+              <div><div class="member-row__name">외 4명</div><div class="member-row__role">영업본부 · 자재팀 · 외주</div></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="overview-card">
+          <div class="ovc__head"><h3>최근 활동</h3></div>
+          <div class="ovc__body" style="padding: 4px 18px 12px;">
+            <div class="activity-row">
+              <div class="avatar sm avatar--orange">박지</div>
+              <div>
+                <div class="activity-row__body"><b>박지영</b>이 시험성적서 v0.3 을 업로드했습니다.</div>
+                <div class="activity-row__time">12분 전</div>
+              </div>
+            </div>
+            <div class="activity-row">
+              <div class="avatar sm avatar--purple">이수</div>
+              <div>
+                <div class="activity-row__body"><b>이수현</b>이 M4 일정에 코멘트를 남겼습니다.</div>
+                <div class="activity-row__time">1시간 전</div>
+              </div>
+            </div>
+            <div class="activity-row">
+              <div class="avatar sm avatar--green">윤</div>
+              <div>
+                <div class="activity-row__body"><b>윤서연</b>이 업무 <b>"7월 생산일정 초안"</b>의 마감일을 5월 15일로 변경했습니다.</div>
+                <div class="activity-row__time">3시간 전</div>
+              </div>
+            </div>
+            <div class="activity-row">
+              <div class="avatar sm">김민</div>
+              <div>
+                <div class="activity-row__body"><b>김민준</b>이 M3 마일스톤을 완료 처리했습니다.</div>
+                <div class="activity-row__time">어제</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </aside>
+    </div>
+    </div>
+  </main>
+</div>
+
+<script src="assets/chrome.js"></script>
+<script>HanmirChrome.mount({ title: '프로젝트', sub: 'P-2410 강판 자동화 라인' });</script>
+</body>
+</html>

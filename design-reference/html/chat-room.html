@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>한미르톡 — P-2410 강판 자동화 라인</title>
+<link rel="stylesheet" href="assets/shared.css">
+<style>
+  .app { grid-template-columns: var(--sidebar-w) 1fr 280px; }
+
+  /* Room header replaces topbar */
+  .room-top {
+    height: var(--header-h);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center;
+    padding: 0 20px; gap: 14px; flex-shrink: 0;
+  }
+  .room-top__avatar { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; background: var(--brand-blue-50); color: var(--brand-blue); font-size: 12px; font-weight: 700; }
+  .room-top h1 { font-size: 15px; font-weight: 700; margin: 0; }
+  .room-top .meta { font-size: 11.5px; color: var(--text-3); margin-top: 1px; }
+  .room-top__actions { margin-left: auto; display: flex; gap: 4px; align-items: center; }
+  .room-top__tabs { display: flex; gap: 4px; padding-left: 14px; border-left: 1px solid var(--border); height: 28px; }
+  .tab {
+    font-size: 12.5px; font-weight: 600; color: var(--text-3);
+    padding: 5px 10px; border-radius: var(--r-sm); cursor: pointer;
+  }
+  .tab:hover { background: var(--bg-soft); color: var(--text-1); }
+  .tab.is-active { background: var(--brand-blue-50); color: var(--brand-blue); }
+
+  /* Pinned banner */
+  .pinned {
+    background: var(--brand-orange-50);
+    border-bottom: 1px solid #F8E0D2;
+    padding: 8px 20px;
+    font-size: 12.5px;
+    color: #8B3A12;
+    display: flex; gap: 10px; align-items: center;
+  }
+  .pinned svg { color: var(--brand-orange); flex-shrink: 0; }
+  .pinned b { font-weight: 700; }
+
+  .main-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+
+  /* Messages */
+  .msgs { flex: 1; overflow-y: auto; padding: 20px 28px; }
+  .day-sep {
+    display: flex; align-items: center; gap: 12px;
+    color: var(--text-4); font-size: 11px; font-weight: 600;
+    margin: 24px 0 12px;
+  }
+  .day-sep::before, .day-sep::after {
+    content: ''; flex: 1; height: 1px; background: var(--border-soft);
+  }
+
+  .msg {
+    display: grid;
+    grid-template-columns: 40px 1fr;
+    gap: 12px;
+    padding: 6px 0;
+  }
+  .msg.is-grouped { padding-top: 1px; }
+  .msg.is-grouped .msg__avatar { visibility: hidden; }
+  .msg.is-grouped .msg__head { display: none; }
+  .msg__avatar .avatar { width: 40px; height: 40px; border-radius: 10px; font-size: 13px; }
+  .msg__head { display: flex; align-items: baseline; gap: 8px; }
+  .msg__head .name { font-weight: 700; font-size: 13.5px; color: var(--text-1); }
+  .msg__head .role { font-size: 11px; color: var(--text-3); }
+  .msg__head .time { font-size: 11px; color: var(--text-4); margin-left: 4px; }
+  .msg__body { font-size: 14px; color: var(--text-1); line-height: 1.6; margin-top: 2px; white-space: pre-wrap; }
+  .msg__body .mention { color: var(--brand-blue); background: var(--brand-blue-50); font-weight: 600; padding: 0 4px; border-radius: 3px; }
+
+  .msg__file {
+    margin-top: 8px;
+    display: inline-flex;
+    gap: 12px;
+    padding: 12px 14px;
+    background: var(--surface-muted);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    max-width: 420px;
+  }
+  .msg__file-ic {
+    width: 36px; height: 44px;
+    background: linear-gradient(180deg, #DC2626, #B91C1C);
+    border-radius: 4px;
+    color: white; font-size: 10px; font-weight: 700;
+    display: grid; place-items: center;
+    flex-shrink: 0;
+  }
+  .msg__file-ic.is-xls { background: linear-gradient(180deg, #16A34A, #15803D); }
+  .msg__file-ic.is-img { background: linear-gradient(180deg, #6D45B8, #4F2BAA); }
+  .msg__file-name { font-size: 13px; font-weight: 600; }
+  .msg__file-meta { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
+  .msg__file-actions { margin-left: auto; display: flex; gap: 4px; align-self: center; }
+
+  .reactions { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .react {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; font-size: 12px;
+    background: var(--brand-blue-50); color: var(--brand-blue);
+    border-radius: var(--r-pill); font-weight: 600;
+    border: 1px solid transparent;
+  }
+  .react.is-plain { background: var(--surface); color: var(--text-2); border-color: var(--border); font-weight: 500; }
+
+  .msg__thread {
+    margin-top: 8px;
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 5px 10px; font-size: 12px;
+    color: var(--brand-blue); font-weight: 600;
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    cursor: pointer;
+  }
+  .msg__thread .avatars { display: flex; }
+  .msg__thread .avatars .avatar { width: 16px; height: 16px; font-size: 8px; margin-left: -4px; border: 1.5px solid var(--surface); }
+  .msg__thread .avatars .avatar:first-child { margin-left: 0; }
+
+  /* System message */
+  .sys {
+    text-align: center; margin: 12px 0;
+    font-size: 11.5px; color: var(--text-3);
+  }
+  .sys span {
+    background: var(--bg-soft); padding: 4px 10px; border-radius: var(--r-pill);
+  }
+
+  /* Composer */
+  .composer {
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    padding: 12px 20px 16px;
+    flex-shrink: 0;
+  }
+  .composer__box {
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    display: flex; flex-direction: column;
+  }
+  .composer__box:focus-within { border-color: var(--brand-blue); box-shadow: 0 0 0 3px rgba(31,79,168,.10); }
+  .composer__toolbar {
+    display: flex; align-items: center; gap: 2px;
+    padding: 6px 8px; border-bottom: 1px solid var(--border-soft);
+  }
+  .tb-btn {
+    width: 28px; height: 28px;
+    display: grid; place-items: center;
+    background: transparent; border: none; border-radius: var(--r-xs);
+    color: var(--text-3);
+  }
+  .tb-btn:hover { background: var(--bg-soft); color: var(--text-1); }
+  .composer__divider { width: 1px; height: 16px; background: var(--border); margin: 0 6px; }
+
+  .composer__input {
+    border: none; outline: none; resize: none;
+    padding: 12px 14px; font-size: 14px; min-height: 48px;
+    background: transparent; color: var(--text-1);
+  }
+  .composer__foot {
+    display: flex; align-items: center; padding: 6px 10px 8px;
+  }
+  .composer__hint { font-size: 11px; color: var(--text-4); }
+  .composer__send {
+    margin-left: auto;
+    display: inline-flex; gap: 8px;
+  }
+
+  /* Right pane: room info */
+  .roompane {
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    display: flex; flex-direction: column; min-height: 0;
+    overflow-y: auto;
+  }
+  .roompane__head {
+    padding: 16px 18px; border-bottom: 1px solid var(--border-soft);
+    display: flex; align-items: center;
+  }
+  .roompane__head h3 { margin: 0; font-size: 14px; font-weight: 700; }
+  .roompane__section { padding: 14px 18px; border-bottom: 1px solid var(--border-soft); }
+  .roompane__section h4 {
+    font-size: 11px; font-weight: 600; color: var(--text-4);
+    margin: 0 0 10px; letter-spacing: 0.04em;
+  }
+  .roompane__row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 0; font-size: 13px;
+  }
+  .roompane__row .k { color: var(--text-3); }
+  .roompane__row .v { color: var(--text-1); font-weight: 500; }
+
+  .member { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+  .member__name { font-size: 13px; font-weight: 500; }
+  .member__role { font-size: 11px; color: var(--text-3); }
+  .member__owner { margin-left: auto; font-size: 10px; color: var(--brand-orange); font-weight: 700; }
+
+  .file-row {
+    display: flex; align-items: center; gap: 10px; padding: 8px 0;
+    border-bottom: 1px solid var(--border-soft); font-size: 12.5px;
+  }
+  .file-row:last-child { border-bottom: none; }
+  .file-row__ic { width: 22px; height: 28px; background: #DC2626; border-radius: 3px; color: white; font-size: 8px; font-weight: 700; display: grid; place-items: center; flex-shrink: 0;}
+  .file-row__ic.is-xls { background: #16A34A; }
+  .file-row__ic.is-img { background: #6D45B8; }
+  .file-row__name { font-weight: 500; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .file-row__meta { font-size: 10.5px; color: var(--text-3); margin-top: 1px; }
+</style>
+</head>
+<body data-nav="chat" data-screen-label="03 Chat room">
+<div class="app">
+  <div id="side"></div>
+
+  <main class="main main-col">
+    <header class="room-top">
+      <div class="room-top__avatar">P1</div>
+      <div>
+        <h1># P-2410 강판 자동화 라인 <span style="font-weight: 500; color: var(--text-3); font-size: 12px;">· 8명</span></h1>
+        <div class="meta">생산기술팀 · 박지영 책임 · 마감 2026.08.30</div>
+      </div>
+      <div class="room-top__tabs">
+        <button class="tab is-active">대화</button>
+        <button class="tab">업무 12</button>
+        <button class="tab">간트</button>
+        <button class="tab">파일 24</button>
+        <button class="tab">결정 기록 3</button>
+      </div>
+      <div class="room-top__actions">
+        <button class="icon-btn" title="멤버">
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+            <circle cx="7" cy="8" r="3" stroke="currentColor" stroke-width="1.5"/>
+            <circle cx="13.5" cy="8.5" r="2.5" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M2 16c.5-2 2.5-3.2 5-3.2s4.5 1.2 5 3.2M12 16c.5-1.6 2-2.5 4-2.5s3.5.9 4 2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <button class="icon-btn" title="고정">
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+            <path d="M11 3l6 6-4 1-3 7-1-5-5-1 7-3 1-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <button class="icon-btn"><svg width="18" height="18" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="5" r="1.5" fill="currentColor"/><circle cx="10" cy="10" r="1.5" fill="currentColor"/><circle cx="10" cy="15" r="1.5" fill="currentColor"/></svg></button>
+      </div>
+    </header>
+
+    <div class="pinned">
+      <svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M11 3l6 6-4 1-3 7-1-5-5-1 7-3 1-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      <div><b>고정 메시지</b> · 박지영 책임: 시험성적서 v0.3 검토 의견은 5/14(목) 18시까지 회신 부탁드립니다.</div>
+      <button class="btn btn--ghost btn--sm" style="margin-left:auto">자세히</button>
+    </div>
+
+    <div class="msgs">
+      <div class="day-sep">2026년 5월 13일 수요일</div>
+
+      <div class="sys"><span>김민준 책임님이 윤서연 책임님을 초대했습니다.</span></div>
+
+      <div class="msg">
+        <div class="msg__avatar"><div class="avatar avatar--orange">박지</div></div>
+        <div>
+          <div class="msg__head"><span class="name">박지영</span><span class="role">책임 · 생산기술팀</span><span class="time">오전 10:24</span></div>
+          <div class="msg__body">안녕하세요 여러분.
+어제 합의된 라인 변경 사양 반영해서 시험성적서 v0.3 공유드립니다. 
+검토 의견 부탁드려요.</div>
+          <div class="msg__file">
+            <div class="msg__file-ic">PDF</div>
+            <div>
+              <div class="msg__file-name">시험성적서_SUS304_v0.3.pdf</div>
+              <div class="msg__file-meta">2.4 MB · 12페이지 · 오전 10:24</div>
+            </div>
+            <div class="msg__file-actions">
+              <button class="icon-btn"><svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M10 3v10M5 9l5 5 5-5M4 17h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            </div>
+          </div>
+          <div class="reactions">
+            <span class="react">👍 5</span>
+            <span class="react">✅ 3</span>
+            <span class="react is-plain">+</span>
+          </div>
+          <div class="msg__thread">
+            <div class="avatars">
+              <div class="avatar avatar--green">윤</div>
+              <div class="avatar">김</div>
+              <div class="avatar avatar--purple">이</div>
+            </div>
+            <span>답글 4개</span>
+            <span class="muted" style="font-weight:500;">· 마지막 답글 12분 전</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="msg">
+        <div class="msg__avatar"><div class="avatar avatar--green">윤</div></div>
+        <div>
+          <div class="msg__head"><span class="name">윤서연</span><span class="role">책임 · 생산기술팀</span><span class="time">오전 10:48</span></div>
+          <div class="msg__body">박책임님 감사합니다. p.7 인장강도 시험 결과값 단위가 N/mm² 인지 MPa 인지 통일이 필요해 보입니다.
+저희 표준은 MPa 사용 중이라 통일해 두는 게 좋을 것 같아요.</div>
+        </div>
+      </div>
+
+      <div class="msg is-grouped">
+        <div class="msg__avatar"><div class="avatar avatar--green">윤</div></div>
+        <div>
+          <div class="msg__body">그리고 시험일자 표기도 YYYY.MM.DD 로 통일 부탁드립니다.</div>
+        </div>
+      </div>
+
+      <div class="msg">
+        <div class="msg__avatar"><div class="avatar">김민</div></div>
+        <div>
+          <div class="msg__head"><span class="name">김민준</span><span class="role">책임 · 생산기술팀 · 나</span><span class="time">오후 1:02</span></div>
+          <div class="msg__body"><span class="mention">@박지영</span> 책임님, 저는 4페이지 표면조도 항목에서 측정기 기종 명기가 빠져있는 것 같아 추가 부탁드립니다.
+그리고 영업본부에서 SUS304 영업 가능 상태가 <b>"제한적 영업 가능"</b>으로 변경되었다고 하니, 시험성적서에도 비고로 표기되어야 할 것 같습니다.</div>
+        </div>
+      </div>
+
+      <div class="msg">
+        <div class="msg__avatar"><div class="avatar avatar--orange">박지</div></div>
+        <div>
+          <div class="msg__head"><span class="name">박지영</span><span class="role">책임 · 생산기술팀</span><span class="time">오후 1:18</span></div>
+          <div class="msg__body">두 분 의견 반영해서 v0.4 작성하겠습니다.
+판정 일자: 5/14(목) 오전 회의에서 최종 확정 → 영업본부 공유 순으로 진행하면 어떨까요?</div>
+          <div class="msg__file">
+            <div class="msg__file-ic is-xls">XLSX</div>
+            <div>
+              <div class="msg__file-name">시험성적서_의견정리_v0.3.xlsx</div>
+              <div class="msg__file-meta">128 KB · 오후 1:18</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="msg">
+        <div class="msg__avatar"><div class="avatar avatar--purple">이수</div></div>
+        <div>
+          <div class="msg__head"><span class="name">이수현</span><span class="role">수석 · 품질보증팀</span><span class="time">오후 2:14</span></div>
+          <div class="msg__body">좋습니다. 품질팀에서는 의견 없으며 v0.4 받는 즉시 결재 상신 진행하겠습니다.
+참고로 동일 강종 다른 호기 시험성적서는 첨부 이미지처럼 결재된 사례 공유드립니다.</div>
+          <div class="msg__file">
+            <div class="msg__file-ic is-img">IMG</div>
+            <div>
+              <div class="msg__file-name">결재본_예시_2025-12.png</div>
+              <div class="msg__file-meta">316 KB · 오후 2:14</div>
+            </div>
+          </div>
+          <div class="reactions">
+            <span class="react">👍 2</span>
+            <span class="react is-plain">+</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="composer">
+      <div class="composer__box">
+        <div class="composer__toolbar">
+          <button class="tb-btn" title="굵게"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M6 4h5a3 3 0 0 1 0 6H6V4ZM6 10h6a3 3 0 0 1 0 6H6v-6Z" stroke="currentColor" stroke-width="1.5"/></svg></button>
+          <button class="tb-btn" title="기울임"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M9 4h7M4 16h7M12 4l-4 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
+          <button class="tb-btn" title="목록"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M7 6h10M7 10h10M7 14h10M4 6h.01M4 10h.01M4 14h.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
+          <span class="composer__divider"></span>
+          <button class="tb-btn" title="파일 첨부"><svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M14 7l-5.5 5.5a2.12 2.12 0 1 0 3 3L17 10a4.24 4.24 0 1 0-6-6L5 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <button class="tb-btn" title="멘션"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M13 10v1.5a2 2 0 0 0 4 0V10a7 7 0 1 0-2.5 5.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
+          <button class="tb-btn" title="이모지"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="1.5"/><path d="M7 12c.7 1 1.7 1.5 3 1.5s2.3-.5 3-1.5M8 8h.01M12 8h.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
+          <span class="composer__divider"></span>
+          <button class="tb-btn" title="업무 만들기"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><rect x="3.5" y="3.5" width="13" height="13" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M7 10l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
+        </div>
+        <textarea class="composer__input" rows="2" placeholder="P-2410 강판 자동화 라인 에 메시지 보내기..."></textarea>
+        <div class="composer__foot">
+          <div class="composer__hint"><span class="kbd">Enter</span> 전송 · <span class="kbd">Shift + Enter</span> 줄바꿈</div>
+          <div class="composer__send">
+            <button class="btn btn--outline btn--sm">예약 전송</button>
+            <button class="btn btn--primary btn--sm">전송 →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <aside class="roompane">
+    <div class="roompane__head">
+      <h3>채팅방 정보</h3>
+      <button class="icon-btn" style="margin-left:auto" aria-label="닫기">
+        <svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+
+    <div class="roompane__section">
+      <h4>프로젝트</h4>
+      <div class="roompane__row"><span class="k">코드</span><span class="v">P-2410</span></div>
+      <div class="roompane__row"><span class="k">단계</span><span class="v"><span class="tag tag--blue tag--dot">실행</span></span></div>
+      <div class="roompane__row"><span class="k">진행률</span><span class="v">62%</span></div>
+      <div class="progress" style="margin-top:6px;"><span style="width:62%"></span></div>
+      <div class="roompane__row" style="margin-top:8px"><span class="k">마감일</span><span class="v">2026.08.30</span></div>
+      <div class="roompane__row"><span class="k">담당</span><span class="v">박지영 책임</span></div>
+      <button class="btn btn--outline btn--sm" style="width:100%; margin-top:10px;">프로젝트 페이지 열기 →</button>
+    </div>
+
+    <div class="roompane__section">
+      <h4>멤버 8명</h4>
+      <div class="member">
+        <div class="avatar avatar--orange">박지</div>
+        <div><div class="member__name">박지영</div><div class="member__role">책임 · 생산기술팀</div></div>
+        <span class="member__owner">OWNER</span>
+      </div>
+      <div class="member">
+        <div class="avatar">김민</div>
+        <div><div class="member__name">김민준 (나)</div><div class="member__role">책임 · 생산기술팀</div></div>
+      </div>
+      <div class="member">
+        <div class="avatar avatar--green">윤</div>
+        <div><div class="member__name">윤서연</div><div class="member__role">책임 · 생산기술팀</div></div>
+      </div>
+      <div class="member">
+        <div class="avatar avatar--purple">이수</div>
+        <div><div class="member__name">이수현</div><div class="member__role">수석 · 품질보증팀</div></div>
+      </div>
+      <div class="member">
+        <div class="avatar avatar--gray">+4</div>
+        <div><div class="member__name">외 4명</div><div class="member__role">영업본부 · 자재팀 · 외주</div></div>
+      </div>
+    </div>
+
+    <div class="roompane__section">
+      <h4>공유 파일 최근 24건</h4>
+      <div class="file-row">
+        <div class="file-row__ic">PDF</div>
+        <div class="flex-1" style="min-width:0">
+          <div class="file-row__name">시험성적서_SUS304_v0.3.pdf</div>
+          <div class="file-row__meta">박지영 · 오전 10:24</div>
+        </div>
+      </div>
+      <div class="file-row">
+        <div class="file-row__ic is-xls">XLS</div>
+        <div class="flex-1" style="min-width:0">
+          <div class="file-row__name">시험성적서_의견정리_v0.3.xlsx</div>
+          <div class="file-row__meta">박지영 · 오후 1:18</div>
+        </div>
+      </div>
+      <div class="file-row">
+        <div class="file-row__ic is-img">IMG</div>
+        <div class="flex-1" style="min-width:0">
+          <div class="file-row__name">결재본_예시_2025-12.png</div>
+          <div class="file-row__meta">이수현 · 오후 2:14</div>
+        </div>
+      </div>
+      <div class="file-row">
+        <div class="file-row__ic">PDF</div>
+        <div class="flex-1" style="min-width:0">
+          <div class="file-row__name">라인설계_변경요청서.pdf</div>
+          <div class="file-row__meta">박지영 · 5월 12일</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script src="assets/chrome.js"></script>
+<script>HanmirChrome.mount();</script>
+</body>
+</html>

@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>한미르톡 — SUS304 강판</title>
+<link rel="stylesheet" href="assets/shared.css">
+<style>
+  .pd-head {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 22px 28px 18px;
+  }
+  .pd-head__crumb { font-size: 12px; color: var(--text-3); display: flex; gap: 6px; }
+  .pd-head__crumb b { color: var(--text-2); font-weight: 500; }
+  .pd-head__row {
+    display: grid; grid-template-columns: auto 1fr auto;
+    gap: 20px; align-items: center; margin-top: 12px;
+  }
+  .pd-head__img {
+    width: 84px; height: 84px;
+    border-radius: var(--r-md);
+    background:
+      repeating-linear-gradient(135deg, #E5E7EB 0 8px, #EEF0F3 8px 16px);
+    border: 1px solid var(--border);
+    display: grid; place-items: center;
+    font-family: 'SF Mono', monospace;
+    font-size: 10px; color: var(--text-3);
+  }
+  .pd-head__title { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+  .pd-head__title small { font-size: 13px; font-weight: 500; color: var(--text-3); margin-left: 8px; }
+  .pd-head__sub { font-size: 13px; color: var(--text-3); margin-top: 4px; display: flex; gap: 12px; align-items: center; }
+  .pd-head__actions { display: flex; gap: 8px; }
+
+  /* Sales status banner */
+  .sales-banner {
+    margin: 16px 28px 0;
+    display: grid; grid-template-columns: auto 1fr auto auto;
+    align-items: center; gap: 16px;
+    padding: 16px 20px;
+    background: linear-gradient(90deg, var(--warning-bg), var(--surface) 60%);
+    border: 1px solid #F2D9A8;
+    border-left: 4px solid var(--warning);
+    border-radius: var(--r-md);
+  }
+  .sales-banner__ic {
+    width: 40px; height: 40px;
+    background: var(--warning); color: white;
+    border-radius: 50%;
+    display: grid; place-items: center;
+    font-size: 22px;
+    font-weight: 800;
+  }
+  .sales-banner__title {
+    font-size: 16px; font-weight: 700; color: var(--text-1);
+  }
+  .sales-banner__sub {
+    font-size: 12.5px; color: var(--text-2); margin-top: 4px;
+  }
+  .sales-banner__detail {
+    text-align: right;
+    font-size: 11.5px; color: var(--text-3);
+  }
+  .sales-banner__detail b { color: var(--text-1); font-weight: 600; display: block; font-size: 13px; }
+
+  .pd-tabs {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 28px;
+    margin-top: 16px;
+    display: flex; gap: 18px;
+  }
+  .pd-tab {
+    font-size: 13.5px; font-weight: 600; color: var(--text-3);
+    padding: 12px 0; border-bottom: 2px solid transparent;
+  }
+  .pd-tab.is-active { color: var(--brand-blue); border-bottom-color: var(--brand-blue); }
+
+  /* Body */
+  .pd-body { display: grid; grid-template-columns: 1fr 320px; gap: 18px; padding: 22px 28px; }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); }
+  .card__head { padding: 14px 18px; border-bottom: 1px solid var(--border-soft); display: flex; align-items: center; gap: 12px; }
+  .card__head h3 { margin: 0; font-size: 14px; font-weight: 700; }
+  .card__head .right { margin-left: auto; }
+
+  /* Status timeline */
+  .stat-timeline { padding: 14px 20px; }
+  .stat-step {
+    display: grid; grid-template-columns: 24px 1fr auto; gap: 12px; align-items: flex-start;
+    padding: 10px 0;
+    position: relative;
+  }
+  .stat-step:not(:last-child)::before {
+    content: ''; position: absolute;
+    left: 11px; top: 24px; bottom: -10px;
+    width: 2px; background: var(--border);
+  }
+  .stat-step__dot {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    border: 2px solid var(--surface);
+    box-shadow: 0 0 0 2px var(--border-strong);
+    background: var(--surface);
+    position: relative; z-index: 1;
+  }
+  .stat-step__dot.is-done { background: var(--success); box-shadow: 0 0 0 2px var(--success); }
+  .stat-step__dot.is-current { background: var(--warning); box-shadow: 0 0 0 2px var(--warning); }
+  .stat-step__title { font-weight: 600; font-size: 13.5px; }
+  .stat-step__meta { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
+  .stat-step__time { font-size: 11.5px; color: var(--text-4); }
+
+  /* Spec table */
+  .spec-table { width: 100%; border-collapse: collapse; }
+  .spec-table th, .spec-table td {
+    padding: 11px 14px;
+    text-align: left;
+    border-bottom: 1px solid var(--border-soft);
+    font-size: 13px;
+  }
+  .spec-table th {
+    width: 30%;
+    color: var(--text-3); font-weight: 500;
+    background: var(--surface-muted);
+  }
+  .spec-table td { color: var(--text-1); font-weight: 500; }
+  .spec-table tr:last-child th, .spec-table tr:last-child td { border-bottom: none; }
+
+  /* Lots table */
+  .lot-table { width: 100%; border-collapse: collapse; }
+  .lot-table th {
+    text-align: left; font-size: 11px; font-weight: 600; color: var(--text-4);
+    padding: 10px 14px; background: var(--surface-muted);
+    border-bottom: 1px solid var(--border-soft);
+    letter-spacing: 0.04em;
+  }
+  .lot-table td {
+    padding: 12px 14px; font-size: 13px; color: var(--text-1);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .lot-table tbody tr:hover { background: var(--bg-soft); }
+  .lot-table .lot-num { font-family: 'SF Mono', monospace; font-size: 12px; color: var(--text-2); }
+
+  /* Side */
+  .side-card-list { display: flex; flex-direction: column; gap: 14px; }
+  .side-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: 16px; }
+  .side-card h4 { margin: 0 0 10px; font-size: 12px; font-weight: 700; color: var(--text-3); letter-spacing: 0.02em; }
+
+  .stat-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; }
+  .stat-row .k { color: var(--text-3); }
+  .stat-row .v { font-weight: 600; color: var(--text-1); }
+
+  .file-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border-soft); }
+  .file-row:last-child { border-bottom: none; }
+  .file-row__ic { width: 24px; height: 30px; background: #DC2626; border-radius: 3px; color: white; font-size: 9px; font-weight: 700; display: grid; place-items: center; flex-shrink: 0; }
+  .file-row__name { font-size: 12.5px; font-weight: 500; }
+  .file-row__meta { font-size: 11px; color: var(--text-3); }
+</style>
+</head>
+<body data-nav="product" data-screen-label="07 Product detail">
+<div class="app">
+  <div id="side"></div>
+
+  <main class="main">
+    <div id="top"></div>
+
+    <section class="pd-head">
+      <div class="pd-head__crumb">
+        <span>제품정보</span><span>›</span><b>강판</b><span>›</span><b>STS / SUS 계열</b>
+      </div>
+      <div class="pd-head__row">
+        <div class="pd-head__img">PRODUCT IMG</div>
+        <div>
+          <div class="pd-head__title">SUS304 강판 (Cold Rolled) <small>HM-SUS304-CR</small></div>
+          <div class="pd-head__sub">
+            <span class="tag tag--blue">강판</span>
+            <span>스테인리스 / 냉간압연 / 2B 마감</span>
+            <span>·</span>
+            <span>주관 부서: 영업본부 1팀</span>
+            <span>·</span>
+            <span>제품 담당: 최도현 책임</span>
+          </div>
+        </div>
+        <div class="pd-head__actions">
+          <button class="btn btn--outline btn--sm">
+            <svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M11 3l6 6-4 1-3 7-1-5-5-1 7-3 1-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+            즐겨찾기
+          </button>
+          <button class="btn btn--outline btn--sm">제품 채팅방 열기</button>
+          <button class="btn btn--primary btn--sm">영업 상태 변경</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Sales status banner -->
+    <div class="sales-banner">
+      <div class="sales-banner__ic">!</div>
+      <div>
+        <div class="sales-banner__title">제한적 영업 가능 <span class="tag tag--amber" style="margin-left: 8px;">CONDITIONAL</span></div>
+        <div class="sales-banner__sub">
+          시험성적서 v1.0 미확정 상태이므로, 신규 고객 견적은 <b style="color: var(--text-1);">품질보증팀 결재 후</b> 진행 가능합니다.
+          납기는 기존 대비 +5영업일 적용됩니다.
+        </div>
+      </div>
+      <div class="sales-banner__detail">
+        <b>2026.05.13 14:02</b>
+        최도현 책임이 상태 변경
+      </div>
+      <button class="btn btn--ghost btn--sm">변경 이력 →</button>
+    </div>
+
+    <!-- Tabs -->
+    <nav class="pd-tabs">
+      <div class="pd-tab is-active">제품 개요</div>
+      <div class="pd-tab">시험성적서</div>
+      <div class="pd-tab">생산 LOT</div>
+      <div class="pd-tab">영업 상태 이력</div>
+      <div class="pd-tab">관련 프로젝트</div>
+      <div class="pd-tab">문의 채팅</div>
+    </nav>
+
+    <div class="content no-pad">
+    <div class="pd-body">
+
+      <!-- Main column -->
+      <div>
+        <!-- Status timeline card -->
+        <section class="card">
+          <div class="card__head">
+            <h3>영업 가능 상태 흐름</h3>
+            <div class="right"><a class="btn btn--ghost btn--sm">전체 이력 보기 →</a></div>
+          </div>
+          <div class="stat-timeline">
+            <div class="stat-step">
+              <div class="stat-step__dot is-done"></div>
+              <div>
+                <div class="stat-step__title">영업 가능 (정상)</div>
+                <div class="stat-step__meta">시험성적서 v0.2 결재 완료 · 일반 영업 진행 가능</div>
+              </div>
+              <div class="stat-step__time">2026.04.18</div>
+            </div>
+            <div class="stat-step">
+              <div class="stat-step__dot is-current"></div>
+              <div>
+                <div class="stat-step__title">제한적 영업 가능 <span class="tag tag--amber" style="margin-left: 6px;">현재 상태</span></div>
+                <div class="stat-step__meta">시험성적서 v0.3 의견 반영 중 / 품질보증팀 결재 후 신규 견적 가능 / +5영업일 납기 적용</div>
+              </div>
+              <div class="stat-step__time">2026.05.13</div>
+            </div>
+            <div class="stat-step">
+              <div class="stat-step__dot"></div>
+              <div>
+                <div class="stat-step__title">영업 가능 (정상) 복귀 예정</div>
+                <div class="stat-step__meta">시험성적서 v1.0 확정 후 자동 전환 — 예정일 2026.05.20</div>
+              </div>
+              <div class="stat-step__time">예정</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Spec card -->
+        <section class="card" style="margin-top: 14px;">
+          <div class="card__head">
+            <h3>제품 사양</h3>
+            <span class="muted t-xs">최근 갱신: 박지영 · 5월 11일</span>
+            <div class="right"><button class="btn btn--ghost btn--sm">수정</button></div>
+          </div>
+          <table class="spec-table">
+            <tbody>
+              <tr><th>제품코드</th><td>HM-SUS304-CR</td></tr>
+              <tr><th>강종</th><td>STS304 (UNS S30400) · KS D 3698</td></tr>
+              <tr><th>두께 / 폭</th><td>0.5 ~ 3.0 mm · 1,219 mm</td></tr>
+              <tr><th>표면 마감</th><td>2B · BA · No.4 (옵션)</td></tr>
+              <tr><th>인장강도</th><td>520 MPa 이상</td></tr>
+              <tr><th>경도</th><td>HV 200 이하</td></tr>
+              <tr><th>인증</th><td>KS · ISO 9001 · RoHS</td></tr>
+              <tr><th>기본 납기</th><td>발주 후 7영업일 (현재 +5영업일 적용 중)</td></tr>
+              <tr><th>최소 주문 수량</th><td>500 kg</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <!-- Recent lots -->
+        <section class="card" style="margin-top: 14px;">
+          <div class="card__head">
+            <h3>최근 생산 LOT</h3>
+            <span class="muted t-xs">최근 6건</span>
+            <div class="right"><button class="btn btn--ghost btn--sm">전체 LOT →</button></div>
+          </div>
+          <table class="lot-table">
+            <thead><tr>
+              <th>LOT 번호</th><th>생산일</th><th>수량</th><th>시험성적서</th><th>판정</th><th>비고</th>
+            </tr></thead>
+            <tbody>
+              <tr>
+                <td class="lot-num">L-26-0512-A</td>
+                <td>2026.05.12</td>
+                <td>1,820 kg</td>
+                <td><span class="tag tag--amber tag--dot">v0.3 검토중</span></td>
+                <td><span class="tag tag--amber">보류</span></td>
+                <td class="muted">v1.0 확정 후 출하 예정</td>
+              </tr>
+              <tr>
+                <td class="lot-num">L-26-0509-A</td>
+                <td>2026.05.09</td>
+                <td>2,140 kg</td>
+                <td><span class="tag tag--green tag--dot">v0.2 결재</span></td>
+                <td><span class="tag tag--green">합격</span></td>
+                <td class="muted">출하 완료 (대성정밀)</td>
+              </tr>
+              <tr>
+                <td class="lot-num">L-26-0505-A</td>
+                <td>2026.05.05</td>
+                <td>980 kg</td>
+                <td><span class="tag tag--green tag--dot">v0.2 결재</span></td>
+                <td><span class="tag tag--green">합격</span></td>
+                <td class="muted">출하 완료 (한진금속)</td>
+              </tr>
+              <tr>
+                <td class="lot-num">L-26-0428-B</td>
+                <td>2026.04.28</td>
+                <td>1,560 kg</td>
+                <td><span class="tag tag--green tag--dot">v0.1 결재</span></td>
+                <td><span class="tag tag--green">합격</span></td>
+                <td class="muted">출하 완료</td>
+              </tr>
+              <tr>
+                <td class="lot-num">L-26-0425-A</td>
+                <td>2026.04.25</td>
+                <td>820 kg</td>
+                <td><span class="tag tag--red tag--dot">결과 미확정</span></td>
+                <td><span class="tag tag--red">재시험</span></td>
+                <td class="muted">표면조도 항목 재측정 필요</td>
+              </tr>
+              <tr>
+                <td class="lot-num">L-26-0418-C</td>
+                <td>2026.04.18</td>
+                <td>2,200 kg</td>
+                <td><span class="tag tag--green tag--dot">v0.1 결재</span></td>
+                <td><span class="tag tag--green">합격</span></td>
+                <td class="muted">출하 완료</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </div>
+
+      <!-- Side column -->
+      <aside class="side-card-list">
+
+        <section class="side-card">
+          <h4>이번 분기 판매 현황</h4>
+          <div class="stat-row"><span class="k">총 판매량</span><span class="v">12,840 kg</span></div>
+          <div class="stat-row"><span class="k">매출액</span><span class="v">₩ 89,640,000</span></div>
+          <div class="stat-row"><span class="k">평균 단가</span><span class="v">₩ 6,980 / kg</span></div>
+          <div class="stat-row"><span class="k">상위 거래처</span><span class="v">대성정밀(35%)</span></div>
+          <div class="progress" style="margin-top:8px"><span style="width:72%"></span></div>
+          <div class="t-xs muted mt-4">분기 목표 대비 72%</div>
+        </section>
+
+        <section class="side-card">
+          <h4>관련 프로젝트</h4>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <a href="project-detail.html" style="display: block; padding: 8px; border: 1px solid var(--border-soft); border-radius: var(--r-sm);">
+              <div class="t-md strong">P-2410 강판 자동화 라인</div>
+              <div class="t-xs muted">진행률 62% · 마감 8.30</div>
+            </a>
+            <a href="#" style="display: block; padding: 8px; border: 1px solid var(--border-soft); border-radius: var(--r-sm);">
+              <div class="t-md strong">P-2411 신소재 SPC 도입</div>
+              <div class="t-xs muted">진행률 38% · 마감 9.15</div>
+            </a>
+          </div>
+        </section>
+
+        <section class="side-card">
+          <h4>최근 시험성적서</h4>
+          <div class="file-row">
+            <div class="file-row__ic">PDF</div>
+            <div class="flex-1" style="min-width:0">
+              <div class="file-row__name">시험성적서_SUS304_v0.3.pdf</div>
+              <div class="file-row__meta">박지영 · 검토중 · 5/13</div>
+            </div>
+          </div>
+          <div class="file-row">
+            <div class="file-row__ic">PDF</div>
+            <div class="flex-1" style="min-width:0">
+              <div class="file-row__name">시험성적서_SUS304_v0.2.pdf</div>
+              <div class="file-row__meta">박지영 · 결재완료 · 4/18</div>
+            </div>
+          </div>
+          <div class="file-row">
+            <div class="file-row__ic">PDF</div>
+            <div class="flex-1" style="min-width:0">
+              <div class="file-row__name">시험성적서_SUS304_v0.1.pdf</div>
+              <div class="file-row__meta">박지영 · 결재완료 · 3/22</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="side-card">
+          <h4>제품 담당자</h4>
+          <div style="display:flex; gap: 10px; align-items: center;">
+            <div class="avatar lg avatar--orange">최도</div>
+            <div>
+              <div class="t-md strong">최도현 책임</div>
+              <div class="t-xs muted">영업본부 1팀</div>
+            </div>
+          </div>
+          <button class="btn btn--outline btn--sm mt-12" style="width:100%">1:1 대화 시작</button>
+        </section>
+
+      </aside>
+    </div>
+    </div>
+  </main>
+</div>
+
+<script src="assets/chrome.js"></script>
+<script>HanmirChrome.mount({ title: '제품정보', sub: 'SUS304 강판 (Cold Rolled)' });</script>
+</body>
+</html>

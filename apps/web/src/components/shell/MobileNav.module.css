@@ -1,0 +1,46 @@
+.nav {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .nav {
+    display: flex;
+    position: sticky;
+    bottom: 0;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 6px 0 calc(env(safe-area-inset-bottom, 0px) + 8px);
+    z-index: 50;
+  }
+
+  .item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 4px 0;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--text-3);
+  }
+
+  .itemActive { color: var(--brand-blue); }
+
+  .iconWrap { position: relative; display: inline-flex; }
+
+  .badge {
+    position: absolute;
+    top: -4px;
+    right: -8px;
+    background: var(--brand-orange);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 8px;
+    line-height: 1.2;
+    min-width: 14px;
+    text-align: center;
+  }
+}

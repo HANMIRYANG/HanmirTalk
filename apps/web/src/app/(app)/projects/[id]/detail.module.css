@@ -1,0 +1,108 @@
+.body {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 18px;
+  padding: 22px 28px;
+}
+
+.statGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.statProgress { margin-top: 10px; }
+
+.section { margin-top: 14px; }
+
+.desc { font-size: 14px; line-height: 1.7; color: var(--text-2); }
+.desc h4 { font-size: 13px; font-weight: 700; color: var(--text-1); margin: 16px 0 6px; }
+.desc ul { padding-left: 20px; margin: 6px 0; }
+.desc li { margin: 4px 0; }
+
+.milestoneList { padding: 4px 18px 12px; }
+
+.milestone {
+  display: grid;
+  grid-template-columns: 14px 1fr auto auto;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.milestone:last-child { border-bottom: none; }
+
+.dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--success);
+  background: var(--success);
+}
+.dotDone {
+  background: var(--success);
+  border-color: var(--success);
+}
+.dotCurrent {
+  background: var(--surface);
+  border-color: var(--brand-orange);
+  box-shadow: 0 0 0 4px var(--brand-orange-50);
+}
+.dotFuture {
+  background: var(--surface);
+  border-color: var(--border-strong);
+}
+
+.mTitle { font-size: 13.5px; font-weight: 600; }
+.mSub { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
+.mDate { font-size: 12px; color: var(--text-2); }
+
+.side { display: flex; flex-direction: column; gap: 16px; }
+
+.metaList {
+  font-size: 13px;
+  margin: 0;
+}
+.metaList dt {
+  font-size: 11.5px;
+  color: var(--text-3);
+  margin-top: 14px;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+.metaList dt:first-child { margin-top: 0; }
+.metaList dd { margin: 0; color: var(--text-1); font-weight: 500; }
+
+.memberBody { padding: 4px 18px 12px; }
+.memberRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+}
+.memberRow:not(:last-child) { border-bottom: 1px solid var(--border-soft); }
+.memberName { font-size: 13px; font-weight: 600; }
+.memberRole { font-size: 11px; color: var(--text-3); }
+.memberTag { margin-left: auto; }
+
+.activityBody { padding: 4px 18px 12px; }
+.activityRow {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.activityRow:last-child { border-bottom: none; }
+.activityText { font-size: 13px; line-height: 1.5; }
+.activityText b { font-weight: 600; }
+.activityTime { font-size: 11px; color: var(--text-4); margin-top: 2px; }
+
+@media (max-width: 1100px) {
+  .body { grid-template-columns: 1fr; }
+  .statGrid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 900px) {
+  .body { padding: 16px; }
+}

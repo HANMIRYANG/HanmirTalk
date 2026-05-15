@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>한미르톡 — P-2410 업무</title>
+<link rel="stylesheet" href="assets/shared.css">
+<style>
+  .ph {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 18px 28px 0;
+  }
+  .ph__top { display: flex; align-items: center; gap: 14px; }
+  .ph__cover { width: 40px; height: 40px; background: var(--brand-blue); color: white; border-radius: var(--r-md); display: grid; place-items: center; font-weight: 800; font-size: 11px; }
+  .ph__title { font-size: 18px; font-weight: 800; }
+  .ph__sub { font-size: 12px; color: var(--text-3); }
+  .ph__actions { margin-left: auto; display: flex; gap: 8px; }
+
+  .ph__tabs { display: flex; gap: 18px; margin-top: 14px; }
+  .ph__tab {
+    font-size: 13.5px; font-weight: 600; color: var(--text-3);
+    padding: 8px 0 12px;
+    border-bottom: 2px solid transparent;
+  }
+  .ph__tab.is-active { color: var(--brand-blue); border-bottom-color: var(--brand-blue); }
+  .ph__tab .num { color: var(--text-4); margin-left: 4px; font-size: 12px; font-weight: 500; }
+  .ph__tab.is-active .num { color: var(--brand-blue); opacity: .7; }
+  .ph__tab a { color: inherit; }
+
+  /* Toolbar */
+  .toolbar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 28px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .toolbar .seg {
+    display: flex; background: var(--bg-soft); border-radius: var(--r-sm);
+    padding: 3px; gap: 2px;
+  }
+  .seg-btn {
+    font-size: 12px; font-weight: 600; color: var(--text-3);
+    padding: 5px 10px; border-radius: 4px;
+    border: none; background: transparent;
+  }
+  .seg-btn.is-active { background: var(--surface); color: var(--text-1); box-shadow: var(--shadow-sm); }
+  .filter-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12.5px; font-weight: 500;
+    padding: 6px 10px; border-radius: var(--r-sm);
+    background: var(--surface); border: 1px solid var(--border-strong);
+    color: var(--text-2);
+  }
+  .filter-btn b { color: var(--text-1); font-weight: 600; }
+  .filter-btn svg { color: var(--text-4); }
+
+  .toolbar__right { margin-left: auto; display: flex; gap: 8px; }
+
+  /* Table */
+  .tbl-wrap {
+    background: var(--surface);
+    margin: 18px 28px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    overflow: hidden;
+  }
+  .group-head {
+    display: grid; grid-template-columns: 28px 1fr auto;
+    align-items: center; gap: 8px;
+    padding: 10px 16px;
+    background: var(--surface-muted);
+    border-bottom: 1px solid var(--border-soft);
+    cursor: pointer;
+  }
+  .group-head__chev { color: var(--text-3); }
+  .group-head__label { font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  .group-head__count {
+    background: var(--bg-soft); color: var(--text-2);
+    font-size: 11px; font-weight: 600;
+    padding: 1px 7px; border-radius: var(--r-pill);
+  }
+  .group-head__add { font-size: 12px; color: var(--text-3); font-weight: 500; background: none; border: none; padding: 4px 8px; }
+  .group-head__add:hover { color: var(--text-1); }
+
+  table.tasks {
+    width: 100%; border-collapse: collapse;
+    table-layout: fixed;
+  }
+  .tasks thead th {
+    text-align: left; font-size: 11px; font-weight: 600;
+    color: var(--text-4); padding: 10px 12px;
+    background: var(--surface-muted);
+    border-bottom: 1px solid var(--border-soft);
+    letter-spacing: 0.02em;
+  }
+  .tasks tbody td {
+    padding: 12px;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border-soft);
+    vertical-align: middle;
+    color: var(--text-2);
+  }
+  .tasks tbody tr:last-child td { border-bottom: none; }
+  .tasks tbody tr:hover { background: var(--bg-soft); }
+
+  .task-check {
+    width: 16px; height: 16px;
+    border: 1.5px solid var(--border-strong); border-radius: 4px;
+    display: inline-block;
+    vertical-align: middle;
+  }
+  .task-check.is-done {
+    background: var(--success); border-color: var(--success);
+    position: relative;
+  }
+  .task-check.is-done::after {
+    content: ''; position: absolute; left: 4px; top: 1px;
+    width: 5px; height: 9px; border: solid white; border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+  .task-check.is-progress {
+    background: var(--brand-blue); border-color: var(--brand-blue);
+    position: relative;
+  }
+  .task-check.is-progress::after {
+    content: ''; position: absolute; inset: 3px;
+    border-radius: 50%; background: white;
+  }
+
+  .task-title {
+    font-weight: 600; color: var(--text-1);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .task-title .id {
+    font-size: 11px; color: var(--text-4); font-weight: 500; font-family: 'SF Mono', monospace;
+  }
+  .task-title .subs {
+    font-size: 11px; color: var(--text-3); font-weight: 500;
+    display: inline-flex; align-items: center; gap: 3px;
+  }
+
+  .assignees { display: flex; }
+  .assignees .avatar { width: 24px; height: 24px; font-size: 10px; margin-left: -6px; border: 2px solid var(--surface); }
+  .assignees .avatar:first-child { margin-left: 0; }
+
+  .due {
+    font-size: 12.5px;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .due.is-late { color: var(--danger); font-weight: 600; }
+  .due.is-today { color: var(--brand-orange); font-weight: 600; }
+
+  .progress-cell { display: flex; align-items: center; gap: 8px; }
+  .progress-cell .progress { flex: 1; height: 5px; }
+  .progress-cell .val { font-size: 11.5px; color: var(--text-3); font-weight: 600; min-width: 28px; text-align: right; }
+
+  .col-check    { width: 36px; }
+  .col-status   { width: 110px; }
+  .col-assign   { width: 96px; }
+  .col-due      { width: 120px; }
+  .col-progress { width: 140px; }
+  .col-priority { width: 80px; }
+</style>
+</head>
+<body data-nav="project" data-screen-label="05 Project tasks">
+<div class="app">
+  <div id="side"></div>
+
+  <main class="main">
+    <div id="top"></div>
+
+    <section class="ph">
+      <div class="ph__top">
+        <div class="ph__cover">P-2410</div>
+        <div>
+          <div class="ph__title">강판 자동화 라인 도입 (Phase 2)</div>
+          <div class="ph__sub">생산기술팀 · 박지영 책임 · <span class="tag tag--blue tag--dot">실행 단계</span></div>
+        </div>
+        <div class="ph__actions">
+          <button class="btn btn--outline btn--sm">CSV 내보내기</button>
+          <button class="btn btn--primary btn--sm">+ 업무 추가</button>
+        </div>
+      </div>
+      <div class="ph__tabs">
+        <div class="ph__tab"><a href="project-detail.html">개요</a></div>
+        <div class="ph__tab is-active">업무 <span class="num">24</span></div>
+        <div class="ph__tab"><a href="project-gantt.html">간트</a></div>
+        <div class="ph__tab"><a href="chat-room.html">대화</a></div>
+        <div class="ph__tab">파일 <span class="num">42</span></div>
+        <div class="ph__tab">결정 기록 <span class="num">7</span></div>
+        <div class="ph__tab">설정</div>
+      </div>
+    </section>
+
+    <div class="toolbar">
+      <div class="seg">
+        <button class="seg-btn is-active">목록</button>
+        <button class="seg-btn">보드</button>
+        <button class="seg-btn">타임라인</button>
+        <button class="seg-btn">표</button>
+      </div>
+      <button class="filter-btn">담당자: <b>전체</b>
+        <svg width="10" height="10" viewBox="0 0 12 12"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+      </button>
+      <button class="filter-btn">상태: <b>완료 제외</b>
+        <svg width="10" height="10" viewBox="0 0 12 12"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+      </button>
+      <button class="filter-btn">우선순위: <b>전체</b>
+        <svg width="10" height="10" viewBox="0 0 12 12"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+      </button>
+      <button class="filter-btn">정렬: <b>마감일순</b>
+        <svg width="10" height="10" viewBox="0 0 12 12"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+      </button>
+      <div class="toolbar__right">
+        <div class="search" style="width: 220px;">
+          <svg width="14" height="14" viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="5" stroke="currentColor" stroke-width="1.5"/><path d="M13 13l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <input placeholder="업무 검색">
+        </div>
+      </div>
+    </div>
+
+    <div class="content no-pad">
+      <div class="tbl-wrap">
+
+        <div class="group-head">
+          <svg class="group-head__chev" width="12" height="12" viewBox="0 0 12 12"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div class="group-head__label">지연 업무 <span class="group-head__count" style="background:var(--danger-bg); color: var(--danger);">2</span></div>
+          <button class="group-head__add">+ 업무 추가</button>
+        </div>
+        <table class="tasks">
+          <colgroup>
+            <col class="col-check"><col><col class="col-status"><col class="col-assign"><col class="col-due"><col class="col-progress"><col class="col-priority">
+          </colgroup>
+          <thead><tr>
+            <th></th><th>업무명</th><th>상태</th><th>담당자</th><th>마감일</th><th>진행률</th><th>우선순위</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="task-check is-progress"></span></td>
+              <td>
+                <div class="task-title">시험성적서 v0.3 검토 회신
+                  <span class="id">T-1024</span>
+                  <span class="subs">↳ 하위 3</span>
+                </div>
+              </td>
+              <td><span class="tag tag--amber tag--dot">진행중</span></td>
+              <td><div class="assignees"><div class="avatar avatar--orange">박지</div><div class="avatar">김민</div></div></td>
+              <td><span class="due is-late">⚠ 5월 12일 (1일 지연)</span></td>
+              <td><div class="progress-cell"><div class="progress progress--orange"><span style="width:80%"></span></div><span class="val">80%</span></div></td>
+              <td><span class="tag tag--red">최우선</span></td>
+            </tr>
+            <tr>
+              <td><span class="task-check"></span></td>
+              <td><div class="task-title">시험성적서 비고란 영업상태 반영 <span class="id">T-1031</span></div></td>
+              <td><span class="tag tag--red tag--dot">지연</span></td>
+              <td><div class="assignees"><div class="avatar avatar--green">윤</div></div></td>
+              <td><span class="due is-late">⚠ 5월 11일 (2일 지연)</span></td>
+              <td><div class="progress-cell"><div class="progress"><span style="width:25%"></span></div><span class="val">25%</span></div></td>
+              <td><span class="tag tag--amber">높음</span></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="group-head" style="border-top: 1px solid var(--border-soft);">
+          <svg class="group-head__chev" width="12" height="12" viewBox="0 0 12 12"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div class="group-head__label">진행중 <span class="group-head__count">6</span></div>
+          <button class="group-head__add">+ 업무 추가</button>
+        </div>
+        <table class="tasks">
+          <colgroup>
+            <col class="col-check"><col><col class="col-status"><col class="col-assign"><col class="col-due"><col class="col-progress"><col class="col-priority">
+          </colgroup>
+          <tbody>
+            <tr>
+              <td><span class="task-check is-progress"></span></td>
+              <td><div class="task-title">7월 생산일정 초안 작성 <span class="id">T-1042</span></div></td>
+              <td><span class="tag tag--blue tag--dot">진행중</span></td>
+              <td><div class="assignees"><div class="avatar">김민</div></div></td>
+              <td><span class="due is-today">오늘 18:00</span></td>
+              <td><div class="progress-cell"><div class="progress"><span style="width:45%"></span></div><span class="val">45%</span></div></td>
+              <td><span class="tag tag--amber">높음</span></td>
+            </tr>
+            <tr>
+              <td><span class="task-check is-progress"></span></td>
+              <td><div class="task-title">자동검사기 작동 매뉴얼 1차 작성 <span class="id">T-1045</span></div></td>
+              <td><span class="tag tag--blue tag--dot">진행중</span></td>
+              <td><div class="assignees"><div class="avatar avatar--orange">박지</div><div class="avatar avatar--purple">이수</div></div></td>
+              <td><span class="due">5월 17일</span></td>
+              <td><div class="progress-cell"><div class="progress"><span style="width:60%"></span></div><span class="val">60%</span></div></td>
+              <td><span class="tag">보통</span></td>
+            </tr>
+            <tr>
+              <td><span class="task-check is-progress"></span></td>
+              <td><div class="task-title">외주(다온테크) PoC 결과 정리 <span class="id">T-1047</span></div></td>
+              <td><span class="tag tag--blue tag--dot">진행중</span></td>
+              <td><div class="assignees"><div class="avatar avatar--green">윤</div></div></td>
+              <td><span class="due">5월 19일</span></td>
+              <td><div class="progress-cell"><div class="progress"><span style="width:30%"></span></div><span class="val">30%</span></div></td>
+              <td><span class="tag">보통</span></td>
+            </tr>
+            <tr>
+              <td><span class="task-check is-progress"></span></td>
+              <td><div class="task-title">설비점검 체크리스트 결재 상신 <span class="id">T-1048</span></div></td>
+              <td><span class="tag tag--blue tag--dot">진행중</span></td>
+              <td><div class="assignees"><div class="avatar avatar--purple">이수</div></div></td>
+              <td><span class="due">5월 14일</span></td>
+              <td><div class="progress-cell"><div class="progress"><span style="width:75%"></span></div><span class="val">75%</span></div></td>
+              <td><span class="tag">보통</span></td>
+            </tr>
+            <tr>
+              <td><span class="task-check is-progress"></span></td>
+              <td><div class="task-title">월간 KPI 리뷰 자료 정리 <span class="id">T-1050</span></div></td>
+              <td><span class="tag tag--blue tag--dot">진행중</span></td>
+              <td><div class="assignees"><div class="avatar">김민</div></div></td>
+              <td><span class="due">5월 16일</span></td>
+              <td><div class="progress-cell"><div class="progress"><span style="width:20%"></span></div><span class="val">20%</span></div></td>
+              <td><span class="tag">낮음</span></td>
+            </tr>
+            <tr>
+              <td><span class="task-check is-progress"></span></td>
+              <td><div class="task-title">SOP 표준양식 v1.0 초안 <span class="id">T-1052</span></div></td>
+              <td><span class="tag tag--blue tag--dot">진행중</span></td>
+              <td><div class="assignees"><div class="avatar avatar--orange">박지</div></div></td>
+              <td><span class="due">5월 21일</span></td>
+              <td><div class="progress-cell"><div class="progress"><span style="width:10%"></span></div><span class="val">10%</span></div></td>
+              <td><span class="tag">보통</span></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="group-head" style="border-top: 1px solid var(--border-soft);">
+          <svg class="group-head__chev" width="12" height="12" viewBox="0 0 12 12"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div class="group-head__label">대기 <span class="group-head__count">3</span></div>
+          <button class="group-head__add">+ 업무 추가</button>
+        </div>
+        <table class="tasks">
+          <colgroup>
+            <col class="col-check"><col><col class="col-status"><col class="col-assign"><col class="col-due"><col class="col-progress"><col class="col-priority">
+          </colgroup>
+          <tbody>
+            <tr>
+              <td><span class="task-check"></span></td>
+              <td><div class="task-title">현장 작업자 교육자료 작성 <span class="id">T-1058</span></div></td>
+              <td><span class="tag tag--dot">대기</span></td>
+              <td><div class="assignees"><div class="avatar avatar--gray">미지정</div></div></td>
+              <td><span class="due muted">5월 27일</span></td>
+              <td><div class="progress-cell"><div class="progress"><span style="width:0"></span></div><span class="val">0%</span></div></td>
+              <td><span class="tag">보통</span></td>
+            </tr>
+            <tr>
+              <td><span class="task-check"></span></td>
+              <td><div class="task-title">ERP 연동 인터페이스 정의서 <span class="id">T-1060</span></div></td>
+              <td><span class="tag tag--dot">대기</span></td>
+              <td><div class="assignees"><div class="avatar avatar--green">윤</div></div></td>
+              <td><span class="due muted">6월 03일</span></td>
+              <td><div class="progress-cell"><div class="progress"><span style="width:0"></span></div><span class="val">0%</span></div></td>
+              <td><span class="tag">보통</span></td>
+            </tr>
+            <tr>
+              <td><span class="task-check"></span></td>
+              <td><div class="task-title">자동검사기 검수 일정 협의 <span class="id">T-1061</span></div></td>
+              <td><span class="tag tag--dot">대기</span></td>
+              <td><div class="assignees"><div class="avatar avatar--orange">박지</div></div></td>
+              <td><span class="due muted">6월 10일</span></td>
+              <td><div class="progress-cell"><div class="progress"><span style="width:0"></span></div><span class="val">0%</span></div></td>
+              <td><span class="tag">낮음</span></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="group-head" style="border-top: 1px solid var(--border-soft);">
+          <svg class="group-head__chev" width="12" height="12" viewBox="0 0 12 12"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div class="group-head__label">완료 <span class="group-head__count" style="background: var(--success-bg); color: var(--success);">13</span></div>
+          <span class="muted t-xs" style="margin-left: auto; margin-right: 8px;">접힌 그룹</span>
+        </div>
+
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="assets/chrome.js"></script>
+<script>HanmirChrome.mount({ title: '프로젝트', sub: 'P-2410 강판 자동화 라인' });</script>
+</body>
+</html>

@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>한미르톡 — 파일함</title>
+<link rel="stylesheet" href="assets/shared.css">
+<style>
+  .app { grid-template-columns: var(--sidebar-w) 220px 1fr; }
+
+  /* File scope sidebar */
+  .scope {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 16px 12px;
+    overflow-y: auto;
+  }
+  .scope__title {
+    font-size: 11px; font-weight: 700; color: var(--text-4);
+    padding: 8px 10px 6px; letter-spacing: 0.04em;
+  }
+  .scope-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 10px;
+    border-radius: var(--r-sm);
+    font-size: 13px; color: var(--text-2);
+    cursor: pointer;
+  }
+  .scope-item:hover { background: var(--bg-soft); color: var(--text-1); }
+  .scope-item.is-active { background: var(--brand-blue-50); color: var(--brand-blue); font-weight: 600; }
+  .scope-item .count { margin-left: auto; font-size: 11px; color: var(--text-4); font-weight: 500; }
+  .scope-item.is-active .count { color: var(--brand-blue); opacity: .7; }
+  .scope-item__sw { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+
+  /* File area */
+  .fbody { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+
+  .fbar {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 24px;
+  }
+  .fbar__crumb {
+    display: flex; gap: 6px; align-items: center;
+    font-size: 13px;
+  }
+  .fbar__crumb a { color: var(--text-3); }
+  .fbar__crumb a:hover { color: var(--text-1); }
+  .fbar__crumb b { color: var(--text-1); font-weight: 700; }
+  .fbar__crumb .sep { color: var(--text-4); }
+
+  .fbar__row {
+    display: flex; align-items: center; gap: 8px; margin-top: 12px;
+  }
+  .fbar__row .seg { display: flex; background: var(--bg-soft); border-radius: var(--r-sm); padding: 3px; gap: 2px; }
+  .fbar__row .seg-btn { font-size: 12px; font-weight: 600; color: var(--text-3); padding: 5px 10px; border-radius: 4px; border: none; background: transparent; }
+  .fbar__row .seg-btn.is-active { background: var(--surface); color: var(--text-1); box-shadow: var(--shadow-sm); }
+  .filter-btn { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 6px 10px; border-radius: var(--r-sm); background: var(--surface); border: 1px solid var(--border-strong); color: var(--text-2); }
+  .filter-btn b { color: var(--text-1); }
+
+  /* Content body */
+  .fcontent { flex: 1; overflow-y: auto; padding: 22px 24px; }
+
+  .section-h {
+    font-size: 12px; font-weight: 700; color: var(--text-3);
+    letter-spacing: 0.04em;
+    margin: 4px 0 12px;
+  }
+
+  .folder-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+  .folder {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--r-md); padding: 14px;
+    cursor: pointer;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .folder:hover { border-color: var(--brand-blue); box-shadow: var(--shadow-md); }
+  .folder__head { display: flex; align-items: flex-start; gap: 10px; }
+  .folder__ic {
+    width: 30px; height: 26px;
+    background: #FDC25C;
+    border-radius: 3px 6px 6px 6px;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .folder__ic::before {
+    content: '';
+    position: absolute;
+    top: -3px; left: 0; width: 12px; height: 5px;
+    background: #FDC25C;
+    border-radius: 3px 3px 0 0;
+  }
+  .folder__ic.is-blue   { background: #6FA3F0; } .folder__ic.is-blue::before   { background: #6FA3F0; }
+  .folder__ic.is-orange { background: #F4A26C; } .folder__ic.is-orange::before { background: #F4A26C; }
+  .folder__ic.is-purple { background: #B095D8; } .folder__ic.is-purple::before { background: #B095D8; }
+
+  .folder__name { font-size: 13.5px; font-weight: 600; color: var(--text-1); }
+  .folder__meta { font-size: 11px; color: var(--text-3); }
+  .folder__menu { margin-left: auto; color: var(--text-4); }
+
+  /* File table */
+  .ftable {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    overflow: hidden;
+  }
+  .ftable table { width: 100%; border-collapse: collapse; }
+  .ftable th {
+    text-align: left; font-size: 11px; font-weight: 600;
+    color: var(--text-4); padding: 10px 14px;
+    background: var(--surface-muted);
+    border-bottom: 1px solid var(--border-soft);
+    letter-spacing: 0.04em;
+  }
+  .ftable td {
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--border-soft);
+    font-size: 13px;
+    vertical-align: middle;
+  }
+  .ftable tbody tr:last-child td { border-bottom: none; }
+  .ftable tbody tr:hover { background: var(--bg-soft); }
+  .ftable .col-ic { width: 36px; }
+  .ftable .col-sz { width: 90px; }
+  .ftable .col-dt { width: 140px; }
+  .ftable .col-by { width: 160px; }
+  .ftable .col-tag { width: 140px; }
+  .ftable .col-act { width: 60px; }
+
+  .fic { width: 28px; height: 34px; border-radius: 3px; color: white; font-size: 9px; font-weight: 700; display: grid; place-items: center; }
+  .fic.pdf { background: linear-gradient(180deg, #DC2626, #B91C1C); }
+  .fic.xls { background: linear-gradient(180deg, #16A34A, #15803D); }
+  .fic.doc { background: linear-gradient(180deg, #2563EB, #1E40AF); }
+  .fic.ppt { background: linear-gradient(180deg, #E55A1F, #C44A19); }
+  .fic.img { background: linear-gradient(180deg, #6D45B8, #4F2BAA); }
+  .fic.zip { background: linear-gradient(180deg, #5C6068, #3F434A); }
+
+  .fname { font-weight: 600; color: var(--text-1); display: flex; align-items: center; gap: 6px; }
+  .fname svg { color: var(--text-4); }
+
+  .by-row { display: flex; align-items: center; gap: 8px; }
+  .by-row .avatar { width: 24px; height: 24px; font-size: 10px; }
+
+  .row-act .icon-btn { width: 28px; height: 28px; }
+</style>
+</head>
+<body data-nav="file" data-screen-label="08 File library">
+
+<div class="app">
+  <div id="side"></div>
+
+  <aside class="scope">
+    <div class="scope__title">위치</div>
+    <div class="scope-item is-active">
+      <svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M4 4.5A1.5 1.5 0 0 1 5.5 3h4l2 2h3A1.5 1.5 0 0 1 16 6.5v9A1.5 1.5 0 0 1 14.5 17h-9A1.5 1.5 0 0 1 4 15.5v-11Z" stroke="currentColor" stroke-width="1.5"/></svg>
+      전체 파일<span class="count">842</span>
+    </div>
+    <div class="scope-item">
+      <svg width="14" height="14" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="6.5" stroke="currentColor" stroke-width="1.5"/><path d="M10 6v4l3 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      최근 항목<span class="count">28</span>
+    </div>
+    <div class="scope-item">
+      <svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M11 3l6 6-4 1-3 7-1-5-5-1 7-3 1-5z" stroke="currentColor" stroke-width="1.5"/></svg>
+      즐겨찾기<span class="count">12</span>
+    </div>
+    <div class="scope-item">
+      <svg width="14" height="14" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="1.5"/><path d="M7 10l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      내가 공유한 항목<span class="count">36</span>
+    </div>
+    <div class="scope-item">
+      <svg width="14" height="14" viewBox="0 0 20 20" fill="none"><rect x="4" y="6" width="12" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M6 6V4.5a3.5 3.5 0 0 1 7 0V6" stroke="currentColor" stroke-width="1.5"/></svg>
+      개인 보관함<span class="count">14</span>
+    </div>
+
+    <div class="scope__title" style="margin-top: 14px;">프로젝트</div>
+    <div class="scope-item"><span class="scope__sw" style="background:#1F4FA8"></span>P-2410 강판 자동화<span class="count">42</span></div>
+    <div class="scope-item"><span class="scope__sw" style="background:#16A34A"></span>P-2411 신소재 SPC<span class="count">18</span></div>
+    <div class="scope-item"><span class="scope__sw" style="background:#6D45B8"></span>P-2403 노후 설비 교체<span class="count">73</span></div>
+
+    <div class="scope__title" style="margin-top: 14px;">부서</div>
+    <div class="scope-item">생산기술팀<span class="count">228</span></div>
+    <div class="scope-item">품질보증팀<span class="count">186</span></div>
+    <div class="scope-item">영업본부<span class="count">142</span></div>
+    <div class="scope-item">인사팀<span class="count">94</span></div>
+    <div class="scope-item">자재팀<span class="count">73</span></div>
+
+    <div class="scope__title" style="margin-top: 14px;">유형</div>
+    <div class="scope-item">📄 문서 (Word/PDF)<span class="count">312</span></div>
+    <div class="scope-item">📊 스프레드시트<span class="count">198</span></div>
+    <div class="scope-item">🖼 이미지<span class="count">214</span></div>
+    <div class="scope-item">📦 압축파일<span class="count">42</span></div>
+  </aside>
+
+  <main class="fbody">
+    <div id="top"></div>
+
+    <section class="fbar">
+      <div class="fbar__crumb">
+        <a href="#">파일함</a>
+        <span class="sep">›</span>
+        <b>전체 파일</b>
+      </div>
+      <div class="fbar__row">
+        <div class="seg">
+          <button class="seg-btn is-active">목록</button>
+          <button class="seg-btn">카드</button>
+          <button class="seg-btn">상세</button>
+        </div>
+        <button class="filter-btn">유형: <b>전체</b></button>
+        <button class="filter-btn">소유자: <b>전체</b></button>
+        <button class="filter-btn">기간: <b>최근 30일</b></button>
+        <button class="filter-btn">정렬: <b>최신순</b></button>
+        <div style="margin-left:auto; display: flex; gap: 8px;">
+          <button class="btn btn--outline btn--sm">새 폴더</button>
+          <button class="btn btn--primary btn--sm">
+            <svg width="12" height="12" viewBox="0 0 20 20" fill="none"><path d="M10 4v12M5 9l5-5 5 5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            업로드
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <div class="fcontent">
+
+      <div class="section-h">📂 폴더 4개</div>
+      <div class="folder-grid">
+        <div class="folder">
+          <div class="folder__head">
+            <div class="folder__ic"></div>
+            <div class="folder__menu">⋯</div>
+          </div>
+          <div>
+            <div class="folder__name">2026년 프로젝트</div>
+            <div class="folder__meta">128 항목 · 8명 공유</div>
+          </div>
+        </div>
+        <div class="folder">
+          <div class="folder__head">
+            <div class="folder__ic is-blue"></div>
+            <div class="folder__menu">⋯</div>
+          </div>
+          <div>
+            <div class="folder__name">시험성적서 (TRC)</div>
+            <div class="folder__meta">214 항목 · 품질보증팀</div>
+          </div>
+        </div>
+        <div class="folder">
+          <div class="folder__head">
+            <div class="folder__ic is-orange"></div>
+            <div class="folder__menu">⋯</div>
+          </div>
+          <div>
+            <div class="folder__name">표준 양식 / SOP</div>
+            <div class="folder__meta">76 항목 · 전사 공유</div>
+          </div>
+        </div>
+        <div class="folder">
+          <div class="folder__head">
+            <div class="folder__ic is-purple"></div>
+            <div class="folder__menu">⋯</div>
+          </div>
+          <div>
+            <div class="folder__name">전사 공지 자료</div>
+            <div class="folder__meta">52 항목 · 인사팀</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-h">📄 파일 24개 (최근 업로드 순)</div>
+      <div class="ftable">
+        <table>
+          <thead><tr>
+            <th class="col-ic"></th>
+            <th>이름</th>
+            <th class="col-tag">분류</th>
+            <th class="col-sz">크기</th>
+            <th class="col-by">업로드</th>
+            <th class="col-dt">날짜</th>
+            <th class="col-act"></th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td><div class="fic pdf">PDF</div></td>
+              <td><div class="fname">시험성적서_SUS304_v0.3.pdf
+                <svg width="12" height="12" viewBox="0 0 20 20" fill="none"><path d="M11 3l6 6-4 1-3 7-1-5-5-1 7-3 1-5z" stroke="currentColor" stroke-width="1.5"/></svg>
+              </div></td>
+              <td><span class="tag tag--blue">P-2410</span> <span class="tag tag--amber">검토중</span></td>
+              <td class="muted">2.4 MB</td>
+              <td><div class="by-row"><div class="avatar avatar--orange">박지</div><span>박지영 책임</span></div></td>
+              <td class="muted">오늘 10:24</td>
+              <td class="row-act"><button class="icon-btn">⋯</button></td>
+            </tr>
+            <tr>
+              <td><div class="fic xls">XLS</div></td>
+              <td><div class="fname">시험성적서_의견정리_v0.3.xlsx</div></td>
+              <td><span class="tag tag--blue">P-2410</span></td>
+              <td class="muted">128 KB</td>
+              <td><div class="by-row"><div class="avatar avatar--orange">박지</div><span>박지영 책임</span></div></td>
+              <td class="muted">오늘 13:18</td>
+              <td class="row-act"><button class="icon-btn">⋯</button></td>
+            </tr>
+            <tr>
+              <td><div class="fic doc">DOC</div></td>
+              <td><div class="fname">P-2410_라인설계_변경요청서.docx</div></td>
+              <td><span class="tag tag--blue">P-2410</span></td>
+              <td class="muted">348 KB</td>
+              <td><div class="by-row"><div class="avatar avatar--green">윤</div><span>윤서연 책임</span></div></td>
+              <td class="muted">어제 16:55</td>
+              <td class="row-act"><button class="icon-btn">⋯</button></td>
+            </tr>
+            <tr>
+              <td><div class="fic ppt">PPT</div></td>
+              <td><div class="fname">2026_5월_경영보고_생산기술.pptx</div></td>
+              <td><span class="tag">정기보고</span></td>
+              <td class="muted">5.8 MB</td>
+              <td><div class="by-row"><div class="avatar">김민</div><span>김민준 책임</span></div></td>
+              <td class="muted">5월 12일</td>
+              <td class="row-act"><button class="icon-btn">⋯</button></td>
+            </tr>
+            <tr>
+              <td><div class="fic img">IMG</div></td>
+              <td><div class="fname">결재본_예시_2025-12.png</div></td>
+              <td><span class="tag tag--blue">P-2410</span></td>
+              <td class="muted">316 KB</td>
+              <td><div class="by-row"><div class="avatar avatar--purple">이수</div><span>이수현 수석</span></div></td>
+              <td class="muted">5월 12일</td>
+              <td class="row-act"><button class="icon-btn">⋯</button></td>
+            </tr>
+            <tr>
+              <td><div class="fic pdf">PDF</div></td>
+              <td><div class="fname">7월_안전교육_이수_안내.pdf</div></td>
+              <td><span class="tag tag--amber">필독 공지</span></td>
+              <td class="muted">412 KB</td>
+              <td><div class="by-row"><div class="avatar avatar--gray">인사</div><span>인사팀</span></div></td>
+              <td class="muted">5월 12일</td>
+              <td class="row-act"><button class="icon-btn">⋯</button></td>
+            </tr>
+            <tr>
+              <td><div class="fic xls">XLS</div></td>
+              <td><div class="fname">SUS304_생산LOT_2026Q2.xlsx</div></td>
+              <td><span class="tag">제품정보</span></td>
+              <td class="muted">1.2 MB</td>
+              <td><div class="by-row"><div class="avatar avatar--orange">최도</div><span>최도현 책임</span></div></td>
+              <td class="muted">5월 11일</td>
+              <td class="row-act"><button class="icon-btn">⋯</button></td>
+            </tr>
+            <tr>
+              <td><div class="fic pdf">PDF</div></td>
+              <td><div class="fname">SOP_자동검사라인_v0.4.pdf</div></td>
+              <td><span class="tag tag--blue">P-2410</span><span class="tag">표준양식</span></td>
+              <td class="muted">3.1 MB</td>
+              <td><div class="by-row"><div class="avatar avatar--orange">박지</div><span>박지영 책임</span></div></td>
+              <td class="muted">5월 10일</td>
+              <td class="row-act"><button class="icon-btn">⋯</button></td>
+            </tr>
+            <tr>
+              <td><div class="fic zip">ZIP</div></td>
+              <td><div class="fname">외주_다온테크_PoC_결과.zip</div></td>
+              <td><span class="tag tag--blue">P-2410</span></td>
+              <td class="muted">38.4 MB</td>
+              <td><div class="by-row"><div class="avatar avatar--green">윤</div><span>윤서연 책임</span></div></td>
+              <td class="muted">5월 09일</td>
+              <td class="row-act"><button class="icon-btn">⋯</button></td>
+            </tr>
+            <tr>
+              <td><div class="fic doc">DOC</div></td>
+              <td><div class="fname">사내_보안정책_개정_v3.2.docx</div></td>
+              <td><span class="tag tag--amber">필독 공지</span></td>
+              <td class="muted">220 KB</td>
+              <td><div class="by-row"><div class="avatar avatar--gray">정보</div><span>정보지원팀</span></div></td>
+              <td class="muted">5월 09일</td>
+              <td class="row-act"><button class="icon-btn">⋯</button></td>
+            </tr>
+            <tr>
+              <td><div class="fic img">IMG</div></td>
+              <td><div class="fname">라인_설치_사진_20260508.jpg</div></td>
+              <td><span class="tag tag--blue">P-2410</span></td>
+              <td class="muted">2.0 MB</td>
+              <td><div class="by-row"><div class="avatar avatar--orange">박지</div><span>박지영 책임</span></div></td>
+              <td class="muted">5월 08일</td>
+              <td class="row-act"><button class="icon-btn">⋯</button></td>
+            </tr>
+            <tr>
+              <td><div class="fic pdf">PDF</div></td>
+              <td><div class="fname">시험성적서_SUS304_v0.2.pdf</div></td>
+              <td><span class="tag tag--green">결재완료</span></td>
+              <td class="muted">2.1 MB</td>
+              <td><div class="by-row"><div class="avatar avatar--orange">박지</div><span>박지영 책임</span></div></td>
+              <td class="muted">4월 18일</td>
+              <td class="row-act"><button class="icon-btn">⋯</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script src="assets/chrome.js"></script>
+<script>HanmirChrome.mount({ title: '파일함', sub: '전체 파일 · 842개' });</script>
+</body>
+</html>

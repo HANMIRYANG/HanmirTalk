@@ -1,0 +1,113 @@
+.formGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 14px;
+}
+.formGrid label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.formGrid label.span2 {
+  grid-column: 1 / -1;
+}
+
+.rowActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.linkBtn {
+  background: transparent;
+  border: none;
+  color: var(--brand-blue);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: var(--r-xs);
+}
+.linkBtn:hover {
+  background: var(--brand-blue-50);
+}
+.linkBtn:disabled {
+  color: var(--text-4);
+  cursor: not-allowed;
+  background: transparent;
+}
+.linkBtn.danger {
+  color: var(--danger);
+}
+.linkBtn.danger:hover {
+  background: var(--danger-bg);
+}
+
+.formError {
+  margin-top: 12px;
+  padding: 8px 10px;
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 12px;
+  border-radius: var(--r-xs);
+  border: 1px solid rgba(220, 38, 38, 0.32);
+}
+
+.inlineCreate {
+  display: grid;
+  grid-template-columns: 1.6fr 2fr auto;
+  gap: 8px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border-soft);
+  align-items: end;
+}
+.inlineCreate label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.deptRowInteractive {
+  display: grid;
+  grid-template-columns: 1.6fr 2fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.deptRowInteractive:last-child {
+  border-bottom: none;
+}
+.deptRowInteractive .deptName {
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--text-1);
+}
+.deptRowInteractive .deptDesc {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.deptRowInteractive .deptActions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.fullCard {
+  margin-top: 14px;
+}
+
+.cardSub {
+  padding: 4px 18px 12px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.inactiveTag {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--text-4);
+}

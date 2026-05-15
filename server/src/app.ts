@@ -1,0 +1,82 @@
+// Monkey-patches Express 4 so async route handlers route rejections through
+// the central error middleware below. Must be imported before the routers.
+import "express-async-errors";
+
+import express, { type Express, type NextFunction, type Request, type Response } from "express";
+import cors from "cors";
+import { config } from "./config";
+import { createMemoryRepositories } from "./repositories/memory";
+import type { Repositories } from "./repositories/types";
+import { attachCurrentUser, requireAuth } from "./auth/middleware";
+import { createAuthRouter } from "./routes/auth";
+import { createUsersRouter } from "./routes/users";
+import { createRoomsRouter } from "./routes/rooms";
+import { createProjectsRouter } from "./routes/projects";
+import { createTasksRouter } from "./routes/tasks";
+import { createProductsRouter } from "./routes/products";
+import { createFilesRouter } from "./routes/files";
+import { createNoticesRouter } from "./routes/notices";
+import { createDepartmentsRouter } from "./routes/departments";
+import { createDashboardRouter } from "./routes/dashboard";
+
+export interface AppDeps {
+  repos: Repositories;
+}
+
+export function createApp(deps: AppDeps = { repos: createMemoryRepositories() }): Express {
+  const app = express();
+  app.use(
+    cors({
+      origin: config.corsOrigin === "*" ? true : config.corsOrigin.split(",").map((s) => s.trim()),
+      credentials: true
+    })
+  );
+  app.use(express.json({ limit: "5mb" }));
+  app.use(attachCurrentUser(deps.repos));
+
+  app.get(`${config.apiPrefix}/health`, (_req, res) => {
+    res.json({ ok: true, ts: new Date().toISOString() });
+  });
+
+  // Auth router stays public (login + logout); `/auth/me` is guarded inside the router.
+  app.use(`${config.apiPrefix}/auth`, createAuthRouter(deps.repos));
+
+  // Everything else requires a valid session.
+  app.use(`${config.apiPrefix}/users`, requireAuth, createUsersRouter(deps.repos));
+  app.use(`${config.apiPrefix}/departments`, requireAuth, createDepartmentsRouter(deps.repos));
+  app.use(`${config.apiPrefix}/rooms`, requireAuth, createRoomsRouter(deps.repos));
+  app.use(`${config.apiPrefix}/projects`, requireAuth, createProjectsRouter(deps.repos));
+  app.use(`${config.apiPrefix}/tasks`, requireAuth, createTasksRouter(deps.repos));
+  app.use(`${config.apiPrefix}/products`, requireAuth, createProductsRouter(deps.repos));
+  app.use(`${config.apiPrefix}/files`, requireAuth, createFilesRouter(deps.repos));
+  app.use(`${config.apiPrefix}/notices`, requireAuth, createNoticesRouter(deps.repos));
+  app.use(`${config.apiPrefix}/dashboard`, requireAuth, createDashboardRouter());
+
+  app.use((_req, res) => {
+    res.status(404).json({ error: "not_found" });
+  });
+
+  // Central error handler. Anything thrown (sync or async) from a route or
+  // middleware lands here and is logged server-side. We never echo the raw
+  // error message to clients — failure modes are intentionally opaque to keep
+  // schema/SQL details out of public responses.
+  app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
+    if (res.headersSent) {
+      next(err);
+      return;
+    }
+    if (process.env.NODE_ENV !== "production") {
+      // eslint-disable-next-line no-console
+      console.error("[hanmir-server] unhandled error:", err);
+    } else {
+      // Production: log only the name/message, not the full stack.
+      const name = err instanceof Error ? err.name : "Error";
+      const message = err instanceof Error ? err.message : String(err);
+      // eslint-disable-next-line no-console
+      console.error(`[hanmir-server] ${name}: ${message}`);
+    }
+    res.status(500).json({ error: "internal_error" });
+  });
+
+  return app;
+}

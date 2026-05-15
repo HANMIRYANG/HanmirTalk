@@ -1,0 +1,243 @@
+.head {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 22px 28px 18px;
+}
+.crumb { font-size: 12px; color: var(--text-3); display: flex; gap: 6px; }
+.crumb b { color: var(--text-2); font-weight: 500; }
+
+.row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 20px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.img {
+  width: 84px; height: 84px;
+  border-radius: var(--r-md);
+  background:
+    repeating-linear-gradient(135deg, #E5E7EB 0 8px, #EEF0F3 8px 16px);
+  border: 1px solid var(--border);
+  display: grid; place-items: center;
+  font-family: 'SF Mono', monospace;
+  font-size: 10px; color: var(--text-3);
+}
+
+.title { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+.title small { font-size: 13px; font-weight: 500; color: var(--text-3); margin-left: 8px; }
+
+.subRow {
+  font-size: 13px;
+  color: var(--text-3);
+  margin-top: 4px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.banner {
+  margin: 16px 28px 0;
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  background: linear-gradient(90deg, var(--warning-bg), var(--surface) 60%);
+  border: 1px solid #F2D9A8;
+  border-left: 4px solid var(--warning);
+  border-radius: var(--r-md);
+}
+.bannerIc {
+  width: 40px;
+  height: 40px;
+  background: var(--warning);
+  color: white;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  font-weight: 800;
+}
+.bannerTitle { font-size: 16px; font-weight: 700; color: var(--text-1); }
+.bannerTag { margin-left: 8px; }
+.bannerSub { font-size: 12.5px; color: var(--text-2); margin-top: 4px; }
+.bannerDetail { text-align: right; font-size: 11.5px; color: var(--text-3); }
+.bannerDetail b { color: var(--text-1); font-weight: 600; display: block; font-size: 13px; }
+
+.tabs {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0 28px;
+  margin-top: 16px;
+  display: flex;
+  gap: 18px;
+  overflow-x: auto;
+}
+
+.tab {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-3);
+  padding: 12px 0;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tabActive { color: var(--brand-blue); border-bottom-color: var(--brand-blue); }
+
+.body {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 18px;
+  padding: 22px 28px;
+}
+
+.section { margin-top: 0; }
+.section + .section { margin-top: 14px; }
+
+.timeline { padding: 14px 20px; }
+.step {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 0;
+  position: relative;
+}
+.step:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 24px;
+  bottom: -10px;
+  width: 2px;
+  background: var(--border);
+}
+
+.stepDot {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--surface);
+  box-shadow: 0 0 0 2px var(--border-strong);
+  background: var(--surface);
+  position: relative;
+  z-index: 1;
+}
+.stepDotDone {
+  background: var(--success);
+  box-shadow: 0 0 0 2px var(--success);
+}
+.stepDotCurrent {
+  background: var(--warning);
+  box-shadow: 0 0 0 2px var(--warning);
+}
+
+.stepTitle { font-weight: 600; font-size: 13.5px; }
+.stepTag { margin-left: 6px; }
+.stepMeta { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
+.stepTime { font-size: 11.5px; color: var(--text-4); }
+
+.specTable { width: 100%; border-collapse: collapse; }
+.specTable th, .specTable td {
+  padding: 11px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 13px;
+}
+.specTable th {
+  width: 30%;
+  color: var(--text-3);
+  font-weight: 500;
+  background: var(--surface-muted);
+}
+.specTable td { color: var(--text-1); font-weight: 500; }
+.specTable tr:last-child th, .specTable tr:last-child td { border-bottom: none; }
+
+.lotTable { width: 100%; border-collapse: collapse; }
+.lotTable th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-4);
+  padding: 10px 14px;
+  background: var(--surface-muted);
+  border-bottom: 1px solid var(--border-soft);
+  letter-spacing: 0.04em;
+}
+.lotTable td {
+  padding: 12px 14px;
+  font-size: 13px;
+  color: var(--text-1);
+  border-bottom: 1px solid var(--border-soft);
+}
+.lotTable tbody tr:hover { background: var(--bg-soft); }
+.lotNum { font-family: 'SF Mono', monospace; font-size: 12px; color: var(--text-2); }
+
+.side { display: flex; flex-direction: column; gap: 14px; }
+
+.sideCard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 16px;
+}
+.sideCard h4 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-3);
+  letter-spacing: 0.02em;
+}
+
+.statRow { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; }
+.k { color: var(--text-3); }
+.v { font-weight: 600; color: var(--text-1); }
+.sideProgress { margin-top: 8px; }
+
+.relList { display: flex; flex-direction: column; gap: 8px; }
+.relItem {
+  display: block;
+  padding: 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+  color: inherit;
+}
+.relItem:hover { border-color: var(--brand-blue); }
+.relTitle { font-size: 13px; font-weight: 600; color: var(--text-1); }
+.relMeta { font-size: 11.5px; color: var(--text-3); }
+
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.fileRow:last-child { border-bottom: none; }
+.fileIc {
+  width: 24px; height: 30px;
+  background: #DC2626;
+  border-radius: 3px;
+  color: white;
+  font-size: 9px;
+  font-weight: 700;
+  display: grid; place-items: center;
+  flex-shrink: 0;
+}
+.fileName { font-size: 12.5px; font-weight: 500; }
+.fileMeta { font-size: 11px; color: var(--text-3); }
+
+.ownerRow { display: flex; gap: 10px; align-items: center; }
+.ownerName { font-size: 13px; font-weight: 600; }
+.ownerMeta { font-size: 11.5px; color: var(--text-3); }
+
+@media (max-width: 1100px) {
+  .body { grid-template-columns: 1fr; }
+  .banner { grid-template-columns: auto 1fr; }
+  .bannerDetail, .banner > .btn { grid-column: span 2; text-align: left; }
+}

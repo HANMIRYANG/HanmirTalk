@@ -1,0 +1,118 @@
+const DEFAULT_BASE = "http://localhost:4000/api/v1";
+
+function resolveBaseUrl(): string {
+  if (typeof process !== "undefined") {
+    const fromEnv =
+      process.env.NEXT_PUBLIC_API_BASE_URL ?? process.env.API_BASE_URL ?? undefined;
+    if (fromEnv && fromEnv.trim()) return fromEnv.trim().replace(/\/$/, "");
+  }
+  return DEFAULT_BASE;
+}
+
+export const apiBaseUrl = resolveBaseUrl();
+
+export interface ApiRequestOptions extends Omit<RequestInit, "body"> {
+  body?: unknown;
+  query?: Record<string, string | number | undefined | null>;
+  token?: string;
+  expectStatus?: number[];
+}
+
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+    public readonly body?: unknown
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+function buildUrl(path: string, query?: ApiRequestOptions["query"]): string {
+  const base = apiBaseUrl.replace(/\/$/, "");
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  if (!query) return `${base}${normalized}`;
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null) continue;
+    params.append(key, String(value));
+  }
+  const qs = params.toString();
+  return qs ? `${base}${normalized}?${qs}` : `${base}${normalized}`;
+}
+
+export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
+  const { body, query, token, headers, expectStatus, credentials, ...rest } = options;
+  const url = buildUrl(path, query);
+  const finalHeaders: Record<string, string> = {
+    Accept: "application/json",
+    ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(headers as Record<string, string> | undefined)
+  };
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...rest,
+      cache: rest.cache ?? "no-store",
+      credentials: credentials ?? "include",
+      headers: finalHeaders,
+      body: body === undefined ? undefined : JSON.stringify(body)
+    });
+  } catch (error) {
+    throw new ApiError(0, `Network error while requesting ${path}`, error);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  const isJson = response.headers.get("content-type")?.includes("application/json");
+  const payload = isJson ? await response.json().catch(() => undefined) : await response.text();
+
+  const allowed = expectStatus ?? [200, 201];
+  if (!response.ok && !allowed.includes(response.status)) {
+    const message =
+      (payload && typeof payload === "object" && "error" in (payload as Record<string, unknown>)
+        ? String((payload as Record<string, unknown>).error)
+        : undefined) ?? `Request to ${path} failed (${response.status})`;
+    throw new ApiError(response.status, message, payload);
+  }
+
+  return payload as T;
+}
+
+// Returns undefined ONLY on 404. Auth failures (401/403) still throw so that
+// callers can distinguish "missing resource" from "missing/expired session".
+export async function apiRequestOrNull<T>(
+  path: string,
+  options: ApiRequestOptions = {}
+): Promise<T | undefined> {
+  try {
+    return await apiRequest<T>(path, options);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return undefined;
+    throw error;
+  }
+}
+
+// Auth-aware helper: swallows 401/403 in addition to 404. Use this only for
+// "am I logged in?" probes, never for resource lookups.
+export async function apiRequestAuthOrNull<T>(
+  path: string,
+  options: ApiRequestOptions = {}
+): Promise<T | undefined> {
+  try {
+    return await apiRequest<T>(path, options);
+  } catch (error) {
+    if (
+      error instanceof ApiError &&
+      (error.status === 404 || error.status === 401 || error.status === 403)
+    ) {
+      return undefined;
+    }
+    throw error;
+  }
+}

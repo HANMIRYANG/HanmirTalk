@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>한미르톡 — 채팅</title>
+<link rel="stylesheet" href="assets/shared.css">
+<style>
+  .app { grid-template-columns: var(--sidebar-w) var(--subnav-w) 1fr; }
+
+  /* Chat list (sub-nav column) ------------------------------- */
+  .chatlist {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  .chatlist__head {
+    padding: 18px 18px 12px;
+    display: flex; align-items: center;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .chatlist__head h2 { margin: 0; font-size: 16px; font-weight: 700; }
+  .chatlist__head .icon-btn { margin-left: auto; }
+
+  .chatlist__filter {
+    display: flex; gap: 4px; padding: 10px 12px; border-bottom: 1px solid var(--border-soft);
+  }
+  .pill {
+    font-size: 12px; font-weight: 600; padding: 5px 11px;
+    border-radius: var(--r-pill);
+    color: var(--text-3); background: transparent;
+    border: 1px solid transparent;
+    cursor: pointer;
+  }
+  .pill:hover { background: var(--bg-soft); color: var(--text-1); }
+  .pill.is-active { background: var(--brand-blue-50); color: var(--brand-blue); }
+  .pill__count { color: var(--text-4); margin-left: 4px; font-weight: 500; }
+  .pill.is-active .pill__count { color: var(--brand-blue); opacity: .7; }
+
+  .chatlist__scroll { overflow-y: auto; flex: 1; padding: 6px 0; }
+  .chatlist__group {
+    font-size: 11px; font-weight: 600; color: var(--text-4);
+    padding: 14px 18px 6px; letter-spacing: 0.04em;
+  }
+
+  .chatrow {
+    display: grid;
+    grid-template-columns: 40px 1fr auto;
+    gap: 10px;
+    padding: 10px 14px;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+  }
+  .chatrow:hover { background: var(--bg-soft); }
+  .chatrow.is-active { background: var(--brand-blue-50); border-left-color: var(--brand-blue); }
+  .chatrow__avatar { position: relative; }
+  .chatrow__avatar .avatar { width: 40px; height: 40px; font-size: 13px; border-radius: 10px; }
+  .chatrow__avatar .presence {
+    position: absolute; right: -2px; bottom: -2px;
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #16A34A; border: 2px solid var(--surface);
+  }
+  .chatrow__avatar .presence.is-away { background: var(--warning); }
+  .chatrow__avatar .presence.is-off  { background: var(--text-4); }
+
+  .chatrow__main { min-width: 0; }
+  .chatrow__name {
+    font-size: 13.5px; font-weight: 600; color: var(--text-1);
+    display: flex; align-items: center; gap: 6px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .chatrow__name .tag { font-size: 10px; padding: 1px 6px; }
+  .chatrow__msg {
+    font-size: 12px; color: var(--text-3);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    margin-top: 2px;
+  }
+  .chatrow__msg b { color: var(--text-2); font-weight: 600; }
+
+  .chatrow__meta { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+  .chatrow__time { font-size: 11px; color: var(--text-4); }
+  .chatrow__badge {
+    background: var(--brand-orange);
+    color: white; font-size: 10.5px; font-weight: 700;
+    min-width: 18px; height: 18px; padding: 0 5px;
+    border-radius: var(--r-pill);
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .chatrow__badge.is-muted { background: var(--text-4); }
+  .mute-ic { color: var(--text-4); }
+
+  /* Right pane: today dashboard ------------------------------ */
+  .dash { padding: 24px 28px; max-width: 1100px; }
+  .dash__hello {
+    font-size: 22px; font-weight: 800; letter-spacing: -0.02em;
+  }
+  .dash__hello em { color: var(--brand-blue); font-style: normal; }
+  .dash__sub { font-size: 13px; color: var(--text-3); margin-top: 4px; }
+
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-top: 22px;
+  }
+  .stat {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: 16px 18px;
+  }
+  .stat__label {
+    font-size: 12px; color: var(--text-3);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .stat__value {
+    font-size: 26px; font-weight: 800; letter-spacing: -0.02em;
+    margin-top: 8px;
+  }
+  .stat__sub { font-size: 11.5px; color: var(--text-3); margin-top: 4px; }
+  .stat__sub b.up { color: var(--success); }
+  .stat__sub b.down { color: var(--danger); }
+  .stat__sub b.alert { color: var(--brand-orange); }
+
+  .dash-grid {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 14px;
+    margin-top: 18px;
+  }
+
+  .notice-row {
+    display: grid; grid-template-columns: 1fr auto; gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .notice-row:last-child { border-bottom: none; }
+  .notice-row__title { font-size: 13.5px; font-weight: 600; color: var(--text-1); }
+  .notice-row__meta { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
+
+  .activity { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border-soft); }
+  .activity:last-child { border-bottom: none; }
+  .activity__body { font-size: 13px; }
+  .activity__body b { font-weight: 600; }
+  .activity__time { font-size: 11px; color: var(--text-4); margin-top: 2px; }
+</style>
+</head>
+<body data-nav="chat" data-title="채팅" data-sub="회의실 1, 회의실 2, 회의실 3 ... 외 9개" data-screen-label="02 Chat list">
+
+<div class="app">
+  <div id="side"></div>
+
+  <aside class="chatlist">
+    <div class="chatlist__head">
+      <h2>채팅</h2>
+      <button class="icon-btn" title="새 채팅">
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+          <path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="chatlist__filter">
+      <button class="pill is-active">전체<span class="pill__count">24</span></button>
+      <button class="pill">읽지 않음<span class="pill__count">12</span></button>
+      <button class="pill">고정<span class="pill__count">3</span></button>
+      <button class="pill">멘션</button>
+    </div>
+
+    <div class="chatlist__scroll">
+
+      <div class="chatlist__group">고정된 대화</div>
+
+      <div class="chatrow is-active">
+        <div class="chatrow__avatar"><div class="avatar avatar--orange">P1</div><span class="presence"></span></div>
+        <div class="chatrow__main">
+          <div class="chatrow__name">P-2410 강판 자동화 라인<span class="tag tag--blue">프로젝트</span></div>
+          <div class="chatrow__msg"><b>박지영 책임:</b> 시험성적서 초안 확인 부탁드립니다.</div>
+        </div>
+        <div class="chatrow__meta"><div class="chatrow__time">오후 2:14</div><div class="chatrow__badge">4</div></div>
+      </div>
+
+      <div class="chatrow">
+        <div class="chatrow__avatar"><div class="avatar avatar--purple">생기</div><span class="presence is-away"></span></div>
+        <div class="chatrow__main">
+          <div class="chatrow__name">생산기술팀 전체방</div>
+          <div class="chatrow__msg"><b>이수현 수석:</b> 내일 9시 라인점검 일정 공유드립니다.</div>
+        </div>
+        <div class="chatrow__meta"><div class="chatrow__time">오후 1:48</div><div class="chatrow__badge is-muted">8</div></div>
+      </div>
+
+      <div class="chatrow">
+        <div class="chatrow__avatar"><div class="avatar">정민</div><span class="presence"></span></div>
+        <div class="chatrow__main">
+          <div class="chatrow__name">정민호 팀장</div>
+          <div class="chatrow__msg">오전 보고서 확인 후 회신 부탁드립니다.</div>
+        </div>
+        <div class="chatrow__meta"><div class="chatrow__time">오후 1:02</div><svg class="mute-ic" width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M4 8v4h3l4 3V5L7 8H4ZM14 7l3 3M17 7l-3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+      </div>
+
+      <div class="chatlist__group">최근 대화</div>
+
+      <div class="chatrow">
+        <div class="chatrow__avatar"><div class="avatar avatar--green">P2</div></div>
+        <div class="chatrow__main">
+          <div class="chatrow__name">P-2411 신소재 SPC 도입<span class="tag tag--green">진행중</span></div>
+          <div class="chatrow__msg"><b>윤서연 책임:</b> @김민준 8월 일정 협의 요청드립니다.</div>
+        </div>
+        <div class="chatrow__meta"><div class="chatrow__time">오후 12:33</div><div class="chatrow__badge">2</div></div>
+      </div>
+
+      <div class="chatrow">
+        <div class="chatrow__avatar"><div class="avatar avatar--gray">공지</div></div>
+        <div class="chatrow__main">
+          <div class="chatrow__name">전사 공지방<span class="tag tag--amber">확인 필요</span></div>
+          <div class="chatrow__msg"><b>인사팀:</b> 7월 안전교육 이수 안내(필독)</div>
+        </div>
+        <div class="chatrow__meta"><div class="chatrow__time">오전 11:20</div><div class="chatrow__badge">1</div></div>
+      </div>
+
+      <div class="chatrow">
+        <div class="chatrow__avatar"><div class="avatar">한지</div><span class="presence"></span></div>
+        <div class="chatrow__main">
+          <div class="chatrow__name">한지수 사원</div>
+          <div class="chatrow__msg">네 알겠습니다. 점심 후에 다시 정리해서 드리겠습니다.</div>
+        </div>
+        <div class="chatrow__meta"><div class="chatrow__time">오전 10:55</div></div>
+      </div>
+
+      <div class="chatrow">
+        <div class="chatrow__avatar"><div class="avatar avatar--orange">영업</div></div>
+        <div class="chatrow__main">
+          <div class="chatrow__name">영업본부 ↔ 생산기술</div>
+          <div class="chatrow__msg"><b>최도현 책임:</b> SUS304 판재 영업 가능 여부 확인 부탁드립니다.</div>
+        </div>
+        <div class="chatrow__meta"><div class="chatrow__time">오전 10:12</div></div>
+      </div>
+
+      <div class="chatrow">
+        <div class="chatrow__avatar"><div class="avatar avatar--purple">P3</div></div>
+        <div class="chatrow__main">
+          <div class="chatrow__name">P-2403 노후 설비 교체<span class="tag">완료</span></div>
+          <div class="chatrow__msg">프로젝트가 완료 처리되었습니다.</div>
+        </div>
+        <div class="chatrow__meta"><div class="chatrow__time">어제</div></div>
+      </div>
+
+      <div class="chatrow">
+        <div class="chatrow__avatar"><div class="avatar">강은</div><span class="presence is-off"></span></div>
+        <div class="chatrow__main">
+          <div class="chatrow__name">강은혜 수석</div>
+          <div class="chatrow__msg">자료 확인했습니다. 감사합니다.</div>
+        </div>
+        <div class="chatrow__meta"><div class="chatrow__time">어제</div></div>
+      </div>
+
+      <div class="chatrow">
+        <div class="chatrow__avatar"><div class="avatar avatar--gray">품질</div></div>
+        <div class="chatrow__main">
+          <div class="chatrow__name">품질보증팀</div>
+          <div class="chatrow__msg"><b>오세훈 책임:</b> 시험성적서 미확정 건 5건 회신 부탁드립니다.</div>
+        </div>
+        <div class="chatrow__meta"><div class="chatrow__time">5월 8일</div></div>
+      </div>
+
+    </div>
+  </aside>
+
+  <main class="main">
+    <div id="top"></div>
+    <div class="content">
+      <div class="dash">
+        <div class="dash__hello">안녕하세요, <em>김민준</em> 책임님 👋</div>
+        <div class="dash__sub">오늘은 2026년 5월 13일 수요일 · 오늘의 업무 현황을 알려드립니다.</div>
+
+        <div class="stat-grid">
+          <div class="stat">
+            <div class="stat__label">읽지 않은 메시지</div>
+            <div class="stat__value">12</div>
+            <div class="stat__sub">멘션 <b class="alert">3건</b> 포함</div>
+          </div>
+          <div class="stat">
+            <div class="stat__label">진행 중인 프로젝트</div>
+            <div class="stat__value">3</div>
+            <div class="stat__sub">담당 2 · 참여 1</div>
+          </div>
+          <div class="stat">
+            <div class="stat__label">오늘 마감 업무</div>
+            <div class="stat__value">5</div>
+            <div class="stat__sub"><b class="alert">2건 지연</b> · 3건 진행중</div>
+          </div>
+          <div class="stat">
+            <div class="stat__label">확인이 필요한 공지</div>
+            <div class="stat__value">2</div>
+            <div class="stat__sub">필독 1건 · 일반 1건</div>
+          </div>
+        </div>
+
+        <div class="dash-grid">
+
+          <section class="card">
+            <div class="card__head">
+              <div>
+                <div class="card__title">오늘의 업무</div>
+                <div class="card__sub">담당자: 김민준 · 5월 13일 기준</div>
+              </div>
+              <button class="btn btn--ghost btn--sm" style="margin-left:auto">전체 보기 →</button>
+            </div>
+            <div class="card__body" style="padding: 8px 20px;">
+              <div class="notice-row">
+                <div>
+                  <div class="notice-row__title">SUS304 시험성적서 검토 회신</div>
+                  <div class="notice-row__meta">P-2410 강판 자동화 라인 · 진행률 80%</div>
+                </div>
+                <span class="tag tag--red tag--dot">지연 1일</span>
+              </div>
+              <div class="notice-row">
+                <div>
+                  <div class="notice-row__title">7월 생산일정 초안 작성</div>
+                  <div class="notice-row__meta">P-2411 신소재 SPC · 마감일 오늘 18:00</div>
+                </div>
+                <span class="tag tag--amber tag--dot">오늘 마감</span>
+              </div>
+              <div class="notice-row">
+                <div>
+                  <div class="notice-row__title">설비점검 체크리스트 승인</div>
+                  <div class="notice-row__meta">제조1팀 · 마감일 5월 14일</div>
+                </div>
+                <span class="tag tag--blue tag--dot">진행중</span>
+              </div>
+              <div class="notice-row">
+                <div>
+                  <div class="notice-row__title">월간 KPI 리뷰 자료 정리</div>
+                  <div class="notice-row__meta">생산기술팀 정기보고 · 마감일 5월 16일</div>
+                </div>
+                <span class="tag tag--dot">대기</span>
+              </div>
+              <div class="notice-row">
+                <div>
+                  <div class="notice-row__title">신규 인입 자재 입고 확인</div>
+                  <div class="notice-row__meta">자재팀 협조 · 마감일 5월 16일</div>
+                </div>
+                <span class="tag tag--green tag--dot">완료</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="card__head">
+              <div>
+                <div class="card__title">확인이 필요한 공지</div>
+                <div class="card__sub">읽음/확인 처리 대기</div>
+              </div>
+            </div>
+            <div class="card__body" style="padding: 8px 20px;">
+              <div class="notice-row">
+                <div>
+                  <div class="notice-row__title">[필독] 7월 안전교육 이수 안내</div>
+                  <div class="notice-row__meta">인사팀 · 마감일 5월 20일</div>
+                </div>
+                <span class="tag tag--red">확인 필요</span>
+              </div>
+              <div class="notice-row">
+                <div>
+                  <div class="notice-row__title">사내 보안정책 개정 안내(v3.2)</div>
+                  <div class="notice-row__meta">정보지원팀 · 5월 12일</div>
+                </div>
+                <span class="tag tag--amber">확인 필요</span>
+              </div>
+              <div class="notice-row">
+                <div>
+                  <div class="notice-row__title">한미르톡 v2.4.1 업데이트 안내</div>
+                  <div class="notice-row__meta">시스템 공지 · 5월 11일</div>
+                </div>
+                <span class="tag tag--green">확인 완료</span>
+              </div>
+            </div>
+
+            <div class="card__head" style="border-top: 1px solid var(--border-soft); border-bottom: none;">
+              <div>
+                <div class="card__title">최근 활동</div>
+                <div class="card__sub">내가 담당하는 항목</div>
+              </div>
+            </div>
+            <div class="card__body" style="padding: 4px 20px 16px;">
+              <div class="activity">
+                <div class="avatar sm avatar--orange">박지</div>
+                <div class="flex-1">
+                  <div class="activity__body"><b>박지영</b>님이 시험성적서 v0.3을 업로드했습니다.</div>
+                  <div class="activity__time">P-2410 · 12분 전</div>
+                </div>
+              </div>
+              <div class="activity">
+                <div class="avatar sm avatar--purple">윤서</div>
+                <div class="flex-1">
+                  <div class="activity__body"><b>윤서연</b>님이 작업 <b>"7월 생산일정 초안 작성"</b>의 담당자로 지정했습니다.</div>
+                  <div class="activity__time">P-2411 · 1시간 전</div>
+                </div>
+              </div>
+              <div class="activity">
+                <div class="avatar sm">최도</div>
+                <div class="flex-1">
+                  <div class="activity__body"><b>최도현</b>님이 SUS304 영업 가능 상태를 <b>"제한적 영업 가능"</b>으로 변경했습니다.</div>
+                  <div class="activity__time">제품정보 · 2시간 전</div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="assets/chrome.js"></script>
+<script>HanmirChrome.mount();</script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+{
+  "name": "hanmir-talk",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "server"
+  ],
+  "scripts": {
+    "dev": "npm --workspace apps/web run dev",
+    "dev:server": "npm --workspace @hanmir/server run dev",
+    "build": "npm --workspace apps/web run build",
+    "build:server": "npm --workspace @hanmir/server run build",
+    "start": "npm --workspace apps/web run start",
+    "start:server": "npm --workspace @hanmir/server run start",
+    "lint": "npm --workspace apps/web run lint",
+    "typecheck": "npm --workspaces --if-present run typecheck"
+  },
+  "engines": {
+    "node": ">=18.18.0"
+  }
+}

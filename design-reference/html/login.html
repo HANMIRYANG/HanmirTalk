@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>한미르톡 — 로그인</title>
+<link rel="stylesheet" href="assets/shared.css">
+<style>
+  body {
+    background:
+      radial-gradient(1200px 600px at 80% -10%, #EEF3FB 0%, transparent 60%),
+      radial-gradient(900px 500px at -10% 110%, #FDF1EA 0%, transparent 60%),
+      var(--bg);
+    display: grid;
+    place-items: center;
+    min-height: 100vh;
+  }
+  .login-shell {
+    width: 100%;
+    max-width: 980px;
+    display: grid;
+    grid-template-columns: 1.05fr 1fr;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-xl);
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+    margin: 24px;
+  }
+  .login-aside {
+    padding: 56px 48px;
+    background: var(--surface);
+    border-right: 1px solid var(--border-soft);
+    display: flex;
+    flex-direction: column;
+  }
+  .login-aside__logo {
+    display: flex; align-items: center; gap: 14px;
+  }
+  .login-aside__logo img { width: 56px; height: 56px; }
+  .login-aside__logo-title { font-size: 22px; font-weight: 800; letter-spacing: -0.03em; }
+  .login-aside__logo-sub  { font-size: 12px; color: var(--text-3); margin-top: 2px; }
+
+  .login-aside__head {
+    margin-top: 48px;
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--text-1);
+    letter-spacing: -0.03em;
+    line-height: 1.3;
+  }
+  .login-aside__head em { font-style: normal; color: var(--brand-blue); }
+  .login-aside__body { font-size: 14px; color: var(--text-2); margin-top: 12px; line-height: 1.7; }
+
+  .login-aside__features {
+    margin-top: auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px 18px;
+    padding-top: 36px;
+  }
+  .feat {
+    display: flex; gap: 10px; align-items: flex-start;
+    font-size: 12.5px; color: var(--text-2);
+  }
+  .feat__bullet {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--brand-blue);
+    margin-top: 7px;
+    flex-shrink: 0;
+  }
+  .feat:nth-child(2) .feat__bullet { background: var(--brand-orange); }
+
+  .login-form {
+    padding: 56px 48px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    background: var(--surface-muted);
+  }
+  .login-form h2 { font-size: 18px; font-weight: 700; margin: 0 0 6px; }
+  .login-form p.sub { font-size: 13px; color: var(--text-3); margin: 0 0 28px; }
+
+  .form-group { margin-bottom: 16px; }
+  .field-row { position: relative; }
+  .field-row input.field { padding-left: 40px; }
+  .field-row .field-ic {
+    position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+    color: var(--text-4);
+  }
+
+  .form-row {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 12.5px;
+    margin: -4px 0 20px;
+  }
+  .check { display: flex; align-items: center; gap: 6px; color: var(--text-2); cursor: pointer; }
+  .check input { accent-color: var(--brand-blue); }
+  .link { color: var(--brand-blue); font-weight: 600; }
+
+  .btn--block { width: 100%; padding: 12px; font-size: 14px; }
+
+  .sso {
+    margin-top: 14px;
+    display: flex; align-items: center; gap: 12px;
+    font-size: 12px; color: var(--text-3);
+  }
+  .sso::before, .sso::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+  .sso-btn {
+    margin-top: 12px;
+    width: 100%;
+    padding: 11px;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-sm);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-1);
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    cursor: pointer;
+  }
+  .sso-btn:hover { background: var(--bg-soft); }
+
+  .login-foot {
+    margin-top: 24px;
+    font-size: 11.5px; color: var(--text-4);
+    text-align: center;
+    line-height: 1.6;
+  }
+</style>
+</head>
+<body data-screen-label="01 Login">
+  <div class="login-shell">
+    <section class="login-aside">
+      <div class="login-aside__logo">
+        <img src="assets/logo/hanmir-logo.png" alt="한미르 로고">
+        <div>
+          <div class="login-aside__logo-title">한미르톡</div>
+          <div class="login-aside__logo-sub">한미르주식회사 · 사내 협업 플랫폼</div>
+        </div>
+      </div>
+
+      <div class="login-aside__head">
+        업무가 흐르는 곳,<br>
+        <em>한미르톡</em>에 오신 것을<br>환영합니다.
+      </div>
+      <div class="login-aside__body">
+        프로젝트, 업무, 공지, 제품정보를 한 곳에서 관리하는<br>
+        한미르 임직원 전용 업무 메신저입니다.
+      </div>
+
+      <div class="login-aside__features">
+        <div class="feat"><span class="feat__bullet"></span><span>채팅 · 프로젝트룸 · 간트일정 통합 관리</span></div>
+        <div class="feat"><span class="feat__bullet"></span><span>제품 영업 가능 상태 · 시험성적서 공유</span></div>
+        <div class="feat"><span class="feat__bullet"></span><span>업무 마감일 · 진행률 자동 집계</span></div>
+        <div class="feat"><span class="feat__bullet"></span><span>PC · 모바일 PWA 동시 지원</span></div>
+      </div>
+    </section>
+
+    <section class="login-form">
+      <h2>로그인</h2>
+      <p class="sub">사내 계정으로 한미르톡에 접속하세요.</p>
+
+      <div class="form-group">
+        <label class="field-label">사원번호 또는 이메일</label>
+        <div class="field-row">
+          <svg class="field-ic" width="16" height="16" viewBox="0 0 20 20" fill="none">
+            <circle cx="10" cy="7.5" r="3" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M4 16c.8-2.8 3.2-4.5 6-4.5s5.2 1.7 6 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          <input class="field" type="text" placeholder="hanmir-12345 또는 name@hanmir.co.kr" value="kim.minjun@hanmir.co.kr">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="field-label">비밀번호</label>
+        <div class="field-row">
+          <svg class="field-ic" width="16" height="16" viewBox="0 0 20 20" fill="none">
+            <rect x="4.5" y="9" width="11" height="8" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M7 9V6.5a3 3 0 0 1 6 0V9" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+          <input class="field" type="password" placeholder="비밀번호 입력" value="••••••••••">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label class="check"><input type="checkbox" checked> 로그인 상태 유지</label>
+        <a class="link" href="#">비밀번호 찾기</a>
+      </div>
+
+      <button class="btn btn--primary btn--block">로그인</button>
+
+      <div class="sso">또는</div>
+      <button class="sso-btn">
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
+          <rect x="3" y="3" width="14" height="14" rx="3" fill="#1F4FA8"/>
+          <path d="M7 10l2 2 4-4" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        </svg>
+        한미르 SSO로 로그인
+      </button>
+
+      <div class="login-foot">
+        © 2026 한미르주식회사 · v2.4.1<br>
+        문의: 정보지원팀 (내선 1234) · <a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="d4bcb1b8a4b0b1a7bf94bcb5bab9bda6fab7bbfabfa6">[email&#160;protected]</a>
+      </div>
+    </section>
+  </div>
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script></body>
+</html>

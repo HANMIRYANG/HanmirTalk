@@ -1,0 +1,216 @@
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 28px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.seg {
+  display: flex;
+  background: var(--bg-soft);
+  border-radius: var(--r-sm);
+  padding: 3px;
+  gap: 2px;
+}
+.segBtn {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+  padding: 5px 10px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+}
+.segActive {
+  background: var(--surface);
+  color: var(--text-1);
+  box-shadow: var(--shadow-sm);
+}
+
+.filterBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  color: var(--text-2);
+}
+.filterBtn b { color: var(--text-1); font-weight: 600; }
+.filterBtn svg { color: var(--text-4); }
+
+.right { margin-left: auto; display: flex; gap: 8px; }
+
+.tblWrap {
+  background: var(--surface);
+  margin: 18px 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+.groupHead {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--surface-muted);
+  border-bottom: 1px solid var(--border-soft);
+  cursor: pointer;
+  color: var(--text-3);
+}
+.groupLabel {
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-1);
+}
+.groupCount {
+  background: var(--bg-soft);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+}
+.groupCountDanger { background: var(--danger-bg); color: var(--danger); }
+.groupCountSuccess { background: var(--success-bg); color: var(--success); }
+
+.groupAdd {
+  font-size: 12px;
+  color: var(--text-3);
+  font-weight: 500;
+  background: none;
+  border: none;
+  padding: 4px 8px;
+}
+.groupAdd:hover { color: var(--text-1); }
+
+.tasks {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.tasks thead th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-4);
+  padding: 10px 12px;
+  background: var(--surface-muted);
+  border-bottom: 1px solid var(--border-soft);
+  letter-spacing: 0.02em;
+}
+.tasks tbody td {
+  padding: 12px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: middle;
+  color: var(--text-2);
+}
+.tasks tbody tr:last-child td { border-bottom: none; }
+.tasks tbody tr:hover { background: var(--bg-soft); }
+
+.check {
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 4px;
+  display: inline-block;
+  vertical-align: middle;
+}
+.checkDone {
+  background: var(--success);
+  border-color: var(--success);
+  position: relative;
+}
+.checkDone::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 5px;
+  height: 9px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.checkProgress {
+  background: var(--brand-blue);
+  border-color: var(--brand-blue);
+  position: relative;
+}
+.checkProgress::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: white;
+}
+
+.title {
+  font-weight: 600;
+  color: var(--text-1);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.id {
+  font-size: 11px;
+  color: var(--text-4);
+  font-weight: 500;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+}
+.subs {
+  font-size: 11px;
+  color: var(--text-3);
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.assignees { display: flex; }
+.assigneeAvatar {
+  width: 24px;
+  height: 24px;
+  font-size: 10px;
+  margin-left: -6px;
+  border: 2px solid var(--surface);
+}
+.assignees > .assigneeAvatar:first-child { margin-left: 0; }
+
+.due {
+  font-size: 12.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.dueLate { color: var(--danger); font-weight: 600; }
+.dueToday { color: var(--brand-orange); font-weight: 600; }
+
+.progressCell { display: flex; align-items: center; gap: 8px; }
+.progressBar { flex: 1; height: 5px; }
+.progressVal {
+  font-size: 11.5px;
+  color: var(--text-3);
+  font-weight: 600;
+  min-width: 28px;
+  text-align: right;
+}
+
+.colCheck { width: 36px; }
+.colStatus { width: 110px; }
+.colAssign { width: 96px; }
+.colDue { width: 120px; }
+.colProgress { width: 140px; }
+.colPriority { width: 80px; }

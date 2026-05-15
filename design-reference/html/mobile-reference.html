@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>한미르톡 — 모바일 레퍼런스</title>
+<link rel="stylesheet" href="assets/shared.css">
+<style>
+  body {
+    background:
+      radial-gradient(900px 500px at 20% 0%, #EEF3FB 0%, transparent 60%),
+      radial-gradient(700px 400px at 100% 100%, #FDF1EA 0%, transparent 60%),
+      var(--bg);
+    min-height: 100vh;
+  }
+
+  .mref-head {
+    padding: 40px 48px 24px;
+    display: flex; align-items: center; gap: 16px;
+  }
+  .mref-head img { width: 48px; height: 48px; }
+  .mref-head h1 { margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.02em; }
+  .mref-head p { margin: 4px 0 0; font-size: 13px; color: var(--text-3); }
+  .mref-back {
+    margin-left: auto;
+    font-size: 13px; color: var(--text-2);
+    text-decoration: none; padding: 8px 12px;
+    border: 1px solid var(--border-strong); border-radius: var(--r-sm);
+    background: var(--surface);
+  }
+  .mref-back:hover { background: var(--bg-soft); }
+
+  .mref-grid {
+    display: flex;
+    gap: 28px;
+    padding: 20px 48px 80px;
+    overflow-x: auto;
+    align-items: flex-start;
+  }
+
+  .phone-col { display: flex; flex-direction: column; align-items: center; gap: 12px; flex-shrink: 0; }
+  .phone-col__label {
+    font-size: 13px; font-weight: 700;
+  }
+  .phone-col__sub {
+    font-size: 11.5px; color: var(--text-3); margin-top: -4px;
+  }
+
+  /* Phone bezel */
+  .phone {
+    width: 320px; height: 660px;
+    background: #1A1D23;
+    border-radius: 38px;
+    padding: 8px;
+    box-shadow: 0 10px 32px rgba(0,0,0,0.18);
+    flex-shrink: 0;
+  }
+  .phone__screen {
+    background: var(--bg);
+    width: 100%; height: 100%;
+    border-radius: 30px;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    position: relative;
+  }
+  .phone__notch {
+    position: absolute;
+    top: 6px; left: 50%; transform: translateX(-50%);
+    width: 100px; height: 22px;
+    background: #1A1D23;
+    border-radius: 14px;
+    z-index: 10;
+  }
+  .status-bar {
+    height: 30px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 22px 0;
+    font-size: 11.5px; font-weight: 700; color: var(--text-1);
+    z-index: 5;
+  }
+  .status-bar__r { display: flex; gap: 4px; align-items: center; font-size: 10px; }
+
+  /* mobile header */
+  .mhd {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px 12px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .mhd__back { width: 22px; height: 22px; display: grid; place-items: center; color: var(--text-2); }
+  .mhd__title { font-size: 15px; font-weight: 700; }
+  .mhd__sub { font-size: 10.5px; color: var(--text-3); }
+  .mhd__r { margin-left: auto; display: flex; gap: 6px; }
+  .mhd__r .ic { width: 24px; height: 24px; display: grid; place-items: center; color: var(--text-2); }
+
+  /* mobile body */
+  .mbody { flex: 1; overflow-y: auto; background: var(--bg); }
+
+  /* mobile tab bar */
+  .mtab {
+    display: flex; justify-content: space-around;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    padding: 6px 0 22px;
+  }
+  .mtab__item {
+    flex: 1;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    font-size: 9.5px; color: var(--text-3); font-weight: 600;
+    padding: 4px 0;
+  }
+  .mtab__item.is-active { color: var(--brand-blue); }
+  .mtab__item .ic-wrap { position: relative; }
+  .mtab__item .badge {
+    position: absolute; top: -3px; right: -7px;
+    background: var(--brand-orange); color: white;
+    font-size: 8.5px; font-weight: 700;
+    padding: 1px 4px; border-radius: 6px; min-width: 12px;
+    text-align: center;
+  }
+
+  /* ========= Screen 1: Login ========= */
+  .mlogin {
+    flex: 1;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 30px 24px;
+    background: linear-gradient(180deg, var(--surface), var(--bg));
+  }
+  .mlogin__logo { width: 64px; height: 64px; }
+  .mlogin__name { font-size: 20px; font-weight: 800; margin-top: 14px; letter-spacing: -0.02em; }
+  .mlogin__sub { font-size: 12px; color: var(--text-3); margin-top: 4px; text-align: center; line-height: 1.6; }
+  .mlogin__form { width: 100%; margin-top: 28px; display: flex; flex-direction: column; gap: 10px; }
+  .mfield {
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-sm);
+    padding: 11px 12px;
+    font-size: 13px;
+    color: var(--text-1);
+    background: var(--surface);
+  }
+  .mfield.placeholder { color: var(--text-4); }
+  .mlogin__btn {
+    margin-top: 6px;
+    padding: 12px; background: var(--brand-blue); color: white;
+    font-size: 14px; font-weight: 700;
+    border-radius: var(--r-sm);
+    text-align: center;
+  }
+  .mlogin__sso {
+    margin-top: 8px;
+    padding: 11px; background: var(--surface);
+    border: 1px solid var(--border-strong);
+    font-size: 13px; font-weight: 600;
+    border-radius: var(--r-sm);
+    text-align: center;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .mlogin__foot { font-size: 10px; color: var(--text-4); margin-top: 28px; text-align: center; }
+
+  /* ========= Screen 2: Chat list ========= */
+  .mfilters { padding: 8px 12px; display: flex; gap: 6px; overflow-x: auto; background: var(--surface); border-bottom: 1px solid var(--border-soft); }
+  .mpill {
+    font-size: 11px; font-weight: 600;
+    padding: 5px 10px; border-radius: var(--r-pill);
+    background: var(--bg-soft); color: var(--text-3);
+    flex-shrink: 0;
+  }
+  .mpill.is-active { background: var(--brand-blue); color: white; }
+
+  .mchat {
+    display: grid; grid-template-columns: 40px 1fr auto;
+    gap: 10px; padding: 11px 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .mchat__avatar { position: relative; }
+  .mchat__avatar .avatar { width: 40px; height: 40px; border-radius: 10px; font-size: 12px; }
+  .mchat__name { font-size: 13.5px; font-weight: 700; }
+  .mchat__msg { font-size: 11.5px; color: var(--text-3); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
+  .mchat__time { font-size: 10px; color: var(--text-4); }
+  .mchat__badge { background: var(--brand-orange); color: white; font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 10px; margin-top: 4px; min-width: 16px; text-align: center; }
+
+  /* ========= Screen 3: Chat room ========= */
+  .mroom { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .mmsg { display: grid; grid-template-columns: 32px 1fr; gap: 8px; }
+  .mmsg.is-mine { grid-template-columns: 1fr 32px; }
+  .mmsg.is-mine .mmsg__bubble { background: var(--brand-blue-50); color: var(--text-1); margin-left: auto; }
+  .mmsg .avatar { width: 32px; height: 32px; border-radius: 8px; font-size: 10px; }
+  .mmsg__name { font-size: 11px; font-weight: 700; }
+  .mmsg__bubble {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 10px;
+    font-size: 12px;
+    line-height: 1.5;
+    margin-top: 3px;
+    color: var(--text-1);
+  }
+  .mmsg__time { font-size: 9.5px; color: var(--text-4); margin-top: 3px; }
+  .mmsg .mmsg__file {
+    display: flex; gap: 8px; align-items: center;
+    padding: 8px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 8px;
+    margin-top: 6px;
+  }
+  .mfile-ic { width: 24px; height: 28px; background: #DC2626; color: white; border-radius: 3px; font-size: 8px; font-weight: 700; display: grid; place-items: center; }
+  .mfile-name { font-size: 11.5px; font-weight: 600; }
+  .mfile-meta { font-size: 10px; color: var(--text-3); }
+
+  .mcomp {
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    padding: 8px 10px;
+    display: flex; gap: 8px; align-items: center;
+  }
+  .mcomp__plus { width: 32px; height: 32px; background: var(--bg-soft); border-radius: 50%; display: grid; place-items: center; color: var(--text-2); }
+  .mcomp__inp {
+    flex: 1; background: var(--bg-soft); border: 1px solid var(--border-soft);
+    padding: 8px 12px; border-radius: var(--r-pill);
+    font-size: 12px; color: var(--text-4);
+  }
+  .mcomp__send { width: 32px; height: 32px; background: var(--brand-blue); border-radius: 50%; color: white; display: grid; place-items: center; }
+
+  /* ========= Screen 4: Notice with confirmation ========= */
+  .mnotice { padding: 14px; }
+  .mnotice__card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: 16px; }
+  .mnotice__head { display: flex; gap: 8px; align-items: center; }
+  .mnotice__tag { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: var(--danger-bg); color: var(--danger); }
+  .mnotice__time { font-size: 10.5px; color: var(--text-3); margin-left: auto; }
+  .mnotice__title { font-size: 15px; font-weight: 800; margin-top: 8px; letter-spacing: -0.01em; }
+  .mnotice__sub { font-size: 11.5px; color: var(--text-3); margin-top: 3px; }
+  .mnotice__body { font-size: 12.5px; color: var(--text-2); line-height: 1.7; margin-top: 12px; }
+  .mnotice__body b { color: var(--text-1); }
+  .mnotice__attach { display: flex; gap: 8px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; margin-top: 12px; }
+  .mnotice__confirm {
+    margin-top: 14px;
+    background: var(--brand-blue); color: white;
+    padding: 12px; text-align: center;
+    font-size: 13px; font-weight: 700;
+    border-radius: var(--r-sm);
+  }
+  .mnotice__readby {
+    margin-top: 10px;
+    font-size: 11px; color: var(--text-3);
+    text-align: center;
+  }
+  .mnotice__readby b { color: var(--text-2); }
+
+  /* ========= Screen 5: Project home ========= */
+  .mph { padding: 14px; background: var(--surface); border-bottom: 1px solid var(--border-soft); }
+  .mph__title { font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
+  .mph__sub { font-size: 11px; color: var(--text-3); margin-top: 3px; }
+  .mph__stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .mph__stat { background: var(--bg-soft); border-radius: var(--r-sm); padding: 8px 10px; }
+  .mph__stat .l { font-size: 10px; color: var(--text-3); }
+  .mph__stat .v { font-size: 15px; font-weight: 800; margin-top: 2px; }
+
+  .mp-tabs { display: flex; gap: 14px; padding: 0 14px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .mp-tab { font-size: 12.5px; font-weight: 600; color: var(--text-3); padding: 10px 0; border-bottom: 2px solid transparent; }
+  .mp-tab.is-active { color: var(--brand-blue); border-bottom-color: var(--brand-blue); }
+
+  .mtask-list { padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .mtask {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--r-md); padding: 11px 12px;
+  }
+  .mtask__top { display: flex; align-items: center; gap: 6px; }
+  .mtask__check {
+    width: 14px; height: 14px; border: 1.5px solid var(--border-strong); border-radius: 3px;
+  }
+  .mtask__check.is-progress { background: var(--brand-blue); border-color: var(--brand-blue); position: relative; }
+  .mtask__check.is-progress::after { content:''; position: absolute; inset: 2px; border-radius: 50%; background: white; }
+  .mtask__title { font-size: 12.5px; font-weight: 600; flex: 1; }
+  .mtask__meta { display: flex; gap: 8px; align-items: center; margin-top: 7px; font-size: 10.5px; color: var(--text-3); }
+  .mtask__meta .tag { font-size: 9.5px; padding: 1px 6px; }
+  .mtask__progress { height: 4px; background: var(--bg-soft); border-radius: 4px; margin-top: 7px; overflow: hidden; }
+  .mtask__progress > span { display: block; height: 100%; background: var(--brand-blue); border-radius: 4px; }
+  .mtask__progress.is-late > span { background: var(--brand-orange); }
+</style>
+</head>
+<body data-screen-label="10 Mobile reference">
+
+  <header class="mref-head">
+    <img src="assets/logo/hanmir-logo.png" alt="Hanmir">
+    <div>
+      <h1>한미르톡 모바일 레퍼런스</h1>
+      <p>iOS / Android PWA 공통 디자인. 5개 핵심 화면 · 1:1 비율 미리보기 · 2026.05.13</p>
+    </div>
+    <a class="mref-back" href="chat-list.html">← PC 화면으로</a>
+  </header>
+
+  <div class="mref-grid">
+
+    <!-- Phone 1: Login -->
+    <div class="phone-col">
+      <div class="phone">
+        <div class="phone__screen">
+          <div class="phone__notch"></div>
+          <div class="status-bar">
+            <span>9:41</span>
+            <span class="status-bar__r">●●● 100%</span>
+          </div>
+          <div class="mlogin">
+            <img class="mlogin__logo" src="assets/logo/hanmir-logo.png" alt="">
+            <div class="mlogin__name">한미르톡</div>
+            <div class="mlogin__sub">한미르주식회사<br>임직원 업무 메신저</div>
+            <div class="mlogin__form">
+              <div class="mfield"><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="355e5c581b585c5b5f405b755d545b585c471b565a1b5e47">[email&#160;protected]</a></div>
+              <div class="mfield placeholder">비밀번호 입력</div>
+              <div class="mlogin__btn">로그인</div>
+              <div class="mlogin__sso">
+                <svg width="14" height="14" viewBox="0 0 20 20" fill="none"><rect x="3" y="3" width="14" height="14" rx="3" fill="#1F4FA8"/><path d="M7 10l2 2 4-4" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+                한미르 SSO로 로그인
+              </div>
+            </div>
+            <div class="mlogin__foot">© 2026 한미르주식회사 v2.4.1</div>
+          </div>
+        </div>
+      </div>
+      <div class="phone-col__label">로그인</div>
+      <div class="phone-col__sub">SSO 우선 · 사번/이메일 보조</div>
+    </div>
+
+    <!-- Phone 2: Chat list -->
+    <div class="phone-col">
+      <div class="phone">
+        <div class="phone__screen">
+          <div class="phone__notch"></div>
+          <div class="status-bar"><span>9:41</span><span class="status-bar__r">●●● 100%</span></div>
+
+          <div class="mhd">
+            <div>
+              <div class="mhd__title">채팅</div>
+              <div class="mhd__sub">읽지 않음 12 · 멘션 3</div>
+            </div>
+            <div class="mhd__r">
+              <div class="ic"><svg width="16" height="16" viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="5" stroke="currentColor" stroke-width="1.6"/><path d="M13 13l3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></div>
+              <div class="ic"><svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></div>
+            </div>
+          </div>
+
+          <div class="mfilters">
+            <span class="mpill is-active">전체</span>
+            <span class="mpill">읽지 않음 · 12</span>
+            <span class="mpill">고정 · 3</span>
+            <span class="mpill">멘션</span>
+          </div>
+
+          <div class="mbody">
+            <div class="mchat">
+              <div class="mchat__avatar"><div class="avatar avatar--orange">P1</div></div>
+              <div>
+                <div class="mchat__name">P-2410 강판 자동화 라인</div>
+                <div class="mchat__msg">박지영: 시험성적서 v0.3 검토 부탁드립니다.</div>
+              </div>
+              <div style="text-align:right">
+                <div class="mchat__time">14:14</div>
+                <div class="mchat__badge">4</div>
+              </div>
+            </div>
+            <div class="mchat">
+              <div class="mchat__avatar"><div class="avatar avatar--purple">생</div></div>
+              <div>
+                <div class="mchat__name">생산기술팀 전체방</div>
+                <div class="mchat__msg">이수현: 내일 9시 라인점검 일정 공유드립니다.</div>
+              </div>
+              <div style="text-align:right"><div class="mchat__time">13:48</div></div>
+            </div>
+            <div class="mchat">
+              <div class="mchat__avatar"><div class="avatar">정</div></div>
+              <div>
+                <div class="mchat__name">정민호 팀장</div>
+                <div class="mchat__msg">오전 보고서 회신 부탁드립니다.</div>
+              </div>
+              <div style="text-align:right"><div class="mchat__time">13:02</div></div>
+            </div>
+            <div class="mchat">
+              <div class="mchat__avatar"><div class="avatar avatar--green">P2</div></div>
+              <div>
+                <div class="mchat__name">P-2411 신소재 SPC</div>
+                <div class="mchat__msg">윤서연: @김민준 8월 일정 협의 요청드립니다.</div>
+              </div>
+              <div style="text-align:right">
+                <div class="mchat__time">12:33</div>
+                <div class="mchat__badge">2</div>
+              </div>
+            </div>
+            <div class="mchat">
+              <div class="mchat__avatar"><div class="avatar avatar--gray">공</div></div>
+              <div>
+                <div class="mchat__name">전사 공지방</div>
+                <div class="mchat__msg">인사팀: 7월 안전교육 이수 안내</div>
+              </div>
+              <div style="text-align:right">
+                <div class="mchat__time">11:20</div>
+                <div class="mchat__badge">1</div>
+              </div>
+            </div>
+            <div class="mchat">
+              <div class="mchat__avatar"><div class="avatar avatar--orange">영</div></div>
+              <div>
+                <div class="mchat__name">영업본부 ↔ 생산기술</div>
+                <div class="mchat__msg">최도현: SUS304 영업 가능 여부 확인 부탁드립니다.</div>
+              </div>
+              <div style="text-align:right"><div class="mchat__time">10:12</div></div>
+            </div>
+          </div>
+
+          <div class="mtab">
+            <div class="mtab__item is-active">
+              <div class="ic-wrap">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 5.5A2.5 2.5 0 0 1 5.5 3h9A2.5 2.5 0 0 1 17 5.5v6A2.5 2.5 0 0 1 14.5 14H9l-4 3v-3H5.5A2.5 2.5 0 0 1 3 11.5v-6Z" stroke="currentColor" stroke-width="1.5" fill="currentColor" fill-opacity=".1"/></svg>
+                <span class="badge">12</span>
+              </div>
+              <span>채팅</span>
+            </div>
+            <div class="mtab__item">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H8l1.5 1.5h6A1.5 1.5 0 0 1 17 8v6.5A1.5 1.5 0 0 1 15.5 16h-11A1.5 1.5 0 0 1 3 14.5v-8Z" stroke="currentColor" stroke-width="1.5"/></svg>
+              <span>프로젝트</span>
+            </div>
+            <div class="mtab__item">
+              <div class="ic-wrap">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="3.5" y="3.5" width="13" height="13" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M7 10l2 2 4-4" stroke="currentColor" stroke-width="1.5"/></svg>
+                <span class="badge">5</span>
+              </div>
+              <span>업무</span>
+            </div>
+            <div class="mtab__item">
+              <div class="ic-wrap">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M5 8a5 5 0 0 1 10 0v3l1.5 2H3.5L5 11V8Z" stroke="currentColor" stroke-width="1.5"/></svg>
+                <span class="badge">2</span>
+              </div>
+              <span>공지</span>
+            </div>
+            <div class="mtab__item">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="8.5" r="2.2" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 15.5c.8-1.7 2.5-2.8 4.5-2.8s3.7 1.1 4.5 2.8" stroke="currentColor" stroke-width="1.5"/></svg>
+              <span>내정보</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="phone-col__label">채팅 목록</div>
+      <div class="phone-col__sub">하단 5탭 네비 · 한글 라벨</div>
+    </div>
+
+    <!-- Phone 3: Chat room -->
+    <div class="phone-col">
+      <div class="phone">
+        <div class="phone__screen">
+          <div class="phone__notch"></div>
+          <div class="status-bar"><span>9:41</span><span class="status-bar__r">●●● 100%</span></div>
+
+          <div class="mhd">
+            <div class="mhd__back">‹</div>
+            <div style="min-width:0; flex: 1;">
+              <div class="mhd__title" style="font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"># P-2410 강판 자동화 라인</div>
+              <div class="mhd__sub">8명 · 박지영 책임</div>
+            </div>
+            <div class="mhd__r">
+              <div class="ic"><svg width="16" height="16" viewBox="0 0 20 20" fill="none"><circle cx="7" cy="8" r="3" stroke="currentColor" stroke-width="1.5"/><circle cx="13.5" cy="8.5" r="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M2 16c.5-2 2.5-3.2 5-3.2s4.5 1.2 5 3.2M12 16c.5-1.6 2-2.5 4-2.5s3.5.9 4 2.5" stroke="currentColor" stroke-width="1.5"/></svg></div>
+              <div class="ic"><svg width="16" height="16" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="5" r="1.5" fill="currentColor"/><circle cx="10" cy="10" r="1.5" fill="currentColor"/><circle cx="10" cy="15" r="1.5" fill="currentColor"/></svg></div>
+            </div>
+          </div>
+
+          <div class="mbody mroom">
+
+            <div style="text-align:center; font-size: 9.5px; color: var(--text-3);">2026년 5월 13일 수요일</div>
+
+            <div class="mmsg">
+              <div class="avatar avatar--orange">박지</div>
+              <div>
+                <div class="mmsg__name">박지영 책임</div>
+                <div class="mmsg__bubble">시험성적서 v0.3 공유드립니다. 검토 의견 부탁드려요.</div>
+                <div class="mmsg__file">
+                  <div class="mfile-ic">PDF</div>
+                  <div>
+                    <div class="mfile-name">시험성적서_SUS304_v0.3.pdf</div>
+                    <div class="mfile-meta">2.4 MB · 12페이지</div>
+                  </div>
+                </div>
+                <div class="mmsg__time">오전 10:24</div>
+              </div>
+            </div>
+
+            <div class="mmsg">
+              <div class="avatar avatar--green">윤</div>
+              <div>
+                <div class="mmsg__name">윤서연 책임</div>
+                <div class="mmsg__bubble">p.7 인장강도 단위 통일이 필요해 보입니다. (N/mm² → MPa)</div>
+                <div class="mmsg__time">오전 10:48</div>
+              </div>
+            </div>
+
+            <div class="mmsg is-mine">
+              <div>
+                <div class="mmsg__bubble">@박지영 4페이지 측정기 기종 명기 부탁드립니다. 그리고 SUS304 영업 상태가 "제한적 영업 가능"으로 바뀌어서 비고도 추가 필요해요.</div>
+                <div class="mmsg__time" style="text-align:right">오후 1:02 · 읽음</div>
+              </div>
+              <div class="avatar">나</div>
+            </div>
+
+            <div class="mmsg">
+              <div class="avatar avatar--orange">박지</div>
+              <div>
+                <div class="mmsg__name">박지영 책임</div>
+                <div class="mmsg__bubble">반영해서 v0.4 작성하겠습니다. 5/14 오전 회의 후 영업본부 공유 예정입니다.</div>
+                <div class="mmsg__time">오후 1:18</div>
+              </div>
+            </div>
+
+          </div>
+
+          <div class="mcomp">
+            <div class="mcomp__plus">+</div>
+            <div class="mcomp__inp">메시지 보내기...</div>
+            <div class="mcomp__send">
+              <svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M4 10l12-6-4 14-3-6-5-2z" fill="currentColor"/></svg>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="phone-col__label">채팅방</div>
+      <div class="phone-col__sub">파일 첨부 · 멘션 · 읽음 표시</div>
+    </div>
+
+    <!-- Phone 4: Notice w/ confirmation -->
+    <div class="phone-col">
+      <div class="phone">
+        <div class="phone__screen">
+          <div class="phone__notch"></div>
+          <div class="status-bar"><span>9:41</span><span class="status-bar__r">●●● 100%</span></div>
+
+          <div class="mhd">
+            <div class="mhd__back">‹</div>
+            <div>
+              <div class="mhd__title">공지 상세</div>
+              <div class="mhd__sub">전사 공지 · 인사팀</div>
+            </div>
+            <div class="mhd__r">
+              <div class="ic"><svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M11 3l6 6-4 1-3 7-1-5-5-1 7-3 1-5z" stroke="currentColor" stroke-width="1.5"/></svg></div>
+            </div>
+          </div>
+
+          <div class="mbody mnotice">
+            <div class="mnotice__card">
+              <div class="mnotice__head">
+                <span class="mnotice__tag">필독</span>
+                <span class="tag tag--blue" style="font-size: 9.5px; padding: 1px 6px;">전사 공지</span>
+                <span class="mnotice__time">2026.05.12</span>
+              </div>
+              <div class="mnotice__title">7월 안전교육 이수 안내</div>
+              <div class="mnotice__sub">인사팀 강은혜 수석 · 발송 대상 342명</div>
+
+              <div class="mnotice__body">
+                <b>2026년 상반기 사업장 안전교육</b>이 다음과 같이 진행됩니다.
+                전 임직원은 마감일까지 반드시 이수 후 본 공지의 <b>확인</b> 버튼을 눌러주세요.
+                <br><br>
+                · 대상: 한미르주식회사 전 임직원<br>
+                · 이수 기한: <b>2026.05.20 (화) 18:00</b><br>
+                · 이수 방법: 사내 LMS 접속 → "2026 상반기 안전교육"<br>
+                · 소요 시간: 약 45분<br>
+                · 미이수 시 6월 사업장 출입이 제한될 수 있습니다.
+              </div>
+
+              <div class="mnotice__attach">
+                <div class="mfile-ic">PDF</div>
+                <div>
+                  <div class="mfile-name">7월_안전교육_이수_안내.pdf</div>
+                  <div class="mfile-meta">412 KB</div>
+                </div>
+              </div>
+
+              <div class="mnotice__confirm">✓ 확인했습니다</div>
+              <div class="mnotice__readby">
+                전체 <b>342명</b> 중 <b>218명</b> 확인 완료 (64%)
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="phone-col__label">공지 확인</div>
+      <div class="phone-col__sub">필독 공지 · 확인 처리 + 이수율</div>
+    </div>
+
+    <!-- Phone 5: Project home -->
+    <div class="phone-col">
+      <div class="phone">
+        <div class="phone__screen">
+          <div class="phone__notch"></div>
+          <div class="status-bar"><span>9:41</span><span class="status-bar__r">●●● 100%</span></div>
+
+          <div class="mhd">
+            <div class="mhd__back">‹</div>
+            <div>
+              <div class="mhd__title" style="font-size: 13.5px;">강판 자동화 라인 (P2)</div>
+              <div class="mhd__sub">P-2410 · 박지영 책임</div>
+            </div>
+            <div class="mhd__r">
+              <div class="ic"><svg width="16" height="16" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="5" r="1.5" fill="currentColor"/><circle cx="10" cy="10" r="1.5" fill="currentColor"/><circle cx="10" cy="15" r="1.5" fill="currentColor"/></svg></div>
+            </div>
+          </div>
+
+          <div class="mbody">
+            <div class="mph" style="border-bottom: 1px solid var(--border);">
+              <div style="display:flex; gap: 6px; align-items: center;">
+                <span class="tag tag--blue tag--dot">실행 단계</span>
+                <span class="tag tag--red" style="font-size: 9.5px; padding: 1px 6px;">⚠ 지연 2</span>
+              </div>
+              <div class="mph__stats">
+                <div class="mph__stat"><div class="l">진행률</div><div class="v">62%</div></div>
+                <div class="mph__stat"><div class="l">업무</div><div class="v">15/24</div></div>
+                <div class="mph__stat"><div class="l">D-Day</div><div class="v">D-109</div></div>
+              </div>
+            </div>
+
+            <div class="mp-tabs">
+              <div class="mp-tab is-active">업무</div>
+              <div class="mp-tab">대화</div>
+              <div class="mp-tab">파일</div>
+              <div class="mp-tab">개요</div>
+            </div>
+
+            <div class="mtask-list">
+              <div class="mtask">
+                <div class="mtask__top">
+                  <span class="mtask__check is-progress"></span>
+                  <span class="mtask__title">시험성적서 v0.3 검토 회신</span>
+                </div>
+                <div class="mtask__meta">
+                  <span class="tag tag--red">지연 1일</span>
+                  <span>박지영 · 김민준</span>
+                  <span style="margin-left:auto;">80%</span>
+                </div>
+                <div class="mtask__progress is-late"><span style="width:80%"></span></div>
+              </div>
+              <div class="mtask">
+                <div class="mtask__top">
+                  <span class="mtask__check is-progress"></span>
+                  <span class="mtask__title">7월 생산일정 초안 작성</span>
+                </div>
+                <div class="mtask__meta">
+                  <span class="tag tag--amber">오늘 마감</span>
+                  <span>김민준</span>
+                  <span style="margin-left:auto;">45%</span>
+                </div>
+                <div class="mtask__progress"><span style="width:45%"></span></div>
+              </div>
+              <div class="mtask">
+                <div class="mtask__top">
+                  <span class="mtask__check is-progress"></span>
+                  <span class="mtask__title">자동검사기 작동 매뉴얼</span>
+                </div>
+                <div class="mtask__meta">
+                  <span class="tag">5월 17일</span>
+                  <span>박지영 · 이수현</span>
+                  <span style="margin-left:auto;">60%</span>
+                </div>
+                <div class="mtask__progress"><span style="width:60%"></span></div>
+              </div>
+              <div class="mtask">
+                <div class="mtask__top">
+                  <span class="mtask__check"></span>
+                  <span class="mtask__title">현장 작업자 교육자료 작성</span>
+                </div>
+                <div class="mtask__meta">
+                  <span class="tag">5월 27일</span>
+                  <span>미지정</span>
+                  <span style="margin-left:auto;">0%</span>
+                </div>
+                <div class="mtask__progress"><span style="width:0"></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="phone-col__label">프로젝트 상세</div>
+      <div class="phone-col__sub">진행률 · 업무 카드 · D-Day</div>
+    </div>
+
+  </div>
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script></body>
+</html>

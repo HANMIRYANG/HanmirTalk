@@ -1,0 +1,18 @@
+node_modules/
+.next/
+.turbo/
+.vercel/
+.env*.local
+*.log
+dist/
+build/
+.DS_Store
+
+# Claude Code 로컬 권한 설정 (개인 머신용)
+.claude/
+
+# Stray compiler output (shared package keeps source-only with noEmit)
+packages/shared/src/**/*.js
+packages/shared/src/**/*.js.map
+packages/shared/src/**/*.d.ts
+*.tsbuildinfo

@@ -1,0 +1,26 @@
+{
+  "name": "한미르톡",
+  "short_name": "한미르톡",
+  "description": "한미르주식회사 사내 협업 플랫폼",
+  "start_url": "/chat",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F6F7FA",
+  "theme_color": "#1F4FA8",
+  "lang": "ko-KR",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/assets/hanmir-logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/hanmir-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
