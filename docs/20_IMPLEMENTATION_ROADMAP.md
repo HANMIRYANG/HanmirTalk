@@ -85,69 +85,78 @@
 
 ## D. Phase 1 — 보안 코어 (운영 배포 전 필수)
 
-**의존성**: 다른 phase와 독립적. 단, Phase 2/3/5/6/7 보다 먼저 끝내는 게 권장. schema 변경 (마이그레이션 006_audit_logs) 1건.
-**예상 작업량**: 3~5일
+**의존성**: 다른 phase와 독립적. 단, Phase 2/3/5/6/7 보다 먼저 끝내는 게 권장.
+**예상 작업량**: 4~6일 (SMTP 포함)
+**진행 상황 (2026-05-18 기준)**: D-1, D-2, D-4, D-5, D-6, D-7(SMTP) ✅ — **D-3 (httpOnly+refresh)만 남음**
 
-### D-1. 비밀번호 해시 (doc/10, 14)
+### D-1. 비밀번호 해시 (doc/10, 14) ✅
 
-- [ ] `server` 의존성 추가 — `bcrypt` 또는 `argon2`
-- [ ] `users.password_hash` 컬럼은 이미 NOT NULL — 시드 데이터 마이그레이션 필요
-- [ ] **마이그레이션 006_users_password_hash.sql** — 기존 `'pending-bcrypt-migration'` placeholder를 admin/super_admin/manager/project_owner 각 시드 사용자에 대해 `DEFAULT_PASSWORD`("hanmir1234")의 bcrypt 해시로 일괄 교체 (idempotent: WHERE password_hash = 'pending-bcrypt-migration')
-- [ ] `server/src/routes/auth.ts` — `bcrypt.compare(password, user.password_hash)` 로 검증 (현재 `config.defaultPassword` 직접 비교 제거)
-- [ ] `server/src/routes/users.ts` — `POST /users` 가 `password` 받아서 bcrypt hash 후 저장
-- [ ] `server/src/config.ts` — `DEFAULT_PASSWORD` 환경변수는 시드 마이그레이션에서만 사용
+- [x] `server` 의존성 추가 — `bcryptjs` (pure JS, Windows 네이티브 빌드 회피)
+- [x] `users.password_hash` 컬럼은 이미 NOT NULL — 시드 데이터 마이그레이션 적용
+- [x] **마이그레이션 006_users_bcrypt_password.sql** — 기존 `'pending-bcrypt-migration'` placeholder를 시드 사용자에 대해 bcrypt('hanmir1234')로 일괄 교체 (idempotent)
+- [x] `server/src/auth/password.ts` — hashPassword / verifyPassword / seedPasswordHash 헬퍼
+- [x] `UserRepository.verifyPassword / setPassword` 인터페이스 + 메모리·PG 어댑터 구현
+- [x] `server/src/routes/auth.ts` — `repos.users.verifyPassword(user.id, password)` 로 검증. 비활성 계정은 401 `account_inactive`
+- [x] `server/src/routes/users.ts` — `POST /users` 가 `input.password` 있으면 bcrypt hash, 없으면 seed hash 사용
 
-### D-2. 첫 로그인 강제 비밀번호 변경 (doc/10)
+### D-2. 첫 로그인 강제 비밀번호 변경 (doc/10) ✅
 
-- [ ] **마이그레이션 007_users_must_change_password.sql** — `users.must_change_password BOOLEAN NOT NULL DEFAULT false`. 시드 사용자 4명은 `true`로 설정
-- [ ] `POST /auth/login` 응답에 `mustChangePassword` 플래그 포함
-- [ ] `POST /users/me/password` 신규 endpoint — old/new 받아 변경, 성공 시 `must_change_password = false`
-- [ ] 프론트 `(app)/layout.tsx` 또는 `(app)/page.tsx` 가드 — `mustChangePassword=true` 시 `/account/password` 강제 라우팅
-- [ ] `/account/password` 페이지 신설 (간단한 폼)
+- [x] **마이그레이션 007_users_must_change_password.sql** — `users.must_change_password BOOLEAN NOT NULL DEFAULT false`. 시드 사용자에 true 설정 (idempotent)
+- [x] shared.User에 `mustChangePassword?: boolean` 추가, 양 어댑터 rowToUser/속성에 반영
+- [x] `POST /auth/change-password` 신규 — currentPassword + newPassword 검증, 8자 미만/동일/잘못된 current 시 400/401. 성공 시 `must_change_password=false`
+- [x] 프론트 `apps/web/src/components/shell/PasswordChangeGuard.tsx` — client 가드로 `/account/password` 외 경로 차단
+- [x] `/account/password` 페이지 + `ChangePasswordForm` client component
+- [x] 메모리 모드 시드는 dev 편의상 `mustChangePassword=false` 유지
 
-### D-3. httpOnly + Secure 쿠키 + Refresh Token (doc/10, 14)
+### D-3. httpOnly + Secure 쿠키 + Refresh Token (doc/10, 14) ❌ **남음**
 
-- [ ] **마이그레이션 008_refresh_tokens.sql** — `refresh_tokens(id, user_id, token_hash, expires_at, revoked_at)` (또는 in-memory Map; 단일 인스턴스라면 OK)
+- [ ] **마이그레이션 008_refresh_tokens.sql** — `refresh_tokens(id, user_id, token_hash, expires_at, revoked_at)`
 - [ ] `POST /auth/login` 응답 — `Set-Cookie: hanmir_token=<access>; HttpOnly; Secure; SameSite=Strict; Max-Age=900` (15분), `Set-Cookie: hanmir_refresh=<refresh>; HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth; Max-Age=2592000` (30일)
-- [ ] `POST /auth/refresh` — refresh cookie 검증 → 새 access token 발급 + refresh rotation (옛 토큰 revoke, 새 토큰 발급)
+- [ ] `POST /auth/refresh` — refresh cookie 검증 → 새 access 발급 + refresh rotation
 - [ ] `POST /auth/logout` — access + refresh 모두 revoke + clear
-- [ ] 프론트 — `client-auth.ts`의 `document.cookie` 조작 코드 제거 (httpOnly 가 됐으므로 JS 접근 불가)
-- [ ] 프론트 — 401 시 자동으로 `/auth/refresh` 1회 시도 후 실패하면 `/login`
-- [ ] socket.io 핸드셰이크 토큰 — cookie 사용 또는 별도 short-lived token endpoint (현재 `auth.token` 으로 access 전달 중 — httpOnly로 바뀌면 client JS가 못 읽음. socket이 cookie 자동 전송하므로 그쪽으로 전환)
+- [ ] 프론트 — `client-auth.ts`의 `document.cookie` 조작 코드 제거
+- [ ] 프론트 — 401 시 자동 `/auth/refresh` 1회 시도 후 실패하면 `/login`
+- [ ] socket.io 핸드셰이크 토큰 — cookie 기반으로 전환
 
-### D-4. 감사 로그 영속화 (doc/14)
+### D-4. 감사 로그 영속화 (doc/14) ✅
 
-- [ ] **마이그레이션 009_audit_logs.sql** — `audit_logs(id, actor_user_id, action VARCHAR(80), target_type VARCHAR(40), target_id VARCHAR(80), payload JSONB, ip VARCHAR(45), created_at TIMESTAMP)`
-- [ ] `server/src/audit.ts` — `auditLog({actor, action, target, payload})` 헬퍼
-- [ ] 다음 행위 모두에 hook 추가:
-  - [ ] 관리자 로그인
-  - [ ] 사용자 생성/수정/비활성화
-  - [ ] 부서 생성/수정/삭제
-  - [ ] 프로젝트 CRUD + 멤버 추가/제거
-  - [ ] 공지 생성
-  - [ ] 결정사항 CRUD (Phase 3 완료 후)
-  - [ ] 파일 삭제
-- [ ] `GET /api/v1/dashboard/audit` 라우트 — 현재 seed 데이터에서 audit_logs 테이블로 교체. admin only.
-- [ ] `/admin` 페이지의 감사 로그 카드 — 새 데이터로 렌더
+- [x] **마이그레이션 009_audit_logs.sql** — `audit_logs(id, actor_user_id, actor_name, actor_role, action, target_type, target_id, target_label, ip, level, meta JSONB, created_at)` + created_at·actor·action 인덱스
+- [x] `server/src/audit.ts` — `auditLog(repos, req, input)` 헬퍼 (failure 시 silent log)
+- [x] `AuditRepository.record / list` 인터페이스 + 메모리·PG 어댑터 구현
+- [x] 사용자 CRUD: create / update / deactivate 모두 hook
+- [x] 부서 CUD: create / update / delete hook
+- [x] 프로젝트 CUD: create / cancel hook (member add/remove는 추후)
+- [ ] 공지 / 결정사항 / 파일 삭제 / 관리자 로그인 hook은 후속 sweep에서 추가
+- [x] `GET /api/v1/dashboard/audit` 라우트 — seed → audit_logs.list 교체, admin only
+- [x] `/admin` 페이지의 감사 로그 카드는 같은 endpoint를 그대로 사용 (UI 변경 없음, 데이터 소스만 교체)
 
-### D-5. per-project ownership 검사 (doc/04)
+### D-5. per-project ownership 검사 (doc/04) ✅
 
-- [ ] `server/src/routes/projects.ts` `PATCH /:id`, `DELETE /:id` — `currentUser.role` admin/super_admin 이거나 `project.memberIds.includes(currentUser.id)` 검사
-- [ ] 같은 패턴을 `tasks.ts` 의 `PATCH /:id`, `DELETE /:id` 에도 적용
-- [ ] `// TODO(per-project)` 마커 제거
+- [x] `ensureProjectAccess()` 헬퍼 — admin/super_admin은 패스, 그 외는 memberIds 검사
+- [x] `projects.ts` PATCH/DELETE, member add/remove, task POST 모두 적용
+- [x] `ensureTaskProjectAccess()` 헬퍼 — task의 parent project 멤버십 검사
+- [x] `tasks.ts` PATCH/DELETE에 적용
+- [x] `// TODO(per-project)` 마커 제거
 
-### D-6. 파일 업로드 보안 (doc/12)
+### D-6. 파일 업로드 보안 (doc/12) ✅
 
-- [ ] `server/src/routes/files.ts` — 허용 확장자 화이트리스트: `jpg, jpeg, png, webp, pdf, doc, docx, hwp, hwpx, xls, xlsx, csv, ppt, pptx, zip`. 그 외 414 unsupported_media
-- [ ] 같은 곳 — `file.mimetype` 의 MIME prefix 검사 (image/, application/pdf 등)
-- [ ] 같은 곳 — 실행 파일 명시 거부: `exe, sh, bat, ps1, msi, app, command`
-- [ ] `UPLOAD_MAX_BYTES` 기본값 25MB → **50MB** 로 변경 (spec 일치)
-- [ ] (선택) signed URL 도입 — `GET /files/:id/download?token=<jwt>` 형식, 토큰 5분 TTL. 현재 cookie 인증으로 충분하면 미적용 가능
+- [x] `server/src/routes/files.ts` 허용 확장자 화이트리스트: jpg/png/webp/gif/pdf/doc/docx/hwp/hwpx/xls/xlsx/csv/ppt/pptx/zip
+- [x] 차단 확장자 명시 거부: exe/bat/cmd/scr/msi/ps1/vbs/jar/sh/html/svg 등
+- [x] `file.mimetype` MIME prefix 검사 (image/, application/pdf 등)
+- [x] `UPLOAD_MAX_BYTES` 기본값 25MB → **50MB** (spec 일치)
+- [x] `uploadErrorHandler` 미들웨어로 multer 거절을 415/413 응답으로 깔끔하게 변환
+- [ ] (선택) signed URL — 현재 cookie 인증으로 충분, 미적용
 
-### D-7. README/Codex.md 갱신
+### D-7. SMTP 도입 (Phase 1·8용) ✅
 
-- [ ] `README.md` TODO 섹션 → 위 항목 ✅로 갱신
-- [ ] `Codex.md` baseline → bcrypt/refresh/감사로그 ✅ 반영
+- [x] `nodemailer` + `@types/nodemailer` 설치
+- [x] `server/src/mailer.ts` — `sendMail({to, subject, text?, html?})` 래퍼, 실패 silent
+- [x] `verifyMailer()` 부팅 시 SMTP 도달성 체크 (실패는 경고 로그만, 부팅 안 막음)
+- [x] `config.ts` SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS / SMTP_SECURE / SMTP_FROM / SMTP_ENABLED 환경변수
+- [x] `docker-compose.yml`에 mailhog 서비스 추가 (포트 1025 SMTP + 8025 Web UI)
+- [x] `.env.example`에 SMTP 블록 + mailhog 사용법 안내
+- [x] 부트 smoke: `[hanmir-server] mailer: SMTP ready at localhost:1025` 확인
+- [ ] 실제 `sendMail` 호출은 Phase 8 초대 흐름에서 처음 활성화
 
 ---
 
