@@ -22,5 +22,16 @@ export const authService = {
   },
   async logout(token?: string): Promise<{ ok: boolean }> {
     return apiRequest<{ ok: boolean }>("/auth/logout", { method: "POST", token });
+  },
+  async changePassword(
+    currentPassword: string,
+    newPassword: string,
+    token?: string
+  ): Promise<{ ok: boolean }> {
+    return apiRequest<{ ok: boolean }>("/auth/change-password", {
+      method: "POST",
+      body: { currentPassword, newPassword },
+      token
+    });
   }
 };

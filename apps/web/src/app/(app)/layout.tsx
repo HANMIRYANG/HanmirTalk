@@ -13,5 +13,7 @@ export default async function AppGroupLayout({ children }: { children: ReactNode
   const me = await authService.tryGetMe(token);
   if (!me) redirect("/login");
 
-  return <AppShell>{children}</AppShell>;
+  return (
+    <AppShell mustChangePassword={!!me.mustChangePassword}>{children}</AppShell>
+  );
 }

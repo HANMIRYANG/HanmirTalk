@@ -33,6 +33,10 @@ export interface UserRepository {
   create(input: CreateUserInput): Promise<User>;
   update(id: string, input: UpdateUserInput): Promise<User | undefined>;
   deactivate(id: string): Promise<User | undefined>;
+  // bcrypt-based password operations. Hash storage is repo-internal so the
+  // User DTO stays free of password fields.
+  verifyPassword(userId: string, plain: string): Promise<boolean>;
+  setPassword(userId: string, plain: string): Promise<void>;
 }
 
 export interface DepartmentRepository {

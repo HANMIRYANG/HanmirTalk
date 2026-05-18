@@ -1,7 +1,6 @@
 import { Router } from "express";
 import type { Repositories } from "../repositories/types";
 import { sessionStore } from "../auth/session";
-import { config } from "../config";
 import { requireAuth } from "../auth/middleware";
 import { extractToken, SESSION_COOKIE } from "../auth/token";
 
@@ -22,7 +21,12 @@ export function createAuthRouter(repos: Repositories): Router {
       res.status(401).json({ error: "invalid_credentials" });
       return;
     }
-    if (password !== config.defaultPassword) {
+    if (user.isActive === false) {
+      res.status(401).json({ error: "account_inactive" });
+      return;
+    }
+    const valid = await repos.users.verifyPassword(user.id, password);
+    if (!valid) {
       res.status(401).json({ error: "invalid_credentials" });
       return;
     }
@@ -44,6 +48,32 @@ export function createAuthRouter(repos: Repositories): Router {
 
   router.get("/me", requireAuth, (req, res) => {
     res.json(req.currentUser);
+  });
+
+  // Phase 1 D-2: change own password. Requires the current password to
+  // confirm and clears must_change_password on success.
+  router.post("/change-password", requireAuth, async (req, res) => {
+    const me = req.currentUser!;
+    const { currentPassword, newPassword } = req.body ?? {};
+    if (typeof currentPassword !== "string" || typeof newPassword !== "string") {
+      res.status(400).json({ error: "invalid_request" });
+      return;
+    }
+    if (newPassword.length < 8) {
+      res.status(400).json({ error: "password_too_short" });
+      return;
+    }
+    if (currentPassword === newPassword) {
+      res.status(400).json({ error: "password_unchanged" });
+      return;
+    }
+    const valid = await repos.users.verifyPassword(me.id, currentPassword);
+    if (!valid) {
+      res.status(401).json({ error: "invalid_current_password" });
+      return;
+    }
+    await repos.users.setPassword(me.id, newPassword);
+    res.json({ ok: true });
   });
 
   return router;

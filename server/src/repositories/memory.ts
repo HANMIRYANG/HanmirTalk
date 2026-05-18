@@ -28,6 +28,7 @@ import type {
   UpdateUserInput,
   User
 } from "@hanmir/shared";
+import { hashPassword, seedPasswordHash, verifyPassword } from "../auth/password";
 import { seedUsers } from "../seed/users";
 import { seedDepartments } from "../seed/departments";
 import { seedRooms } from "../seed/rooms";
@@ -64,9 +65,24 @@ function deriveInitials(name: string): string {
 
 class MemoryUserRepository implements UserRepository {
   readonly _data: User[];
+  // Per-user bcrypt hashes — kept off the User DTO so the public shape never
+  // carries credentials. Every seed user starts with the pre-computed seed
+  // hash; newly-created users either get an explicit hash (from input.password)
+  // or the same seed hash as a temporary placeholder.
+  private readonly passwords = new Map<string, string>();
 
   constructor(private readonly deps: { departments: DepartmentRepository }) {
-    this._data = clone(seedUsers).map((u) => ({ isActive: u.isActive ?? true, ...u }));
+    this._data = clone(seedUsers).map((u) => ({
+      isActive: u.isActive ?? true,
+      // Memory mode seeds start with mustChangePassword=false for dev
+      // convenience (otherwise every restart forces the password-change
+      // flow). PG mode keeps it true via migration 007.
+      mustChangePassword: false,
+      ...u
+    }));
+    for (const u of this._data) {
+      this.passwords.set(u.id, seedPasswordHash);
+    }
   }
 
   private get data(): User[] {
@@ -101,9 +117,20 @@ class MemoryUserRepository implements UserRepository {
       avatarTone: input.avatarTone ?? "default",
       initials: input.initials ?? deriveInitials(input.name),
       phone: input.phone,
-      isActive: true
+      isActive: true,
+      // Admin-issued accounts must rotate their password on first login.
+      // Users created with an explicit password are trusted (e.g. seeded
+      // via invitation flow that already captured their input).
+      mustChangePassword: !input.password
     };
     this.data.push(user);
+    // New users get a hashed password — explicit input.password takes
+    // precedence, else fall back to the same seed hash so they can log in
+    // with DEFAULT_PASSWORD until they change it.
+    this.passwords.set(
+      user.id,
+      input.password ? hashPassword(input.password) : seedPasswordHash
+    );
     return clone(user);
   }
 
@@ -133,6 +160,20 @@ class MemoryUserRepository implements UserRepository {
     if (idx < 0) return undefined;
     this.data[idx] = { ...this.data[idx], isActive: false, presence: "off" };
     return clone(this.data[idx]);
+  }
+
+  async verifyPassword(userId: string, plain: string): Promise<boolean> {
+    const hash = this.passwords.get(userId);
+    return hash ? verifyPassword(plain, hash) : false;
+  }
+
+  async setPassword(userId: string, plain: string): Promise<void> {
+    this.passwords.set(userId, hashPassword(plain));
+    // Clear the must-change flag the moment a user picks a real password.
+    const idx = this.data.findIndex((u) => u.id === userId);
+    if (idx >= 0) {
+      this.data[idx] = { ...this.data[idx], mustChangePassword: false };
+    }
   }
 }
 

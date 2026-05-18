@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@hanmir/shared": "*",
+    "bcryptjs": "^2.4.3",
     "cors": "2.8.5",
     "express": "4.19.2",
     "express-async-errors": "3.1.1",
@@ -19,6 +20,7 @@
     "socket.io": "^4.8.1"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/cors": "2.8.17",
     "@types/express": "4.17.21",
     "@types/multer": "^1.4.11",

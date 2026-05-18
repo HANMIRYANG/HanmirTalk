@@ -16,6 +16,7 @@
  */
 
 import type { Pool } from "pg";
+import { hashPassword, seedPasswordHash, verifyPassword } from "../auth/password";
 import type {
   ChatMessage,
   CreateDepartmentInput,
@@ -62,9 +63,9 @@ import type {
   UserRepository
 } from "./types";
 
-// TODO(password): swap this placeholder for a real bcrypt/argon2 hash once
-// hashing lands. Login currently bypasses password_hash entirely.
-const PLACEHOLDER_PASSWORD_HASH = "pending-bcrypt-migration";
+// (Phase 1 D-1) bcryptjs-based password storage. Seed users have their
+// password_hash set by migration 006 to bcrypt('hanmir1234'); newly-created
+// users get their own hash inserted via PgUserRepository.create.
 
 function formatDate(value: Date | string | null | undefined): string {
   if (!value) return "";
@@ -104,6 +105,7 @@ interface UserRow {
   avatar_tone: string | null;
   initials: string | null;
   is_active: boolean;
+  must_change_password: boolean | null;
   department_name: string | null;
 }
 
@@ -119,13 +121,14 @@ function rowToUser(row: UserRow): User {
     avatarTone: (row.avatar_tone ?? "default") as User["avatarTone"],
     initials: row.initials ?? "",
     isActive: row.is_active,
-    phone: row.phone ?? undefined
+    phone: row.phone ?? undefined,
+    mustChangePassword: row.must_change_password ?? false
   };
 }
 
 const USER_SELECT = `
   SELECT u.id, u.name, u.phone, u.email, u.department_id, u.position, u.role,
-         u.avatar_tone, u.initials, u.is_active,
+         u.avatar_tone, u.initials, u.is_active, u.must_change_password,
          d.name AS department_name
   FROM users u
   LEFT JOIN departments d ON d.id = u.department_id
@@ -158,19 +161,25 @@ class PgUserRepository implements UserRepository {
     const { rows } = await this.pool.query<{ id: string }>(
       `INSERT INTO users
          (name, phone, email, password_hash, department_id, position, role,
-          avatar_tone, initials, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
+          avatar_tone, initials, is_active, must_change_password)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, $10)
        RETURNING id`,
       [
         input.name,
         input.phone ?? null,
         input.email,
-        PLACEHOLDER_PASSWORD_HASH,
+        // Explicit password hashed immediately; otherwise reuse the seed
+        // hash so the new user can log in with DEFAULT_PASSWORD until they
+        // change it. must_change_password=true forces that change.
+        input.password ? hashPassword(input.password) : seedPasswordHash,
         input.departmentId,
         input.position,
         input.role,
         input.avatarTone ?? "default",
-        input.initials ?? input.name.slice(0, 2)
+        input.initials ?? input.name.slice(0, 2),
+        // Trust users who supplied their own password (invitation flow).
+        // Admin-issued accounts must rotate before any other action.
+        !input.password
       ]
     );
     const created = await this.findById(rows[0].id);
@@ -217,6 +226,26 @@ class PgUserRepository implements UserRepository {
     );
     if (!rowCount) return undefined;
     return this.findById(id);
+  }
+
+  async verifyPassword(userId: string, plain: string): Promise<boolean> {
+    const { rows } = await this.pool.query<{ password_hash: string }>(
+      `SELECT password_hash FROM users WHERE id = $1`,
+      [userId]
+    );
+    if (!rows[0]) return false;
+    return verifyPassword(plain, rows[0].password_hash);
+  }
+
+  async setPassword(userId: string, plain: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE users
+          SET password_hash = $1,
+              must_change_password = false,
+              updated_at = NOW()
+        WHERE id = $2`,
+      [hashPassword(plain), userId]
+    );
   }
 }
 

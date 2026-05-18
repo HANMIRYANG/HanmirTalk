@@ -80,6 +80,10 @@ export interface User {
   lastSeen?: string;
   isActive?: boolean;
   phone?: string;
+  // True when the user still carries a seed/admin-issued password and must
+  // change it before any other action. Frontend layout guard routes them to
+  // /account/password until this flips false (Phase 1 D-2).
+  mustChangePassword?: boolean;
 }
 
 export interface CreateUserInput {
