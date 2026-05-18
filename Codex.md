@@ -147,13 +147,34 @@ Only after findings, include:
 
 ## Current Project State Baseline
 
-As of the latest verified review:
+As of the latest verified review (2026-05-18):
 
 - Auth/session/logout basics are implemented.
 - Read API protection and admin role guard are implemented.
-- The app still relies on memory repositories.
-- PostgreSQL persistence is not implemented.
-- Most core write CRUD APIs are not implemented.
+- Repository interface + memory adapter (default) and PostgreSQL adapter both
+  exist; selection is automatic based on `DATABASE_URL`.
+- PostgreSQL schema/migrations (`001_initial.sql`, `002_extend_projects_tasks.sql`,
+  `003_seed_minimum.sql`) exist; end-to-end smoke against a real DB **passed
+  on 2026-05-18** via docker compose (postgres:16-alpine). One bug found and
+  fixed: `PgProjectRepository.create` was passing `null` for the NOT NULL
+  `sales_status` column — now defaults to `"preparing"`.
+- Backend write CRUD implemented for: users, departments, projects (incl.
+  members + soft-delete), tasks, message append, notice confirm.
+- Backend write CRUD **not** implemented: rooms (create/update/members),
+  message edit/delete/read/pin/search, notice create + read-status, files
+  upload/delete, products create/update/delete + documents, decisions, refresh
+  token, WebSocket events.
+- Frontend UI status:
+  - `/admin` calls user/department CRUD services end-to-end.
+  - `/projects` has `+ 프로젝트 추가` modal wired to `createProject`.
+  - `/projects/[id]` has `수정` (edit modal) + `프로젝트 취소` (soft delete)
+    + members card (add via search modal, remove on hover).
+  - `/projects/[id]/tasks` has inline status select + progress input + delete
+    button per row + `+ 업무 추가` modal (group-aware default status).
+  - `/projects/[id]/gantt` is read-only.
+  - `/chat`, `/notices`, `/products`, `/files` are read + the single existing
+    write action each (message send, notice confirm).
+  - No `/dashboard` page exists; sidebar has no dashboard entry.
 - `@` mentions and `/` AI commands are documented only and should remain P3
   until core P0/P1 work is complete.
 

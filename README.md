@@ -58,6 +58,18 @@ npm run build:server
 npm run start:server
 ```
 
+### 로컬 PostgreSQL (Docker)
+
+```bash
+npm run db:up         # postgres:16-alpine 컨테이너 기동 + 001/002/003 자동 적용
+npm run db:psql       # 컨테이너 안 psql 진입
+npm run db:migrate    # 마이그레이션 수동 재적용 (idempotent)
+npm run db:reset      # 볼륨까지 wipe하고 재기동 (DB 초기화)
+npm run db:down       # 컨테이너 중지 (볼륨은 보존)
+```
+
+`DATABASE_URL=postgres://hanmir:hanmir_dev@localhost:5432/hanmir_talk`로 세팅하면 백엔드가 PostgreSQL 어댑터를 사용합니다 (부팅 로그 `repository adapter: postgres`).
+
 환경 변수:
 
 - `PORT` (기본 `4000`)
@@ -108,37 +120,88 @@ npm run build:server # 백엔드 컴파일
 
 성공 시 access token이 응답으로 내려오고 프론트는 `hanmir_token` 쿠키(`SameSite=Lax`)에 저장합니다. 서버 컴포넌트는 `cookies()`를 통해, 클라이언트 `fetch`는 `credentials: "include"`를 통해 같은 쿠키를 사용합니다. 무토큰 상태로 `/chat` 등에 접근하면 `/login`으로 redirect됩니다.
 
+## 기능 구현 현황 요약 (2026-05-18 기준)
+
+docs `15_DEVELOPMENT_PHASES.md` 기준 진척도. 백엔드 라우트와 프론트 UI는 별도로 평가합니다.
+
+| Phase | 항목 | 백엔드 | 프론트 UI |
+| --- | --- | --- | --- |
+| 1 | Monorepo / 환경 / typecheck / build | ✅ | ✅ |
+| 2 | 로그인 / 세션 / `/auth/me` 가드 | ✅ | ✅ (`/login`, layout 가드) |
+| 2 | User CRUD | ✅ (admin-only) | ✅ (`/admin`) |
+| 2 | Department CRUD | ✅ (admin-only) | ✅ (`/admin`) |
+| 2 | 역할/권한 (`requireRole`) | ✅ (`admin/super_admin`, writer 4종) | ✅ (admin redirect, 403 인라인) |
+| 3 | 채팅방 read | ✅ | ✅ (`/chat`, `/chat/[roomId]`) |
+| 3 | 메시지 보내기 | ✅ (append, 인증 필수) | ✅ (`MessageComposer`) |
+| 3 | WebSocket (`message:new` 등) | ❌ | ❌ |
+| 3 | 파일/이미지 첨부 업로드 | ❌ | ❌ |
+| 3 | 읽음 처리 / unread / mute / pin write | ❌ | ❌ |
+| 4 | 공지 read + 확인 | ✅ | ✅ (`/notices`, 확인 버튼) |
+| 4 | 공지 작성 / 확인자 조회 | ❌ | ❌ |
+| 5 | Project CRUD + 멤버 (soft delete) | ✅ | ✅ (`/projects` 생성, `/projects/[id]` 수정·취소·멤버 추가/제외) |
+| 5 | Task CRUD + 상태 변경 | ✅ | ✅ (`/projects/[id]/tasks` 인라인 편집 + 생성 모달) |
+| 5 | Project 진행률/지연 자동 집계 | ✅ (memory CUD/PG read 모두) | ✅ (목록/카드 표시) |
+| 6 | 제품 read | ✅ | ✅ (`/products`, `/products/[id]`) |
+| 6 | 제품 등록/수정/문서/영업상태 변경 | ❌ | ❌ |
+| 7 | 관리자 KPI/감사/부서통계 | ✅ (seed) | ✅ (`/admin`) |
+| 7 | `/dashboard` 종합 화면 | ❌ (라우트는 있으나 페이지 없음) | ❌ |
+| 7 | 검색 (메시지/파일/프로젝트) | ❌ | ❌ |
+| 7 | PWA / 모바일 최적화 점검 | — | 부분 (모바일 nav만) |
+| - | PostgreSQL 어댑터 | ✅ (코드/마이그레이션/실DB smoke 모두 완료) | — |
+
+기호: ✅ 구현 완료, ⚠️ 부분 구현 / UI 미연결, ❌ 미착수
+
 ## API / Frontend 매핑 현황
 
-| Endpoint | Status | Frontend service |
-| --- | --- | --- |
-| `POST /auth/login` | seed (메모리 세션) | `authService.login` |
-| `POST /auth/logout` | seed | `authService.logout` |
-| `GET /auth/me` | seed | `authService.getMe` / `tryGetMe` |
-| `GET /users` | seed | `userService.listUsers` |
-| `GET /users/:id` | seed | `userService.getUser` |
-| `GET /departments` | seed | (UI 미사용) |
-| `GET /rooms` | seed | `chatService.listRooms` |
-| `GET /rooms/:id` | seed | `chatService.getRoom` |
-| `GET /rooms/:roomId/messages` | seed | `chatService.listMessages` |
-| `POST /rooms/:roomId/messages` | in-memory append | `chatService.sendMessage` |
-| `GET /rooms/:roomId/pinned` | seed | `chatService.getPinnedMessage` |
-| `GET /projects` | seed | `projectService.listProjects` |
-| `GET /projects/:id` | seed | `projectService.getProject` |
-| `GET /projects/:projectId/tasks` | seed | `taskService.listByProject` |
-| `GET /products` | seed | `productService.listProducts` |
-| `GET /products/:id` | seed | `productService.getProduct` |
-| `GET /files` | seed | `fileService.listFiles` |
-| `GET /files/folders` | seed | `fileService.listFolders` |
-| `GET /notices` | seed | `noticeService.listNotices` |
-| `POST /notices/:id/confirm` | in-memory update | `noticeService.confirmNotice` |
-| `GET /dashboard/admin-kpis` | seed | `dashboardService.listAdminKpis` |
-| `GET /dashboard/audit` | seed | `dashboardService.listAudit` |
-| `GET /dashboard/dept-stats` | seed | `dashboardService.listDeptStats` |
-| `GET /dashboard/activities` | seed | `dashboardService.listDashboardActivities` |
-| `GET /dashboard/project-activities` | seed | `dashboardService.listProjectActivities` |
+| Endpoint | Status | Frontend service | UI 연결 |
+| --- | --- | --- | --- |
+| `POST /auth/login` | seed (메모리 세션) | `authService.login` | `/login` |
+| `POST /auth/logout` | seed | `authService.logout` | Sidebar 로그아웃 |
+| `GET /auth/me` | seed | `authService.getMe` / `tryGetMe` | layout 가드 |
+| `GET /users` | seed/PG | `userService.listUsers` | `/admin`, 업무 페이지 lookup |
+| `GET /users/:id` | seed/PG | `userService.getUser` | (lookup) |
+| `POST /users` | seed/PG | `userService.createUser` | `/admin` 사용자 추가 모달 |
+| `PATCH /users/:id` | seed/PG | `userService.updateUser` | `/admin` 사용자 수정 모달 |
+| `PATCH /users/:id/deactivate` | seed/PG | `userService.deactivateUser` | `/admin` 사용자 비활성화 |
+| `GET /departments` | seed/PG | `departmentService.listDepartments` | `/admin` 부서 카드 |
+| `POST /departments` | seed/PG | `departmentService.createDepartment` | `/admin` 부서 추가 |
+| `PATCH /departments/:id` | seed/PG | `departmentService.updateDepartment` | `/admin` 부서 수정 |
+| `DELETE /departments/:id` | seed/PG | `departmentService.deleteDepartment` | `/admin` 부서 삭제 |
+| `GET /rooms` | seed/PG | `chatService.listRooms` | `/chat` |
+| `GET /rooms/:id` | seed/PG | `chatService.getRoom` | `/chat/[roomId]` |
+| `GET /rooms/:roomId/messages` | seed/PG | `chatService.listMessages` | `/chat/[roomId]` |
+| `POST /rooms/:roomId/messages` | in-memory/PG append | `chatService.sendMessage` | `MessageComposer` |
+| `GET /rooms/:roomId/pinned` | seed (PG: undefined) | `chatService.getPinnedMessage` | `/chat/[roomId]` 핀 배너 |
+| `GET /projects` | seed/PG | `projectService.listProjects` | `/projects` |
+| `GET /projects/:id` | seed/PG | `projectService.getProject` | `/projects/[id]` |
+| `POST /projects` | seed/PG | `projectService.createProject` | **UI 미연결** |
+| `PATCH /projects/:id` | seed/PG | `projectService.updateProject` | **UI 미연결** |
+| `DELETE /projects/:id` (soft, → cancelled) | seed/PG | `projectService.deleteProject` | **UI 미연결** |
+| `POST /projects/:id/members` | seed/PG | `projectService.addProjectMember` | **UI 미연결** |
+| `DELETE /projects/:id/members/:userId` | seed/PG | `projectService.removeProjectMember` | **UI 미연결** |
+| `GET /projects/:projectId/tasks` | seed/PG | `taskService.listByProject` | `/projects/[id]/tasks` |
+| `POST /projects/:projectId/tasks` | seed/PG | `taskService.createTask` | **UI 미연결** (`+ 업무 추가` 버튼은 스텁) |
+| `GET /tasks/:id` | seed/PG | `taskService.getTask` | **UI 미연결** |
+| `PATCH /tasks/:id` | seed/PG | `taskService.updateTask` | **UI 미연결** |
+| `DELETE /tasks/:id` | seed/PG | `taskService.deleteTask` | **UI 미연결** |
+| `GET /products` | seed/PG | `productService.listProducts` | `/products` |
+| `GET /products/:id` | seed/PG | `productService.getProduct` | `/products/[id]` |
+| `GET /files` | seed/PG | `fileService.listFiles` | `/files` |
+| `GET /files/folders` | seed (PG: 빈 배열) | `fileService.listFolders` | `/files` |
+| `GET /files/:id` | seed/PG | (UI 미사용) | — |
+| `GET /notices` | seed/PG | `noticeService.listNotices` | `/notices` |
+| `GET /notices/:id` | seed/PG | `noticeService.getNotice` | (UI 미사용) |
+| `POST /notices/:id/confirm` | in-memory/PG | `noticeService.confirmNotice` | `NoticeConfirmButton` |
+| `GET /dashboard/overview` | seed | (UI 미사용) | — |
+| `GET /dashboard/admin-kpis` | seed | `dashboardService.listAdminKpis` | `/admin` |
+| `GET /dashboard/audit` | seed | `dashboardService.listAudit` | `/admin` |
+| `GET /dashboard/dept-stats` | seed | `dashboardService.listDeptStats` | `/admin` |
+| `GET /dashboard/activities` | seed | `dashboardService.listDashboardActivities` | (UI 미사용) |
+| `GET /dashboard/project-activities` | seed | `dashboardService.listProjectActivities` | (UI 미사용) |
 
-> seed: 메모리 어댑터(`server/src/seed/*.ts`)에서 데이터 제공. 추후 PostgreSQL adapter 로 교체.
+> seed/PG: memory 어댑터(`server/src/seed/*.ts`) 기본. `DATABASE_URL` 설정 시 동일 인터페이스를 Postgres 어댑터(`server/src/repositories/postgres.ts`)가 처리. dashboard 계열은 양쪽 모드 모두 seed 데이터 그대로.
+>
+> **UI 미연결**: 백엔드 라우트 + 프론트 service 함수까지는 구현되어 있으나 페이지에서 호출하는 버튼/폼이 아직 존재하지 않습니다. (자세한 미구현 항목은 본 문서 하단 "TODO" 참조.)
 
 ## 백엔드 구조
 
@@ -225,19 +288,36 @@ npm run dev          # 프론트, http://localhost:3000
 | typecheck / build / build:server | ✅ 통과 |
 | 어댑터 부팅 분기 (`DATABASE_URL` → `repository adapter: postgres` 로그) | ✅ 확인 |
 | 중앙 에러 핸들러로 `500 { "error": "internal_error" }` 일관 응답 (DB 도달 불가 시) | ✅ 확인 |
-| 실제 Postgres DB에 001/002/003 migration 적용 후 종단간 read/write smoke | ❌ **미수행** |
+| 실제 Postgres DB에 001/002/003 migration 적용 후 종단간 read/write smoke | ✅ **2026-05-18 수행 완료** |
 
-미수행 사유: 현재 작업 환경(Windows)에 PostgreSQL 서버/`psql`이 설치돼 있지 않습니다 (`where psql` 결과 없음, `Get-Service postgresql*` 빈 결과). DB가 가능한 환경에서 아래 절차로 검증 필요:
+검증 방법:
 
 ```bash
-psql "$DATABASE_URL" -f server/src/db/migrations/001_initial.sql
-psql "$DATABASE_URL" -f server/src/db/migrations/002_extend_projects_tasks.sql
-psql "$DATABASE_URL" -f server/src/db/migrations/003_seed_minimum.sql
-DATABASE_URL=... npm run build:server && npm run start:server
-# 시드 사용자(kim.minjun@hanmir.co.kr / hanmir1234)로 로그인 후
-# GET /rooms, /products, /files, /notices, POST /rooms/:id/messages,
-# POST /notices/:id/confirm, users/departments/projects/tasks CRUD 통과 확인
+npm run db:up         # postgres:16-alpine 컨테이너 기동 + initdb.d로 001/002/003 자동 적용
+DATABASE_URL=postgres://hanmir:hanmir_dev@localhost:5432/hanmir_talk \
+  npm run build:server && npm run start:server
+# 부팅 로그: `repository adapter: postgres`
 ```
+
+확인된 종단간 동작 (kang.eunhye@hanmir.co.kr admin / kim.minjun manager / 새로 만든 member 계정 양홍준):
+
+- 로그인 / `/auth/me` / 401 (무토큰) / 403 (admin-only 라우트에 manager) — 정상
+- 사용자 CRUD: 생성 → 로그인 가능 → deactivate 후 부서 hard-delete 성공 (in-use 시 409 → deactivate 후 200)
+- 부서 CRUD: create / update / delete (in-use 시 409) — 정상
+- 프로젝트 CRUD: create / update / member add×2 (idempotent) / member remove / soft-delete(status=cancelled) — 정상
+- 업무 CRUD: create / patch (status·progress) / delete — 정상
+- `taskCounts.done/inProgress/pending/total`가 task CUD 후 **다음 GET project**에서 fresh 집계 (SQL 서브쿼리) — 확인
+- 대시보드 dashboard/activities는 seed (양 어댑터 동일), `/dashboard/admin-kpis`는 admin 전용 가드 유지
+- DB 영속성: 컨테이너 재기동 후 cancelled 프로젝트·project_members·비활성 사용자 모두 보존
+
+검증 중 발견·수정한 버그 1건:
+
+- `projects.sales_status`는 NOT NULL인데 Postgres 어댑터의 `PgProjectRepository.create`가 `input.salesStatus ?? null`로 명시 NULL을 전달해 `salesStatus` 없이 프로젝트를 만들면 항상 23502로 실패. 어댑터에서 `input.salesStatus ?? "preparing"`로 변경. (스키마 컬럼 default가 한국어 `'준비중'`이라 enum과 불일치 — 이건 영향 없으나 후속 마이그레이션으로 default를 `'preparing'`으로 맞추는 것이 깔끔. TODO에 추가.)
+
+미수행 / 한계:
+
+- `rooms` / `messages` / `notices` / `products` / `files`는 seed 마이그레이션이 비어 있어 read는 빈 배열만 반환. 실제 row가 들어간 상태의 read/write smoke는 다음 단계(공지/파일/제품 write 구현 시) 함께 검증.
+- pinned 메시지, file_folders 등 schema에 없는 컬럼/테이블은 어댑터가 빈 값/undefined 반환 (README "Postgres adapter 구현 범위" 참고).
 
 ### Mapper / default 정책
 
@@ -387,6 +467,8 @@ DTO 타입은 `packages/shared/src/types.ts`의 `CreateUserInput` / `UpdateUserI
 - `projectService.{createProject, updateProject, deleteProject, addProjectMember, removeProjectMember}`
 - `taskService.{createTask, getTask, updateTask, deleteTask}` (기존 `listByProject` 유지)
 
+> **UI 연결 상태**: 위 service 함수들은 정의되어 있으나 페이지에서 호출하는 폼/버튼이 아직 없습니다. 현재 `/projects`, `/projects/[id]`, `/projects/[id]/tasks`, `/projects/[id]/gantt`는 전부 read-only이고 `+ 업무 추가` 같은 버튼은 핸들러 없는 스텁입니다. UI 연결은 다음 작업 단계로 남아 있습니다.
+
 ## TODO
 
 - `hanmir_token` 쿠키를 **httpOnly + Secure + SameSite=Strict**로 전환하고, 로그인 응답에서 `Set-Cookie`로 발급. 프론트는 더 이상 `document.cookie`를 만지지 않도록 정리.
@@ -408,6 +490,7 @@ DTO 타입은 `packages/shared/src/types.ts`의 `CreateUserInput` / `UpdateUserI
   - `file_folders` (파일함 폴더 그리드)
   - `task_assignees` (다중 담당자)
 - Departments **soft delete** (`is_active = false`) 도입 — 현재 MVP는 in-use 체크 후 hard delete.
+- `projects.sales_status` 컬럼 default를 한국어 `'준비중'`에서 enum 값 `'preparing'`으로 맞추는 마이그레이션. 현재는 어댑터가 INSERT에 `'preparing'`을 명시해 회피 중.
 - 사용자 비밀번호 발급/초기화 흐름 — `POST /users`가 받는 `password`는 현재 무시되고 모든 시드 사용자가 `DEFAULT_PASSWORD`로 로그인.
 - 관리자 UI 1차 연결 완료 (사용자 생성/수정/비활성화 + 부서 CRUD). 후속: 재활성화 액션, 사용자 일괄 부서 변경, 이메일 초대 흐름, 채팅방/공지 등 관리자 영역 확장.
 - 감사 로그 영속화 / 사용자 변경/비활성화 시 audit row 발급.
