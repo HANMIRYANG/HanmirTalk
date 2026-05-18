@@ -18,7 +18,9 @@
 import type { Pool } from "pg";
 import { hashPassword, seedPasswordHash, verifyPassword } from "../auth/password";
 import type {
+  AuditEntry,
   ChatMessage,
+  CreateAuditInput,
   CreateDepartmentInput,
   CreateFileInput,
   CreateNoticeInput,
@@ -51,6 +53,7 @@ import type {
   UserRole
 } from "@hanmir/shared";
 import type {
+  AuditRepository,
   DepartmentRepository,
   FileRepository,
   MessageRepository,
@@ -1491,6 +1494,86 @@ class PgNoticeRepository implements NoticeRepository {
 // Factory
 // ---------------------------------------------------------------------------
 
+class PgAuditRepository implements AuditRepository {
+  constructor(private readonly pool: Pool) {}
+
+  async record(input: CreateAuditInput): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO audit_logs
+         (actor_user_id, actor_name, actor_role, action, target_type,
+          target_id, target_label, ip, level, meta)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [
+        input.actorUserId ?? null,
+        input.actorName ?? null,
+        input.actorRole ?? null,
+        input.action,
+        input.targetType ?? null,
+        input.targetId ?? null,
+        input.targetLabel ?? null,
+        input.ip ?? null,
+        input.level ?? "info",
+        input.meta ? JSON.stringify(input.meta) : null
+      ]
+    );
+  }
+
+  async list(opts?: { limit?: number; action?: string; actorUserId?: string }): Promise<AuditEntry[]> {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (opts?.action) {
+      params.push(opts.action);
+      where.push(`action = $${params.length}`);
+    }
+    if (opts?.actorUserId) {
+      params.push(opts.actorUserId);
+      where.push(`actor_user_id = $${params.length}`);
+    }
+    const limit = Math.min(opts?.limit ?? 50, 200);
+    params.push(limit);
+    const sql = `
+      SELECT id, actor_name, action, target_type, target_id, target_label,
+             level, created_at
+        FROM audit_logs
+       ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
+       ORDER BY created_at DESC
+       LIMIT $${params.length}
+    `;
+    const { rows } = await this.pool.query<{
+      id: string;
+      actor_name: string | null;
+      action: string;
+      target_type: string | null;
+      target_id: string | null;
+      target_label: string | null;
+      level: string | null;
+      created_at: Date;
+    }>(sql, params);
+    return rows.map((r) => ({
+      id: r.id,
+      title: `${r.actor_name ?? "시스템"} · ${r.action}`,
+      meta: r.target_label ?? r.target_id ?? r.target_type ?? "",
+      time: relativeTimePg(r.created_at),
+      level: (r.level ?? "info") as AuditEntry["level"]
+    }));
+  }
+}
+
+function relativeTimePg(d: Date): string {
+  const t = d instanceof Date ? d.getTime() : Date.parse(String(d));
+  if (Number.isNaN(t)) return String(d);
+  const diff = Date.now() - t;
+  const min = Math.floor(diff / 60_000);
+  if (min < 1) return "방금";
+  if (min < 60) return `${min}분 전`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}시간 전`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day}일 전`;
+  const dt = new Date(t);
+  return `${dt.getFullYear()}.${String(dt.getMonth() + 1).padStart(2, "0")}.${String(dt.getDate()).padStart(2, "0")}`;
+}
+
 export function createPostgresRepositories(pool: Pool): Repositories {
   const users = new PgUserRepository(pool);
   return {
@@ -1502,6 +1585,7 @@ export function createPostgresRepositories(pool: Pool): Repositories {
     tasks: new PgTaskRepository(pool),
     products: new PgProductRepository(pool),
     files: new PgFileRepository(pool),
-    notices: new PgNoticeRepository(pool)
+    notices: new PgNoticeRepository(pool),
+    audit: new PgAuditRepository(pool)
   };
 }

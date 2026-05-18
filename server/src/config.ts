@@ -12,6 +12,7 @@ export const config = {
   uploadDir: path.resolve(
     process.env.UPLOAD_DIR?.trim() || path.join(process.cwd(), "server", "uploads")
   ),
-  // Max upload size in bytes (default 25 MB).
-  uploadMaxBytes: Number(process.env.UPLOAD_MAX_BYTES ?? 25 * 1024 * 1024)
+  // Max upload size in bytes. spec docs/12 caps MVP at 50 MB; override via
+  // UPLOAD_MAX_BYTES env (admins can tune in future settings UI).
+  uploadMaxBytes: Number(process.env.UPLOAD_MAX_BYTES ?? 50 * 1024 * 1024)
 };

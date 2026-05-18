@@ -10,6 +10,7 @@ import type {
 } from "@hanmir/shared";
 import type { Repositories } from "../repositories/types";
 import { requireRole } from "../auth/middleware";
+import { auditLog } from "../audit";
 
 const VALID_PROJECT_STATUS: ProjectStatus[] = [
   "ready",
@@ -204,12 +205,35 @@ function parseUpdateProject(body: unknown): UpdateProjectInput | { error: string
   return out;
 }
 
+// Phase 1 D-5: enforce that non-admin writers also belong to the project
+// they're touching. Returns false (and responds with 404/403) when the
+// check fails; route handler should `return` immediately.
+async function ensureProjectAccess(
+  repos: Repositories,
+  req: import("express").Request,
+  res: import("express").Response,
+  projectId: string
+): Promise<{ allowed: true } | { allowed: false }> {
+  const me = req.currentUser!;
+  const isAdmin = me.role === "admin" || me.role === "super_admin";
+  const project = await repos.projects.findById(projectId);
+  if (!project) {
+    res.status(404).json({ error: "not_found" });
+    return { allowed: false };
+  }
+  if (!isAdmin && !project.memberIds.includes(me.id)) {
+    res.status(403).json({ error: "not_a_project_member" });
+    return { allowed: false };
+  }
+  return { allowed: true };
+}
+
 export function createProjectsRouter(repos: Repositories): Router {
   const router = Router();
 
-  // TODO(per-project owner): once project-level ownership is wired, gate write
-  // operations on `req.currentUser.id === project.owner_id` OR an explicit
-  // admin role. For MVP we accept any of these roles globally.
+  // Role-level guard for project creation (no project-level check possible
+  // since the project doesn't exist yet). PATCH / DELETE / member ops add
+  // a per-project membership check via ensureProjectAccess.
   const writers = requireRole("admin", "super_admin", "manager", "project_owner");
 
   router.get("/", async (_req, res) => {
@@ -233,10 +257,18 @@ export function createProjectsRouter(repos: Repositories): Router {
       return;
     }
     const project = await repos.projects.create(parsed);
+    await auditLog(repos, req, {
+      action: "project.create",
+      targetType: "project",
+      targetId: project.id,
+      targetLabel: `${project.code} ${project.name}`
+    });
     res.status(201).json(project);
   });
 
   router.patch("/:id", writers, async (req, res) => {
+    const access = await ensureProjectAccess(repos, req, res, req.params.id);
+    if (!access.allowed) return;
     const parsed = parseUpdateProject(req.body);
     if ("error" in parsed) {
       res.status(400).json({ error: parsed.error });
@@ -253,15 +285,26 @@ export function createProjectsRouter(repos: Repositories): Router {
   // Soft delete: marks `status = "cancelled"` instead of removing the row, so
   // related tasks / messages / files keep their references.
   router.delete("/:id", writers, async (req, res) => {
+    const access = await ensureProjectAccess(repos, req, res, req.params.id);
+    if (!access.allowed) return;
     const cancelled = await repos.projects.cancel(req.params.id);
     if (!cancelled) {
       res.status(404).json({ error: "not_found" });
       return;
     }
+    await auditLog(repos, req, {
+      action: "project.cancel",
+      targetType: "project",
+      targetId: cancelled.id,
+      targetLabel: `${cancelled.code} ${cancelled.name}`,
+      level: "warn"
+    });
     res.json({ ok: true, project: cancelled });
   });
 
   router.post("/:id/members", writers, async (req, res) => {
+    const access = await ensureProjectAccess(repos, req, res, req.params.id);
+    if (!access.allowed) return;
     const body = req.body as { userId?: unknown } | undefined;
     const userId = isString(body?.userId) ? (body!.userId as string) : "";
     if (!userId.trim()) {
@@ -282,6 +325,8 @@ export function createProjectsRouter(repos: Repositories): Router {
   });
 
   router.delete("/:id/members/:userId", writers, async (req, res) => {
+    const access = await ensureProjectAccess(repos, req, res, req.params.id);
+    if (!access.allowed) return;
     const updated = await repos.projects.removeMember(req.params.id, req.params.userId);
     if (!updated) {
       res.status(404).json({ error: "not_found" });
@@ -301,11 +346,8 @@ export function createProjectsRouter(repos: Repositories): Router {
   });
 
   router.post("/:projectId/tasks", writers, async (req, res) => {
-    const project = await repos.projects.findById(req.params.projectId);
-    if (!project) {
-      res.status(404).json({ error: "not_found" });
-      return;
-    }
+    const access = await ensureProjectAccess(repos, req, res, req.params.projectId);
+    if (!access.allowed) return;
     const parsed = parseCreateTask(req.body);
     if ("error" in parsed) {
       res.status(400).json({ error: parsed.error });

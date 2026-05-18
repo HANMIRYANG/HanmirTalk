@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { CreateUserInput, UpdateUserInput, User, UserRole } from "@hanmir/shared";
 import type { Repositories } from "../repositories/types";
 import { requireRole } from "../auth/middleware";
+import { auditLog } from "../audit";
 
 const VALID_ROLES: UserRole[] = [
   "super_admin",
@@ -130,6 +131,13 @@ export function createUsersRouter(repos: Repositories): Router {
       return;
     }
     const user = await repos.users.create(parsed);
+    await auditLog(repos, req, {
+      action: "user.create",
+      targetType: "user",
+      targetId: user.id,
+      targetLabel: user.email,
+      meta: { role: user.role, departmentId: user.departmentId }
+    });
     res.status(201).json(user);
   });
 
@@ -164,6 +172,13 @@ export function createUsersRouter(repos: Repositories): Router {
       res.status(404).json({ error: "not_found" });
       return;
     }
+    await auditLog(repos, req, {
+      action: "user.update",
+      targetType: "user",
+      targetId: updated.id,
+      targetLabel: updated.email,
+      meta: parsed
+    });
     res.json(updated);
   });
 
@@ -173,6 +188,13 @@ export function createUsersRouter(repos: Repositories): Router {
       res.status(404).json({ error: "not_found" });
       return;
     }
+    await auditLog(repos, req, {
+      action: "user.deactivate",
+      targetType: "user",
+      targetId: updated.id,
+      targetLabel: updated.email,
+      level: "warn"
+    });
     res.json(updated);
   });
 

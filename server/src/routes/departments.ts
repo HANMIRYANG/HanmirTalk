@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { CreateDepartmentInput, UpdateDepartmentInput } from "@hanmir/shared";
 import type { Repositories } from "../repositories/types";
 import { requireRole } from "../auth/middleware";
+import { auditLog } from "../audit";
 
 function isString(value: unknown): value is string {
   return typeof value === "string";
@@ -48,6 +49,12 @@ export function createDepartmentsRouter(repos: Repositories): Router {
       return;
     }
     const dept = await repos.departments.create(parsed);
+    await auditLog(repos, req, {
+      action: "department.create",
+      targetType: "department",
+      targetId: dept.id,
+      targetLabel: dept.name
+    });
     res.status(201).json(dept);
   });
 
@@ -62,12 +69,25 @@ export function createDepartmentsRouter(repos: Repositories): Router {
       res.status(404).json({ error: "not_found" });
       return;
     }
+    await auditLog(repos, req, {
+      action: "department.update",
+      targetType: "department",
+      targetId: updated.id,
+      targetLabel: updated.name,
+      meta: parsed
+    });
     res.json(updated);
   });
 
   router.delete("/:id", adminOnly, async (req, res) => {
     const result = await repos.departments.delete(req.params.id);
     if (result.ok) {
+      await auditLog(repos, req, {
+        action: "department.delete",
+        targetType: "department",
+        targetId: req.params.id,
+        level: "warn"
+      });
       res.json({ ok: true });
       return;
     }

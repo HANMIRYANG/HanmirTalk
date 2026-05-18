@@ -50,7 +50,7 @@ export function createApp(deps: AppDeps = { repos: createMemoryRepositories() })
   app.use(`${config.apiPrefix}/products`, requireAuth, createProductsRouter(deps.repos));
   app.use(`${config.apiPrefix}/files`, requireAuth, createFilesRouter(deps.repos));
   app.use(`${config.apiPrefix}/notices`, requireAuth, createNoticesRouter(deps.repos));
-  app.use(`${config.apiPrefix}/dashboard`, requireAuth, createDashboardRouter());
+  app.use(`${config.apiPrefix}/dashboard`, requireAuth, createDashboardRouter(deps.repos));
 
   app.use((_req, res) => {
     res.status(404).json({ error: "not_found" });

@@ -1,5 +1,7 @@
 import type {
+  AuditEntry,
   ChatMessage,
+  CreateAuditInput,
   CreateDepartmentInput,
   CreateFileInput,
   CreateNoticeInput,
@@ -25,6 +27,12 @@ import type {
   UpdateUserInput,
   User
 } from "@hanmir/shared";
+
+export interface AuditRepository {
+  record(input: CreateAuditInput): Promise<void>;
+  // Returns the most recent entries first. Limit caps the rows fetched.
+  list(opts?: { limit?: number; action?: string; actorUserId?: string }): Promise<AuditEntry[]>;
+}
 
 export interface UserRepository {
   list(): Promise<User[]>;
@@ -147,4 +155,5 @@ export interface Repositories {
   products: ProductRepository;
   files: FileRepository;
   notices: NoticeRepository;
+  audit: AuditRepository;
 }

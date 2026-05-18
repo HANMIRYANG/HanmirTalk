@@ -499,6 +499,21 @@ export interface AuditEntry {
   level: "info" | "warn" | "danger";
 }
 
+// Server-side audit log record (Phase 1 D-4). What the auditLog helper
+// stores. Translated to AuditEntry for the /admin panel.
+export interface CreateAuditInput {
+  action: string;
+  actorUserId?: string;
+  actorName?: string;
+  actorRole?: string;
+  targetType?: string;
+  targetId?: string;
+  targetLabel?: string;
+  level?: "info" | "warn" | "danger";
+  ip?: string;
+  meta?: unknown;
+}
+
 export interface AdminKpi {
   label: string;
   value: string;

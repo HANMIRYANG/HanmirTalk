@@ -1,6 +1,8 @@
 import { randomBytes } from "crypto";
 import type {
+  AuditEntry,
   ChatMessage,
+  CreateAuditInput,
   CreateDepartmentInput,
   CreateFileInput,
   CreateNoticeInput,
@@ -39,6 +41,7 @@ import { seedProducts } from "../seed/products";
 import { seedFiles, seedFolders } from "../seed/files";
 import { seedNotices } from "../seed/notices";
 import type {
+  AuditRepository,
   DepartmentRepository,
   FileRepository,
   MessageRepository,
@@ -821,6 +824,67 @@ class MemoryNoticeRepository implements NoticeRepository {
   }
 }
 
+interface AuditRow extends CreateAuditInput {
+  id: string;
+  createdAt: string;
+}
+
+class MemoryAuditRepository implements AuditRepository {
+  private readonly data: AuditRow[] = [];
+  private readonly maxRows = 500;
+
+  async record(input: CreateAuditInput): Promise<void> {
+    const row: AuditRow = {
+      id: newId("au"),
+      createdAt: new Date().toISOString(),
+      level: input.level ?? "info",
+      ...input
+    };
+    this.data.unshift(row);
+    if (this.data.length > this.maxRows) this.data.length = this.maxRows;
+  }
+
+  async list(opts?: { limit?: number; action?: string; actorUserId?: string }): Promise<AuditEntry[]> {
+    const limit = opts?.limit ?? 50;
+    let rows = this.data.slice();
+    if (opts?.action) rows = rows.filter((r) => r.action === opts.action);
+    if (opts?.actorUserId) rows = rows.filter((r) => r.actorUserId === opts.actorUserId);
+    rows = rows.slice(0, limit);
+    return rows.map((r) => formatAuditEntry(r));
+  }
+}
+
+function formatAuditEntry(r: AuditRow): AuditEntry {
+  const actor = r.actorName ?? "시스템";
+  const target = r.targetLabel ?? r.targetId ?? r.targetType ?? "";
+  return {
+    id: r.id,
+    title: actorLabel(r.action, actor),
+    meta: target ? `${target}` : "",
+    time: relativeTime(r.createdAt),
+    level: (r.level ?? "info") as AuditEntry["level"]
+  };
+}
+
+function actorLabel(action: string, actor: string): string {
+  return `${actor} · ${action}`;
+}
+
+function relativeTime(iso: string): string {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return iso;
+  const diff = Date.now() - t;
+  const min = Math.floor(diff / 60_000);
+  if (min < 1) return "방금";
+  if (min < 60) return `${min}분 전`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}시간 전`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day}일 전`;
+  const d = new Date(t);
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export function createMemoryRepositories(): Repositories {
   const departments = new MemoryDepartmentRepository();
   const users = new MemoryUserRepository({ departments });
@@ -846,6 +910,7 @@ export function createMemoryRepositories(): Repositories {
     tasks,
     products: new MemoryProductRepository(),
     files: new MemoryFileRepository(),
-    notices
+    notices,
+    audit: new MemoryAuditRepository()
   };
 }

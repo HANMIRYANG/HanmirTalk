@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type NextFunction, type Request, type Response } from "express";
 import fs from "fs/promises";
 import path from "path";
 import { randomBytes } from "crypto";
@@ -7,6 +7,46 @@ import type { CreateFileInput, ListFilesFilter } from "@hanmir/shared";
 import type { Repositories } from "../repositories/types";
 import { requireAuth } from "../auth/middleware";
 import { config } from "../config";
+
+// Phase 1 D-6 — file upload security (docs/12).
+// Allowed extensions per docs/12 (이미지 / 문서 / 스프레드시트 / 발표 / 압축).
+const ALLOWED_EXTENSIONS = new Set([
+  "jpg", "jpeg", "png", "webp", "gif",
+  "pdf",
+  "doc", "docx", "hwp", "hwpx",
+  "xls", "xlsx", "csv",
+  "ppt", "pptx",
+  "zip"
+]);
+
+// Executable / script files we always refuse, even if a future admin
+// loosens ALLOWED_EXTENSIONS. Keep this list aggressive.
+const BLOCKED_EXTENSIONS = new Set([
+  "exe", "bat", "cmd", "com", "scr", "msi", "ps1", "vbs", "vbe",
+  "js", "jse", "wsf", "wsh", "jar", "sh", "bash", "zsh",
+  "app", "command", "deb", "rpm", "dmg",
+  "html", "htm", "svg" // potential script vectors
+]);
+
+// MIME prefixes we accept. Acts as a sanity check on top of extension.
+const ALLOWED_MIME_PREFIXES = [
+  "image/",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument",
+  "application/vnd.ms-excel",
+  "application/vnd.ms-powerpoint",
+  "application/zip",
+  "application/x-zip-compressed",
+  "application/x-hwp",
+  "application/haansofthwp",
+  "text/csv",
+  "text/plain" // common for .csv detected as text/plain
+];
+
+function classifyExtension(filename: string): string {
+  return filename.split(".").pop()?.toLowerCase() ?? "";
+}
 
 function isString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
@@ -33,8 +73,56 @@ function safeFilename(original: string): { rel: string; absDir: string; abs: str
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: config.uploadMaxBytes }
+  limits: { fileSize: config.uploadMaxBytes },
+  fileFilter: (_req, file, cb) => {
+    const ext = classifyExtension(file.originalname);
+    if (BLOCKED_EXTENSIONS.has(ext)) {
+      cb(new Error("blocked_extension"));
+      return;
+    }
+    if (!ALLOWED_EXTENSIONS.has(ext)) {
+      cb(new Error("unsupported_extension"));
+      return;
+    }
+    const mime = (file.mimetype ?? "").toLowerCase();
+    const mimeOk =
+      ALLOWED_MIME_PREFIXES.some((p) => mime.startsWith(p)) || mime === "";
+    if (!mimeOk) {
+      cb(new Error("unsupported_mime"));
+      return;
+    }
+    cb(null, true);
+  }
 });
+
+// Translate multer fileFilter errors + size-limit errors into clean 4xx
+// responses instead of falling through to the 500 handler.
+function uploadErrorHandler(
+  err: unknown,
+  _req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  if (!err) return next();
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg === "blocked_extension") {
+    res.status(415).json({ error: "blocked_extension" });
+    return;
+  }
+  if (msg === "unsupported_extension") {
+    res.status(415).json({ error: "unsupported_extension" });
+    return;
+  }
+  if (msg === "unsupported_mime") {
+    res.status(415).json({ error: "unsupported_mime" });
+    return;
+  }
+  if (msg.toLowerCase().includes("file too large")) {
+    res.status(413).json({ error: "file_too_large" });
+    return;
+  }
+  next(err);
+}
 
 export function createFilesRouter(repos: Repositories): Router {
   const router = Router();
@@ -55,9 +143,14 @@ export function createFilesRouter(repos: Repositories): Router {
     res.json(folders);
   });
 
-  router.post("/upload", requireAuth, upload.single("file"), async (req, res) => {
-    const file = req.file;
-    if (!file) {
+  router.post(
+    "/upload",
+    requireAuth,
+    upload.single("file"),
+    uploadErrorHandler,
+    async (req: Request, res: Response) => {
+      const file = req.file;
+      if (!file) {
       res.status(400).json({ error: "file_required" });
       return;
     }

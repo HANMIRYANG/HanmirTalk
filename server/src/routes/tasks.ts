@@ -95,9 +95,36 @@ function parseUpdateTask(body: unknown): UpdateTaskInput | { error: string } {
   return out;
 }
 
+// Phase 1 D-5: tasks inherit their parent project's membership rules.
+async function ensureTaskProjectAccess(
+  repos: Repositories,
+  req: import("express").Request,
+  res: import("express").Response,
+  taskId: string
+): Promise<{ allowed: true; projectId: string } | { allowed: false }> {
+  const me = req.currentUser!;
+  const task = await repos.tasks.findById(taskId);
+  if (!task) {
+    res.status(404).json({ error: "not_found" });
+    return { allowed: false };
+  }
+  const isAdmin = me.role === "admin" || me.role === "super_admin";
+  if (isAdmin) return { allowed: true, projectId: task.projectId };
+  const project = await repos.projects.findById(task.projectId);
+  if (!project) {
+    // Orphaned task: treat as not found rather than 500.
+    res.status(404).json({ error: "not_found" });
+    return { allowed: false };
+  }
+  if (!project.memberIds.includes(me.id)) {
+    res.status(403).json({ error: "not_a_project_member" });
+    return { allowed: false };
+  }
+  return { allowed: true, projectId: task.projectId };
+}
+
 export function createTasksRouter(repos: Repositories): Router {
   const router = Router();
-  // TODO(per-project): replace with `task.project.memberIds.includes(me) || admin`.
   const writers = requireRole("admin", "super_admin", "manager", "project_owner");
 
   router.get("/:id", async (req, res) => {
@@ -110,6 +137,8 @@ export function createTasksRouter(repos: Repositories): Router {
   });
 
   router.patch("/:id", writers, async (req, res) => {
+    const access = await ensureTaskProjectAccess(repos, req, res, req.params.id);
+    if (!access.allowed) return;
     const parsed = parseUpdateTask(req.body);
     if ("error" in parsed) {
       res.status(400).json({ error: parsed.error });
@@ -124,6 +153,8 @@ export function createTasksRouter(repos: Repositories): Router {
   });
 
   router.delete("/:id", writers, async (req, res) => {
+    const access = await ensureTaskProjectAccess(repos, req, res, req.params.id);
+    if (!access.allowed) return;
     const ok = await repos.tasks.delete(req.params.id);
     if (!ok) {
       res.status(404).json({ error: "not_found" });
