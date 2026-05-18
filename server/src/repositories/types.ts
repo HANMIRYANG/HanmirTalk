@@ -1,6 +1,7 @@
 import type {
   ChatMessage,
   CreateDepartmentInput,
+  CreateFileInput,
   CreateNoticeInput,
   CreateProjectInput,
   CreateTaskInput,
@@ -8,6 +9,7 @@ import type {
   Department,
   FileEntry,
   FileFolder,
+  ListFilesFilter,
   Notice,
   NoticeReadStatus,
   Product,
@@ -76,8 +78,17 @@ export interface ProductRepository {
 
 export interface FileRepository {
   listFolders(): Promise<FileFolder[]>;
-  listFiles(): Promise<FileEntry[]>;
+  listFiles(filter?: ListFilesFilter): Promise<FileEntry[]>;
   findById(id: string): Promise<FileEntry | undefined>;
+  // `uploaderId` is the authenticated user. The route already moved the
+  // bytes to disk and passes back the storage path via `input.fileUrl`.
+  create(input: CreateFileInput, uploaderId: string): Promise<FileEntry>;
+  // Returns false when the row is absent. The route deletes the on-disk
+  // file based on `findStorage` *before* calling this.
+  delete(id: string): Promise<boolean>;
+  // Server-internal: returns the original filename + on-disk path so the
+  // download/delete routes can stream or unlink. Not exposed via API.
+  findStorage(id: string): Promise<{ fileName: string; fileUrl: string; fileType?: string } | undefined>;
 }
 
 export interface NoticeRepository {

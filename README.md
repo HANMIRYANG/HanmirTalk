@@ -134,7 +134,8 @@ docs `15_DEVELOPMENT_PHASES.md` 기준 진척도. 백엔드 라우트와 프론�
 | 3 | 채팅방 read | ✅ | ✅ (`/chat`, `/chat/[roomId]`) |
 | 3 | 메시지 보내기 | ✅ (append, 인증 필수) | ✅ (`MessageComposer`) |
 | 3 | WebSocket (`message:new` 등) | ❌ | ❌ |
-| 3 | 파일/이미지 첨부 업로드 | ❌ | ❌ |
+| 3 | 파일 업로드/다운로드/삭제 | ✅ (multer + 로컬 디스크, `attachments` 테이블) | ✅ (`/files` 업로드, `/projects/[id]/files` 패널) |
+| 3 | 채팅 메시지 첨부 | ❌ (백엔드 준비, 메시지 연동 미구현) | ❌ |
 | 3 | 읽음 처리 / unread / mute / pin write | ❌ | ❌ |
 | 4 | 공지 read + 확인 | ✅ | ✅ (`/notices`, 확인 버튼) |
 | 4 | 공지 작성 / 확인자 조회 | ✅ (admin only) | ✅ (`+ 공지 작성` 모달, 카드별 `확인 현황` 모달) |
@@ -174,21 +175,24 @@ docs `15_DEVELOPMENT_PHASES.md` 기준 진척도. 백엔드 라우트와 프론�
 | `GET /rooms/:roomId/pinned` | seed (PG: undefined) | `chatService.getPinnedMessage` | `/chat/[roomId]` 핀 배너 |
 | `GET /projects` | seed/PG | `projectService.listProjects` | `/projects` |
 | `GET /projects/:id` | seed/PG | `projectService.getProject` | `/projects/[id]` |
-| `POST /projects` | seed/PG | `projectService.createProject` | **UI 미연결** |
-| `PATCH /projects/:id` | seed/PG | `projectService.updateProject` | **UI 미연결** |
-| `DELETE /projects/:id` (soft, → cancelled) | seed/PG | `projectService.deleteProject` | **UI 미연결** |
-| `POST /projects/:id/members` | seed/PG | `projectService.addProjectMember` | **UI 미연결** |
-| `DELETE /projects/:id/members/:userId` | seed/PG | `projectService.removeProjectMember` | **UI 미연결** |
+| `POST /projects` | seed/PG | `projectService.createProject` | `/projects` `+ 프로젝트 추가` 모달 |
+| `PATCH /projects/:id` | seed/PG | `projectService.updateProject` | `/projects/[id]` `수정` 액션 |
+| `DELETE /projects/:id` (soft, → cancelled) | seed/PG | `projectService.deleteProject` | `/projects/[id]` `프로젝트 취소` 액션 |
+| `POST /projects/:id/members` | seed/PG | `projectService.addProjectMember` | `/projects/[id]` 멤버 카드 초대 모달 |
+| `DELETE /projects/:id/members/:userId` | seed/PG | `projectService.removeProjectMember` | `/projects/[id]` 멤버 카드 제외 버튼 |
 | `GET /projects/:projectId/tasks` | seed/PG | `taskService.listByProject` | `/projects/[id]/tasks` |
-| `POST /projects/:projectId/tasks` | seed/PG | `taskService.createTask` | **UI 미연결** (`+ 업무 추가` 버튼은 스텁) |
-| `GET /tasks/:id` | seed/PG | `taskService.getTask` | **UI 미연결** |
-| `PATCH /tasks/:id` | seed/PG | `taskService.updateTask` | **UI 미연결** |
-| `DELETE /tasks/:id` | seed/PG | `taskService.deleteTask` | **UI 미연결** |
+| `POST /projects/:projectId/tasks` | seed/PG | `taskService.createTask` | `/projects/[id]/tasks` `+ 업무 추가` 모달 (헤더/그룹별) |
+| `GET /tasks/:id` | seed/PG | `taskService.getTask` | (현재 lookup만 사용) |
+| `PATCH /tasks/:id` | seed/PG | `taskService.updateTask` | TaskRow 인라인 (상태/진행률) |
+| `DELETE /tasks/:id` | seed/PG | `taskService.deleteTask` | TaskRow hover 삭제 버튼 |
 | `GET /products` | seed/PG | `productService.listProducts` | `/products` |
 | `GET /products/:id` | seed/PG | `productService.getProduct` | `/products/[id]` |
-| `GET /files` | seed/PG | `fileService.listFiles` | `/files` |
+| `GET /files` (?projectId 등 필터) | seed/PG | `fileService.listFiles` | `/files`, `/projects/[id]/files` |
 | `GET /files/folders` | seed (PG: 빈 배열) | `fileService.listFolders` | `/files` |
-| `GET /files/:id` | seed/PG | (UI 미사용) | — |
+| `POST /files/upload` (multipart, requireAuth) | memory store / PG attachments | `fileService.uploadFile` | `/files` 업로드 버튼, `/projects/[id]/files` 패널 업로드 |
+| `GET /files/:id/download` (requireAuth, 디스크 스트림) | local-disk | `fileService.downloadUrl` | 파일명 클릭 → 새 탭 다운로드 |
+| `DELETE /files/:id` (requireAuth, 디스크 unlink + DB 삭제) | memory/PG | `fileService.deleteFile` | `/projects/[id]/files` 행 hover `삭제` |
+| `GET /files/:id` | seed/PG | `fileService.getFile` | (현재 lookup만) |
 | `GET /notices` | seed/PG | `noticeService.listNotices` | `/notices` |
 | `POST /notices` | seed/PG (admin) | `noticeService.createNotice` | `/notices` `+ 공지 작성` 모달 |
 | `GET /notices/:id` | seed/PG | `noticeService.getNotice` | (UI 미사용) |

@@ -1,0 +1,131 @@
+.wrap {
+  padding: 22px 28px;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.barMeta {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-3);
+}
+.barActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.hiddenInput {
+  display: none;
+}
+
+.error {
+  margin: 12px 18px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-radius: var(--r-sm);
+}
+
+.empty {
+  padding: 36px;
+  text-align: center;
+  color: var(--text-4);
+  font-size: 13px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.table thead th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-4);
+  padding: 10px 12px;
+  background: var(--surface-muted);
+  border-bottom: 1px solid var(--border-soft);
+  letter-spacing: 0.02em;
+}
+.table tbody td {
+  padding: 10px 12px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: middle;
+  color: var(--text-2);
+}
+.table tbody tr:last-child td { border-bottom: none; }
+.table tbody tr:hover { background: var(--bg-soft); }
+
+.colIc { width: 56px; }
+.colSz { width: 90px; }
+.colBy { width: 200px; }
+.colDt { width: 110px; }
+.colAct { width: 80px; }
+
+.fic {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--text-4);
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+}
+.icPdf { background: #DC2626; }
+.icXls { background: #16A34A; }
+.icDoc { background: #1F4FA8; }
+.icPpt { background: #EA580C; }
+.icImg { background: #6D45B8; }
+.icZip { background: #6B7280; }
+
+.fname {
+  font-weight: 600;
+  color: var(--text-1);
+  text-decoration: none;
+  margin-right: 8px;
+}
+.fname:hover { color: var(--brand-blue); text-decoration: underline; }
+
+.byRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.rowAct { text-align: right; }
+.deleteBtn {
+  font-size: 11.5px;
+  color: var(--text-4);
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 3px 8px;
+  border-radius: var(--r-xs);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s, color 0.1s, background-color 0.1s;
+}
+.table tbody tr:hover .deleteBtn,
+.deleteBtn:focus { opacity: 1; }
+.deleteBtn:hover { color: var(--danger); background: var(--danger-bg); }
+.deleteBtn:disabled { cursor: progress; opacity: 0.5; }

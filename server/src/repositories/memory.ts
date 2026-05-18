@@ -2,6 +2,7 @@ import { randomBytes } from "crypto";
 import type {
   ChatMessage,
   CreateDepartmentInput,
+  CreateFileInput,
   CreateNoticeInput,
   CreateProjectInput,
   CreateTaskInput,
@@ -9,6 +10,8 @@ import type {
   Department,
   FileEntry,
   FileFolder,
+  FileKind,
+  ListFilesFilter,
   Notice,
   NoticeReadStatus,
   NoticeReadStatusEntry,
@@ -399,18 +402,118 @@ class MemoryProductRepository implements ProductRepository {
   }
 }
 
+function deriveFileKind(filename: string, mime?: string): FileKind {
+  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+  if (ext === "pdf") return "pdf";
+  if (["xls", "xlsx", "csv"].includes(ext)) return "xls";
+  if (["doc", "docx", "hwp", "hwpx"].includes(ext)) return "doc";
+  if (["ppt", "pptx"].includes(ext)) return "ppt";
+  if (["jpg", "jpeg", "png", "webp", "gif"].includes(ext)) return "img";
+  if (["zip", "rar", "7z"].includes(ext)) return "zip";
+  if (mime?.startsWith("image/")) return "img";
+  if (mime?.includes("pdf")) return "pdf";
+  if (mime?.includes("spreadsheet") || mime?.includes("excel")) return "xls";
+  if (mime?.includes("presentation") || mime?.includes("powerpoint")) return "ppt";
+  return "doc";
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let i = 0;
+  while (value >= 1024 && i < units.length - 1) {
+    value /= 1024;
+    i++;
+  }
+  return `${value.toFixed(value >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
 class MemoryFileRepository implements FileRepository {
   private readonly folders: FileFolder[] = clone(seedFolders);
-  private readonly files: FileEntry[] = clone(seedFiles);
+  // Backfill `projectId` from seed `scope` strings ("P-2410") by lowercasing,
+  // which matches the seedProjects.id convention. Done once at construction
+  // so the live filter doesn't repeatedly re-derive.
+  private readonly files: FileEntry[] = clone(seedFiles).map((f) => ({
+    ...f,
+    projectId: f.projectId ?? (f.scope?.startsWith("P-") ? f.scope.toLowerCase() : undefined)
+  }));
+
   async listFolders(): Promise<FileFolder[]> {
     return clone(this.folders);
   }
-  async listFiles(): Promise<FileEntry[]> {
-    return clone(this.files);
+
+  async listFiles(filter?: ListFilesFilter): Promise<FileEntry[]> {
+    const out = this.files.filter((f) => {
+      if (filter?.projectId && f.projectId !== filter.projectId) return false;
+      if (filter?.productId && f.productId !== filter.productId) return false;
+      if (filter?.taskId && f.taskId !== filter.taskId) return false;
+      if (filter?.messageId && f.messageId !== filter.messageId) return false;
+      if (filter?.uploaderId && f.uploaderId !== filter.uploaderId) return false;
+      return true;
+    });
+    return clone(out);
   }
+
   async findById(id: string): Promise<FileEntry | undefined> {
     const found = this.files.find((f) => f.id === id);
     return found ? clone(found) : undefined;
+  }
+
+  async create(input: CreateFileInput, uploaderId: string): Promise<FileEntry> {
+    const scope = input.projectId
+      ? input.projectId.toUpperCase()
+      : input.productId
+      ? "제품정보"
+      : input.taskId
+      ? "업무"
+      : "공유";
+    const now = new Date();
+    const stamp = `${String(now.getMonth() + 1).padStart(2, "0")}.${String(
+      now.getDate()
+    ).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(
+      now.getMinutes()
+    ).padStart(2, "0")}`;
+    const entry: FileEntry = {
+      id: newId("f"),
+      kind: deriveFileKind(input.fileName, input.fileType),
+      name: input.fileName,
+      scope,
+      scopeTone: input.projectId ? "blue" : "default",
+      size: formatBytes(input.fileSize),
+      uploaderId,
+      uploadedAt: stamp,
+      projectId: input.projectId,
+      productId: input.productId,
+      taskId: input.taskId,
+      messageId: input.messageId
+    };
+    this.files.unshift(entry);
+    this.storage.set(entry.id, {
+      fileName: input.fileName,
+      fileUrl: input.fileUrl,
+      fileType: input.fileType
+    });
+    return clone(entry);
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const idx = this.files.findIndex((f) => f.id === id);
+    if (idx === -1) return false;
+    this.files.splice(idx, 1);
+    this.storage.delete(id);
+    return true;
+  }
+
+  // Storage path for newly-uploaded files. Seed files lack on-disk content,
+  // so download for them returns 404. Real uploads go through `create`,
+  // which records their path here for the download route to find.
+  private readonly storage = new Map<string, { fileName: string; fileUrl: string; fileType?: string }>();
+
+  async findStorage(
+    id: string
+  ): Promise<{ fileName: string; fileUrl: string; fileType?: string } | undefined> {
+    return this.storage.get(id);
   }
 }
 

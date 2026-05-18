@@ -16,3 +16,8 @@ packages/shared/src/**/*.js
 packages/shared/src/**/*.js.map
 packages/shared/src/**/*.d.ts
 *.tsbuildinfo
+
+# Uploaded file storage (local-disk adapter). The directory itself is kept
+# via .gitkeep so the server can write into it on fresh clones.
+server/uploads/*
+!server/uploads/.gitkeep

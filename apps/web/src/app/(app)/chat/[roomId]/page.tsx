@@ -68,19 +68,21 @@ export default async function ChatRoomPage({ params }: Props) {
             {project ? (
               <>
                 <Link href={`/projects/${project.id}/tasks`} className={styles.tab}>
-                  업무 12
+                  업무 {project.taskCounts.total}
                 </Link>
                 <Link href={`/projects/${project.id}/gantt`} className={styles.tab}>
                   간트
                 </Link>
+                <Link href={`/projects/${project.id}/files`} className={styles.tab}>
+                  파일
+                </Link>
               </>
             ) : null}
-            <button className={styles.tab} type="button">
-              파일 24
-            </button>
-            <button className={styles.tab} type="button">
-              결정 기록 3
-            </button>
+            {!project ? (
+              <button className={styles.tab} type="button" disabled>
+                파일
+              </button>
+            ) : null}
           </div>
           <div className={styles.actions}>
             <IconButton aria-label="멤버">

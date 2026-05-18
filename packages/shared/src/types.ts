@@ -360,6 +360,13 @@ export interface FileEntry {
   uploadedAt: string;
   starred?: boolean;
   folderId?: string;
+  // Optional scope ids — set when an attachment was uploaded against a
+  // specific entity. Frontend filtering (e.g. project-only file lists)
+  // uses these instead of the human-readable `scope` label.
+  projectId?: string;
+  productId?: string;
+  taskId?: string;
+  messageId?: string;
 }
 
 export interface FileFolder {
@@ -367,6 +374,30 @@ export interface FileFolder {
   name: string;
   meta: string;
   tone: "yellow" | "blue" | "orange" | "purple";
+}
+
+export interface CreateFileInput {
+  // Original filename as uploaded. Stored verbatim in `file_name`.
+  fileName: string;
+  fileSize: number;
+  fileType?: string;
+  // Server-managed storage location (relative path or URL). Set by the
+  // upload route based on where the bytes were written.
+  fileUrl: string;
+  // At most one scope id is recorded today. Frontend tags the upload with
+  // whichever context the user was in.
+  projectId?: string;
+  productId?: string;
+  taskId?: string;
+  messageId?: string;
+}
+
+export interface ListFilesFilter {
+  projectId?: string;
+  productId?: string;
+  taskId?: string;
+  messageId?: string;
+  uploaderId?: string;
 }
 
 export interface Notice {

@@ -19,6 +19,7 @@ import type { Pool } from "pg";
 import type {
   ChatMessage,
   CreateDepartmentInput,
+  CreateFileInput,
   CreateNoticeInput,
   CreateProjectInput,
   CreateTaskInput,
@@ -26,6 +27,7 @@ import type {
   Department,
   FileEntry,
   FileFolder,
+  ListFilesFilter,
   Notice,
   NoticeReadStatus,
   NoticeReadStatusEntry,
@@ -977,10 +979,12 @@ interface AttachmentRow {
   file_name: string;
   file_type: string | null;
   file_size: string | number | null;
+  file_url: string;
   uploaded_by: string;
   project_id: string | null;
   product_id: string | null;
   task_id: string | null;
+  message_id: string | null;
   created_at: Date;
 }
 
@@ -1026,13 +1030,19 @@ function rowToFile(row: AttachmentRow): FileEntry {
     scope,
     size: row.file_size != null ? formatBytes(Number(row.file_size)) : "",
     uploaderId: row.uploaded_by,
-    uploadedAt: row.created_at instanceof Date ? formatDate(row.created_at) : String(row.created_at)
+    uploadedAt: row.created_at instanceof Date
+      ? formatDate(row.created_at)
+      : String(row.created_at),
+    projectId: row.project_id ?? undefined,
+    productId: row.product_id ?? undefined,
+    taskId: row.task_id ?? undefined,
+    messageId: row.message_id ?? undefined
   };
 }
 
 const ATTACHMENT_SELECT = `
-  SELECT id, file_name, file_type, file_size, uploaded_by, project_id,
-         product_id, task_id, created_at
+  SELECT id, file_name, file_type, file_size, file_url, uploaded_by,
+         project_id, product_id, task_id, message_id, created_at
   FROM attachments
 `;
 
@@ -1046,11 +1056,56 @@ class PgFileRepository implements FileRepository {
     return [];
   }
 
-  async listFiles(): Promise<FileEntry[]> {
-    const { rows } = await this.pool.query<AttachmentRow>(
-      `${ATTACHMENT_SELECT} ORDER BY created_at DESC`
-    );
+  async listFiles(filter?: ListFilesFilter): Promise<FileEntry[]> {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    const add = (col: string, val: string | undefined) => {
+      if (val == null) return;
+      params.push(val);
+      where.push(`${col} = $${params.length}`);
+    };
+    add("project_id", filter?.projectId);
+    add("product_id", filter?.productId);
+    add("task_id", filter?.taskId);
+    add("message_id", filter?.messageId);
+    add("uploaded_by", filter?.uploaderId);
+    const sql = `${ATTACHMENT_SELECT}${
+      where.length > 0 ? ` WHERE ${where.join(" AND ")}` : ""
+    } ORDER BY created_at DESC`;
+    const { rows } = await this.pool.query<AttachmentRow>(sql, params);
     return rows.map(rowToFile);
+  }
+
+  async create(input: CreateFileInput, uploaderId: string): Promise<FileEntry> {
+    const { rows } = await this.pool.query<{ id: string }>(
+      `INSERT INTO attachments (
+         file_name, file_type, file_size, file_url, uploaded_by,
+         project_id, product_id, task_id, message_id
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id`,
+      [
+        input.fileName,
+        input.fileType ?? null,
+        input.fileSize,
+        input.fileUrl,
+        uploaderId,
+        input.projectId ?? null,
+        input.productId ?? null,
+        input.taskId ?? null,
+        input.messageId ?? null
+      ]
+    );
+    const created = await this.findById(rows[0].id);
+    if (!created) throw new Error("[postgres] failed to read back created attachment");
+    return created;
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      `DELETE FROM attachments WHERE id = $1`,
+      [id]
+    );
+    return (rowCount ?? 0) > 0;
   }
 
   async findById(id: string): Promise<FileEntry | undefined> {
@@ -1059,6 +1114,25 @@ class PgFileRepository implements FileRepository {
       [id]
     );
     return rows[0] ? rowToFile(rows[0]) : undefined;
+  }
+
+  async findStorage(
+    id: string
+  ): Promise<{ fileName: string; fileUrl: string; fileType?: string } | undefined> {
+    const { rows } = await this.pool.query<{
+      file_name: string;
+      file_url: string;
+      file_type: string | null;
+    }>(
+      `SELECT file_name, file_url, file_type FROM attachments WHERE id = $1`,
+      [id]
+    );
+    if (!rows[0]) return undefined;
+    return {
+      fileName: rows[0].file_name,
+      fileUrl: rows[0].file_url,
+      fileType: rows[0].file_type ?? undefined
+    };
   }
 }
 

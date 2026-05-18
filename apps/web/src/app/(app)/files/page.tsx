@@ -10,13 +10,13 @@ import {
   MoreIcon,
   PinIcon,
   SearchIcon,
-  UploadIcon,
   CheckIcon
 } from "@/components/ui/icons";
 import { fileService } from "@/services/file.service";
 import { userService } from "@/services/user.service";
 import { getServerToken } from "@/lib/server-auth";
 import { cn } from "@/lib/classNames";
+import { FileUploadButton } from "./FileUploadButton";
 import styles from "./files.module.css";
 
 const folderTone: Record<string, string> = {
@@ -163,13 +163,7 @@ export default async function FileLibraryPage() {
                 <SearchIcon size={14} />
                 <input placeholder="파일 검색" />
               </div>
-              <button className="btn btn--outline btn--sm" type="button">
-                새 폴더
-              </button>
-              <button className="btn btn--primary btn--sm" type="button">
-                <UploadIcon size={12} />
-                업로드
-              </button>
+              <FileUploadButton />
             </div>
           </div>
         </section>
@@ -214,10 +208,15 @@ export default async function FileLibraryPage() {
                         <div className={cn(styles.fic, fileColor[f.kind])}>{fileTag[f.kind]}</div>
                       </td>
                       <td>
-                        <div className={styles.fname}>
+                        <a
+                          className={styles.fname}
+                          href={fileService.downloadUrl(f.id)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
                           {f.name}
                           {f.starred ? <FavoriteIcon size={12} /> : null}
-                        </div>
+                        </a>
                       </td>
                       <td>
                         <Tag tone={(f.scopeTone as "blue") ?? "default"}>{f.scope}</Tag>
