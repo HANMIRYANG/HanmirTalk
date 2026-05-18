@@ -10,6 +10,7 @@ import {
   AdminIcon,
   ChatIcon,
   FileIcon,
+  HomeIcon,
   LogoutIcon,
   NoticeIcon,
   ProductIcon,
@@ -26,6 +27,7 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
+  { key: "dashboard", href: "/dashboard", label: "대시보드", Icon: HomeIcon },
   { key: "chat", href: "/chat", label: "채팅", Icon: ChatIcon },
   { key: "project", href: "/projects", label: "프로젝트", Icon: ProjectIcon },
   { key: "product", href: "/products", label: "제품정보", Icon: ProductIcon },
