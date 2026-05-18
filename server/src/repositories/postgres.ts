@@ -19,6 +19,7 @@ import type { Pool } from "pg";
 import type {
   ChatMessage,
   CreateDepartmentInput,
+  CreateNoticeInput,
   CreateProjectInput,
   CreateTaskInput,
   CreateUserInput,
@@ -26,6 +27,8 @@ import type {
   FileEntry,
   FileFolder,
   Notice,
+  NoticeReadStatus,
+  NoticeReadStatusEntry,
   Product,
   Project,
   ProjectStatus,
@@ -1131,6 +1134,21 @@ class PgNoticeRepository implements NoticeRepository {
     return rows[0] ? rowToNotice(rows[0]) : undefined;
   }
 
+  async create(
+    input: CreateNoticeInput,
+    author: { id: string; departmentName: string }
+  ): Promise<Notice> {
+    const { rows } = await this.pool.query<{ id: string }>(
+      `INSERT INTO notices (title, content, is_required, created_by)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id`,
+      [input.title, input.body, input.isMandatory ?? true, author.id]
+    );
+    const created = await this.findById(rows[0].id);
+    if (!created) throw new Error("[postgres] failed to read back created notice");
+    return created;
+  }
+
   async markConfirmed(id: string, userId: string): Promise<Notice | undefined> {
     // Ensure notice exists; the join in the SELECT below would return rows
     // with NULL fields if we skipped this check.
@@ -1147,6 +1165,52 @@ class PgNoticeRepository implements NoticeRepository {
       [id, userId]
     );
     return this.findById(id, userId);
+  }
+
+  async getReadStatus(id: string): Promise<NoticeReadStatus | undefined> {
+    const existing = await this.pool.query<{ id: string }>(
+      `SELECT id FROM notices WHERE id = $1`,
+      [id]
+    );
+    if (existing.rows.length === 0) return undefined;
+    // One row per active user. LEFT JOIN against notice_reads so users who
+    // haven't confirmed still appear (with NULL confirmed_at).
+    const { rows } = await this.pool.query<{
+      user_id: string;
+      name: string;
+      department_name: string | null;
+      confirmed_at: Date | null;
+    }>(
+      `SELECT u.id AS user_id, u.name, d.name AS department_name,
+              nr.confirmed_at
+         FROM users u
+         LEFT JOIN departments d ON d.id = u.department_id
+         LEFT JOIN notice_reads nr
+           ON nr.notice_id = $1 AND nr.user_id = u.id
+        WHERE u.is_active IS NOT FALSE
+        ORDER BY u.name`,
+      [id]
+    );
+    const confirmed: NoticeReadStatusEntry[] = [];
+    const unconfirmed: NoticeReadStatusEntry[] = [];
+    for (const r of rows) {
+      const base = {
+        userId: r.user_id,
+        name: r.name,
+        departmentName: r.department_name ?? ""
+      };
+      if (r.confirmed_at) {
+        confirmed.push({ ...base, confirmedAt: r.confirmed_at.toISOString() });
+      } else {
+        unconfirmed.push(base);
+      }
+    }
+    return {
+      noticeId: id,
+      totalRecipients: rows.length,
+      confirmed,
+      unconfirmed
+    };
   }
 }
 

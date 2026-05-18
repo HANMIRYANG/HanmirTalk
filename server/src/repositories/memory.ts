@@ -2,6 +2,7 @@ import { randomBytes } from "crypto";
 import type {
   ChatMessage,
   CreateDepartmentInput,
+  CreateNoticeInput,
   CreateProjectInput,
   CreateTaskInput,
   CreateUserInput,
@@ -9,6 +10,8 @@ import type {
   FileEntry,
   FileFolder,
   Notice,
+  NoticeReadStatus,
+  NoticeReadStatusEntry,
   Product,
   Project,
   Room,
@@ -413,16 +416,26 @@ class MemoryFileRepository implements FileRepository {
 
 class MemoryNoticeRepository implements NoticeRepository {
   private readonly data: Notice[] = clone(seedNotices).map((n) => ({ ...n, myConfirmed: false }));
-  // userId -> set of confirmed notice ids. Seed data's `myConfirmed=true`
-  // values are migrated into this map for `system` to preserve the demo state.
-  private readonly confirmedByUser = new Map<string, Set<string>>();
+  // userId -> (noticeId -> confirmedAt ISO). We need the timestamp for
+  // `getReadStatus`; the boolean `myConfirmed` falls out of map.has().
+  private readonly confirmedByUser = new Map<string, Map<string, string>>();
+  // Wired by createMemoryRepositories so we can iterate active users for
+  // recipient counts and the read-status payload.
+  private getActiveUsers: () => User[] = () => [];
 
   constructor() {
-    const systemSet = new Set<string>();
+    // Seed `myConfirmed=true` values get carried into a synthetic `__seed__`
+    // user so the demo's "이미 확인됨" badge keeps showing on /notices.
+    const systemMap = new Map<string, string>();
+    const stamp = new Date().toISOString();
     for (const original of seedNotices) {
-      if (original.myConfirmed) systemSet.add(original.id);
+      if (original.myConfirmed) systemMap.set(original.id, stamp);
     }
-    if (systemSet.size > 0) this.confirmedByUser.set("__seed__", systemSet);
+    if (systemMap.size > 0) this.confirmedByUser.set("__seed__", systemMap);
+  }
+
+  setUserAccessor(getActive: () => User[]): void {
+    this.getActiveUsers = getActive;
   }
 
   private withUserStatus(notice: Notice, userId?: string): Notice {
@@ -440,19 +453,68 @@ class MemoryNoticeRepository implements NoticeRepository {
     return found ? this.withUserStatus(found, userId) : undefined;
   }
 
+  async create(
+    input: CreateNoticeInput,
+    author: { id: string; departmentName: string }
+  ): Promise<Notice> {
+    const isMandatory = input.isMandatory ?? true;
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const dd = String(now.getDate()).padStart(2, "0");
+    const notice: Notice = {
+      id: newId("n"),
+      title: input.title,
+      body: input.body,
+      authorTeam: author.departmentName,
+      createdAt: `${yyyy}.${mm}.${dd}`,
+      isMandatory,
+      totalRecipients: this.getActiveUsers().filter((u) => u.isActive !== false).length,
+      confirmedCount: 0,
+      myConfirmed: false,
+      tone: isMandatory ? "red" : "green"
+    };
+    this.data.unshift(notice);
+    return clone(notice);
+  }
+
   async markConfirmed(id: string, userId: string): Promise<Notice | undefined> {
     const found = this.data.find((n) => n.id === id);
     if (!found) return undefined;
-    let userSet = this.confirmedByUser.get(userId);
-    if (!userSet) {
-      userSet = new Set<string>();
-      this.confirmedByUser.set(userId, userSet);
+    let userMap = this.confirmedByUser.get(userId);
+    if (!userMap) {
+      userMap = new Map<string, string>();
+      this.confirmedByUser.set(userId, userMap);
     }
-    if (!userSet.has(id)) {
-      userSet.add(id);
+    if (!userMap.has(id)) {
+      userMap.set(id, new Date().toISOString());
       found.confirmedCount = Math.min(found.totalRecipients, found.confirmedCount + 1);
     }
     return this.withUserStatus(found, userId);
+  }
+
+  async getReadStatus(id: string): Promise<NoticeReadStatus | undefined> {
+    const notice = this.data.find((n) => n.id === id);
+    if (!notice) return undefined;
+    const active = this.getActiveUsers().filter((u) => u.isActive !== false);
+    const confirmed: NoticeReadStatusEntry[] = [];
+    const unconfirmed: NoticeReadStatusEntry[] = [];
+    for (const u of active) {
+      const at = this.confirmedByUser.get(u.id)?.get(id);
+      const base = {
+        userId: u.id,
+        name: u.name,
+        departmentName: u.departmentName
+      };
+      if (at) confirmed.push({ ...base, confirmedAt: at });
+      else unconfirmed.push(base);
+    }
+    return {
+      noticeId: id,
+      totalRecipients: active.length,
+      confirmed,
+      unconfirmed
+    };
   }
 }
 
@@ -464,6 +526,9 @@ export function createMemoryRepositories(): Repositories {
   departments.setUserAccessor(() => users._data);
   const projects = new MemoryProjectRepository();
   const tasks = new MemoryTaskRepository({ projects });
+  const notices = new MemoryNoticeRepository();
+  // Read-status + new-notice recipient counts need the live active-user list.
+  notices.setUserAccessor(() => users._data);
   return {
     users,
     departments,
@@ -473,6 +538,6 @@ export function createMemoryRepositories(): Repositories {
     tasks,
     products: new MemoryProductRepository(),
     files: new MemoryFileRepository(),
-    notices: new MemoryNoticeRepository()
+    notices
   };
 }

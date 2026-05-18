@@ -137,7 +137,7 @@ docs `15_DEVELOPMENT_PHASES.md` 기준 진척도. 백엔드 라우트와 프론�
 | 3 | 파일/이미지 첨부 업로드 | ❌ | ❌ |
 | 3 | 읽음 처리 / unread / mute / pin write | ❌ | ❌ |
 | 4 | 공지 read + 확인 | ✅ | ✅ (`/notices`, 확인 버튼) |
-| 4 | 공지 작성 / 확인자 조회 | ❌ | ❌ |
+| 4 | 공지 작성 / 확인자 조회 | ✅ (admin only) | ✅ (`+ 공지 작성` 모달, 카드별 `확인 현황` 모달) |
 | 5 | Project CRUD + 멤버 (soft delete) | ✅ | ✅ (`/projects` 생성, `/projects/[id]` 수정·취소·멤버 추가/제외) |
 | 5 | Task CRUD + 상태 변경 | ✅ | ✅ (`/projects/[id]/tasks` 인라인 편집 + 생성 모달) |
 | 5 | Project 진행률/지연 자동 집계 | ✅ (memory CUD/PG read 모두) | ✅ (목록/카드 표시) |
@@ -190,7 +190,9 @@ docs `15_DEVELOPMENT_PHASES.md` 기준 진척도. 백엔드 라우트와 프론�
 | `GET /files/folders` | seed (PG: 빈 배열) | `fileService.listFolders` | `/files` |
 | `GET /files/:id` | seed/PG | (UI 미사용) | — |
 | `GET /notices` | seed/PG | `noticeService.listNotices` | `/notices` |
+| `POST /notices` | seed/PG (admin) | `noticeService.createNotice` | `/notices` `+ 공지 작성` 모달 |
 | `GET /notices/:id` | seed/PG | `noticeService.getNotice` | (UI 미사용) |
+| `GET /notices/:id/read-status` | seed/PG (admin) | `noticeService.getReadStatus` | `/notices` 카드 `확인 현황` 모달 |
 | `POST /notices/:id/confirm` | in-memory/PG | `noticeService.confirmNotice` | `NoticeConfirmButton` |
 | `GET /dashboard/overview` | seed | (UI 미사용) | — |
 | `GET /dashboard/admin-kpis` | seed | `dashboardService.listAdminKpis` | `/admin` |
@@ -257,10 +259,12 @@ npm run dev          # 프론트, http://localhost:3000
    psql "$DATABASE_URL" -f server/src/db/migrations/001_initial.sql
    psql "$DATABASE_URL" -f server/src/db/migrations/002_extend_projects_tasks.sql
    psql "$DATABASE_URL" -f server/src/db/migrations/003_seed_minimum.sql
+   psql "$DATABASE_URL" -f server/src/db/migrations/004_notices_optional_room.sql
    ```
    - `001`: 초기 스키마.
    - `002`: shared `Project` / `TaskItem` DTO가 쓰지만 `001`에 빠져 있던 컬럼(`code`, `full_name`, `goals`, `outputs` 등) 추가.
    - `003`: 부서 6개 + admin/super_admin/manager/project_owner 로그인용 시드 사용자 4명. idempotent (`ON CONFLICT DO NOTHING`).
+   - `004`: `notices.room_id`를 nullable로 변경 (MVP 공지 작성에 room이 필요 없음). idempotent.
 3. `.env` 또는 환경에 `DATABASE_URL=postgres://user:pass@host:5432/hanmir_talk`.
 4. `npm run dev:server` 또는 `npm run build:server && npm run start:server`로 기동. 로그에 `repository adapter: postgres`가 보이면 활성 상태.
 
@@ -276,7 +280,7 @@ npm run dev          # 프론트, http://localhost:3000
 | `messages` | ✅ listByRoom / append. `getPinned`은 undefined 반환 | pinned 모델이 schema에 없음 (후속 migration). |
 | `products` | ✅ list / findById | spec/lots/history/documents/quarter 등 별도 테이블이 없는 필드는 빈 배열/기본값. |
 | `files` | ✅ listFolders / listFiles / findById | `attachments`를 `FileEntry`로 변환. folders는 빈 배열 반환 (테이블 없음). |
-| `notices` | ✅ list(userId?) / findById(id, userId?) / markConfirmed(id, userId) | `notice_reads`로 사용자별 확인 상태 추적. tone은 `is_required`에서 파생. |
+| `notices` | ✅ list(userId?) / findById(id, userId?) / create / markConfirmed(id, userId) / getReadStatus(id) | `notice_reads`로 사용자별 확인 상태 추적. tone은 `is_required`에서 파생. `room_id`는 nullable (마이그레이션 004). |
 | dashboard (KPI / audit / activities) | seed 데이터 (양쪽 mode 동일) | LLM/실데이터 연동은 후속. |
 
 > Postgres mode를 켜면 위 표의 read API + 기존 write API(user/department/project/task CRUD, message append, notice confirm)가 정상 동작합니다. 채팅의 pinned 배너, 파일함의 폴더 그리드, 제품 상세의 LOT/시험성적서 섹션 등 schema에 없는 정보는 빈 상태로 노출되지만 페이지 자체가 깨지진 않습니다.

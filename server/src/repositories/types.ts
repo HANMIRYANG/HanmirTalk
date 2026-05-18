@@ -1,6 +1,7 @@
 import type {
   ChatMessage,
   CreateDepartmentInput,
+  CreateNoticeInput,
   CreateProjectInput,
   CreateTaskInput,
   CreateUserInput,
@@ -8,6 +9,7 @@ import type {
   FileEntry,
   FileFolder,
   Notice,
+  NoticeReadStatus,
   Product,
   Project,
   Room,
@@ -81,9 +83,19 @@ export interface FileRepository {
 export interface NoticeRepository {
   list(userId?: string): Promise<Notice[]>;
   findById(id: string, userId?: string): Promise<Notice | undefined>;
+  // `author` is the writer of the notice. Memory uses `departmentName` to
+  // fill `authorTeam`; postgres only needs `id` (the JOIN derives the team).
+  create(
+    input: CreateNoticeInput,
+    author: { id: string; departmentName: string }
+  ): Promise<Notice>;
   // Per-user confirmation. `userId` is required so we can flip the right
   // user's flag (memory) or insert into `notice_reads` (postgres).
   markConfirmed(id: string, userId: string): Promise<Notice | undefined>;
+  // Returns undefined when the notice does not exist. Recipients = all active
+  // users; `confirmed` is whoever has flipped the per-user flag, `unconfirmed`
+  // is everyone else.
+  getReadStatus(id: string): Promise<NoticeReadStatus | undefined>;
 }
 
 export interface Repositories {

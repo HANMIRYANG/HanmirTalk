@@ -159,11 +159,12 @@ As of the latest verified review (2026-05-18):
   fixed: `PgProjectRepository.create` was passing `null` for the NOT NULL
   `sales_status` column — now defaults to `"preparing"`.
 - Backend write CRUD implemented for: users, departments, projects (incl.
-  members + soft-delete), tasks, message append, notice confirm.
+  members + soft-delete), tasks, message append, notice create + confirm +
+  read-status.
 - Backend write CRUD **not** implemented: rooms (create/update/members),
-  message edit/delete/read/pin/search, notice create + read-status, files
-  upload/delete, products create/update/delete + documents, decisions, refresh
-  token, WebSocket events.
+  message edit/delete/read/pin/search, files upload/delete, products
+  create/update/delete + documents, decisions, refresh token, WebSocket
+  events.
 - Frontend UI status:
   - `/admin` calls user/department CRUD services end-to-end.
   - `/projects` has `+ 프로젝트 추가` modal wired to `createProject`.
@@ -172,8 +173,10 @@ As of the latest verified review (2026-05-18):
   - `/projects/[id]/tasks` has inline status select + progress input + delete
     button per row + `+ 업무 추가` modal (group-aware default status).
   - `/projects/[id]/gantt` is read-only.
-  - `/chat`, `/notices`, `/products`, `/files` are read + the single existing
-    write action each (message send, notice confirm).
+  - `/notices` has `+ 공지 작성` modal (admin) and per-card `확인 현황`
+    modal (admin) listing confirmed vs unconfirmed active users.
+  - `/chat`, `/products`, `/files` are read + the single existing write
+    action each (message send only).
   - No `/dashboard` page exists; sidebar has no dashboard entry.
 - `@` mentions and `/` AI commands are documented only and should remain P3
   until core P0/P1 work is complete.

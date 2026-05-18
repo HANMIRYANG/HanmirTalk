@@ -383,6 +383,27 @@ export interface Notice {
   tone: "red" | "amber" | "green";
 }
 
+export interface CreateNoticeInput {
+  title: string;
+  body: string;
+  isMandatory?: boolean;
+}
+
+export interface NoticeReadStatusEntry {
+  userId: string;
+  name: string;
+  departmentName: string;
+  // ISO timestamp when the recipient hit "확인". Only set on `confirmed`.
+  confirmedAt?: string;
+}
+
+export interface NoticeReadStatus {
+  noticeId: string;
+  totalRecipients: number;
+  confirmed: NoticeReadStatusEntry[];
+  unconfirmed: NoticeReadStatusEntry[];
+}
+
 export interface ActivityEvent {
   id: string;
   initials: string;

@@ -2,10 +2,15 @@ import { Topbar } from "@/components/shell/Topbar";
 import { Tag } from "@/components/ui/Tag";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { noticeService } from "@/services/notice.service";
+import { authService } from "@/services/auth.service";
 import { NoticeConfirmButton } from "./NoticeConfirmButton";
+import { NoticeCreateButton } from "./NoticeCreateButton";
+import { NoticeReadStatusButton } from "./NoticeReadStatusButton";
 import { getServerToken } from "@/lib/server-auth";
 import { cn } from "@/lib/classNames";
 import styles from "./notices.module.css";
+
+const MANAGE_ROLES = new Set(["admin", "super_admin"]);
 
 const TONE_BY: Record<string, "red" | "amber" | "green"> = {
   red: "red",
@@ -15,15 +20,24 @@ const TONE_BY: Record<string, "red" | "amber" | "green"> = {
 
 export default async function NoticesPage() {
   const token = getServerToken();
-  const notices = await noticeService.listNotices({ token });
+  const [notices, me] = await Promise.all([
+    noticeService.listNotices({ token }),
+    authService.getMe(token)
+  ]);
+  const canManage = MANAGE_ROLES.has(me.role);
 
   const mandatoryUnread = notices.filter((n) => n.isMandatory && !n.myConfirmed);
-  const others = notices.filter((n) => !(n.isMandatory && !n.myConfirmed));
 
   return (
     <>
       <Topbar title="공지" sub="필독 공지와 일반 공지를 확인하세요." />
       <div className="content">
+        {canManage ? (
+          <div className={styles.toolbar}>
+            <div className={styles.toolbarMeta}>관리자 권한으로 공지를 작성할 수 있습니다.</div>
+            <NoticeCreateButton />
+          </div>
+        ) : null}
         <section className={styles.summary}>
           <div className="stat">
             <div className="stat__label">확인이 필요한 공지</div>
@@ -56,12 +70,14 @@ export default async function NoticesPage() {
           {mandatoryUnread.length === 0 ? (
             <div className={styles.empty}>현재 확인이 필요한 공지가 없습니다.</div>
           ) : (
-            mandatoryUnread.map((n) => <NoticeCard key={n.id} notice={n} />)
+            mandatoryUnread.map((n) => (
+              <NoticeCard key={n.id} notice={n} canManage={canManage} />
+            ))
           )}
 
           <h2 className={cn(styles.sectionTitle, styles.sectionTitleSpaced)}>전체 공지</h2>
           {notices.map((n) => (
-            <NoticeCard key={`all-${n.id}`} notice={n} />
+            <NoticeCard key={`all-${n.id}`} notice={n} canManage={canManage} />
           ))}
         </div>
       </div>
@@ -70,9 +86,11 @@ export default async function NoticesPage() {
 }
 
 function NoticeCard({
-  notice
+  notice,
+  canManage
 }: {
   notice: Awaited<ReturnType<typeof noticeService.listNotices>>[number];
+  canManage: boolean;
 }) {
   const ratio = Math.round((notice.confirmedCount / notice.totalRecipients) * 100);
 
@@ -105,6 +123,7 @@ function NoticeCard({
         </div>
         <div className={styles.actions}>
           {notice.dueDate ? <span className={styles.due}>마감일 {notice.dueDate}</span> : null}
+          {canManage ? <NoticeReadStatusButton noticeId={notice.id} /> : null}
           {!notice.myConfirmed ? (
             <NoticeConfirmButton noticeId={notice.id} />
           ) : (
