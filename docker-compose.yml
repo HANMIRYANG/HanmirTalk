@@ -37,5 +37,18 @@ services:
       timeout: 3s
       retries: 10
 
+  mailhog:
+    # Catch-all dev SMTP server. The backend's nodemailer transport connects
+    # here by default (host=localhost, port=1025). Open the web UI to view
+    # outgoing mail:
+    #   http://localhost:8025
+    # Production should set SMTP_HOST etc. to a real server and ignore this.
+    image: mailhog/mailhog:v1.0.1
+    container_name: hanmir-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
+
 volumes:
   hanmir_pgdata:

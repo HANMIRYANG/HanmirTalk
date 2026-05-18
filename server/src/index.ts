@@ -2,6 +2,7 @@ import { createServer } from "http";
 import { Pool } from "pg";
 import { createApp } from "./app";
 import { config } from "./config";
+import { verifyMailer } from "./mailer";
 import { realtime } from "./realtime";
 import { createMemoryRepositories } from "./repositories/memory";
 import { createPostgresRepositories } from "./repositories/postgres";
@@ -31,4 +32,5 @@ httpServer.listen(config.port, () => {
   console.log(`[hanmir-server] repository adapter: ${mode}`);
   // eslint-disable-next-line no-console
   console.log(`[hanmir-server] listening on http://localhost:${config.port}${config.apiPrefix}`);
+  void verifyMailer();
 });

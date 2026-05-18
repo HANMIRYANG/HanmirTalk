@@ -14,5 +14,16 @@ export const config = {
   ),
   // Max upload size in bytes. spec docs/12 caps MVP at 50 MB; override via
   // UPLOAD_MAX_BYTES env (admins can tune in future settings UI).
-  uploadMaxBytes: Number(process.env.UPLOAD_MAX_BYTES ?? 50 * 1024 * 1024)
+  uploadMaxBytes: Number(process.env.UPLOAD_MAX_BYTES ?? 50 * 1024 * 1024),
+
+  // SMTP for outbound mail (Phase 1 D-7). Used by Phase 8 invitation flow
+  // and any future system mail. Defaults wired to docker-compose mailhog
+  // so dev works without config; production sets real values via env.
+  smtpHost: process.env.SMTP_HOST?.trim() || "localhost",
+  smtpPort: Number(process.env.SMTP_PORT ?? 1025),
+  smtpUser: process.env.SMTP_USER?.trim() || undefined,
+  smtpPass: process.env.SMTP_PASS?.trim() || undefined,
+  smtpSecure: process.env.SMTP_SECURE === "true",
+  smtpFrom: process.env.SMTP_FROM?.trim() || "한미르톡 <no-reply@hanmir-talk.local>",
+  smtpEnabled: process.env.SMTP_ENABLED !== "false"
 };
