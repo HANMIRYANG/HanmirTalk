@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useMemo, useState } from "react";
 import type { Room } from "@hanmir/shared";
 import { Avatar } from "@/components/ui/Avatar";
 import { Tag } from "@/components/ui/Tag";
@@ -15,11 +16,37 @@ interface ChatListProps {
   activeRoomId?: string;
 }
 
+type Filter = "all" | "unread" | "pinned" | "mention";
+
 export function ChatList({ rooms, activeRoomId }: ChatListProps) {
   const pathname = usePathname() ?? "";
+  const [filter, setFilter] = useState<Filter>("all");
 
-  const pinned = rooms.filter((r) => r.pinned);
-  const others = rooms.filter((r) => !r.pinned);
+  const counts = useMemo(
+    () => ({
+      all: rooms.length,
+      unread: rooms.filter((r) => r.unread > 0).length,
+      pinned: rooms.filter((r) => r.pinned).length
+    }),
+    [rooms]
+  );
+
+  const visible = useMemo(() => {
+    switch (filter) {
+      case "unread":
+        return rooms.filter((r) => r.unread > 0);
+      case "pinned":
+        return rooms.filter((r) => r.pinned);
+      case "mention":
+        // 멘션은 Phase 5에서 messages.entities 도입 시 활성화. 그때까지 빈 목록.
+        return [] as Room[];
+      default:
+        return rooms;
+    }
+  }, [rooms, filter]);
+
+  const pinned = visible.filter((r) => r.pinned);
+  const others = visible.filter((r) => !r.pinned);
 
   return (
     <aside className={styles.chatlist}>
@@ -31,36 +58,71 @@ export function ChatList({ rooms, activeRoomId }: ChatListProps) {
       </div>
 
       <div className={styles.filter}>
-        <button className={cn(styles.pill, styles.pillActive)}>
-          전체<span className={styles.pillCount}>24</span>
+        <button
+          type="button"
+          onClick={() => setFilter("all")}
+          className={cn(styles.pill, filter === "all" && styles.pillActive)}
+        >
+          전체<span className={styles.pillCount}>{counts.all}</span>
         </button>
-        <button className={styles.pill}>
-          읽지 않음<span className={styles.pillCount}>12</span>
+        <button
+          type="button"
+          onClick={() => setFilter("unread")}
+          className={cn(styles.pill, filter === "unread" && styles.pillActive)}
+        >
+          읽지 않음<span className={styles.pillCount}>{counts.unread}</span>
         </button>
-        <button className={styles.pill}>
-          고정<span className={styles.pillCount}>3</span>
+        <button
+          type="button"
+          onClick={() => setFilter("pinned")}
+          className={cn(styles.pill, filter === "pinned" && styles.pillActive)}
+        >
+          고정<span className={styles.pillCount}>{counts.pinned}</span>
         </button>
-        <button className={styles.pill}>멘션</button>
+        <button
+          type="button"
+          onClick={() => setFilter("mention")}
+          className={cn(styles.pill, filter === "mention" && styles.pillActive)}
+          title="멘션 기능은 추후 도입 예정"
+        >
+          멘션
+        </button>
       </div>
 
       <div className={styles.scroll}>
-        {pinned.length > 0 ? <div className={styles.group}>고정된 대화</div> : null}
-        {pinned.map((room) => (
-          <ChatRow
-            key={room.id}
-            room={room}
-            active={room.id === activeRoomId || pathname === `/chat/${room.id}`}
-          />
-        ))}
+        {visible.length === 0 ? (
+          <div className={styles.empty}>
+            {filter === "mention"
+              ? "멘션 기능은 추후 도입 예정입니다."
+              : filter === "unread"
+              ? "안 읽은 대화가 없습니다."
+              : filter === "pinned"
+              ? "고정된 대화가 없습니다."
+              : "대화가 없습니다."}
+          </div>
+        ) : (
+          <>
+            {pinned.length > 0 ? (
+              <div className={styles.group}>고정된 대화</div>
+            ) : null}
+            {pinned.map((room) => (
+              <ChatRow
+                key={room.id}
+                room={room}
+                active={room.id === activeRoomId || pathname === `/chat/${room.id}`}
+              />
+            ))}
 
-        <div className={styles.group}>최근 대화</div>
-        {others.map((room) => (
-          <ChatRow
-            key={room.id}
-            room={room}
-            active={room.id === activeRoomId || pathname === `/chat/${room.id}`}
-          />
-        ))}
+            {others.length > 0 ? <div className={styles.group}>최근 대화</div> : null}
+            {others.map((room) => (
+              <ChatRow
+                key={room.id}
+                room={room}
+                active={room.id === activeRoomId || pathname === `/chat/${room.id}`}
+              />
+            ))}
+          </>
+        )}
       </div>
     </aside>
   );

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Topbar } from "@/components/shell/Topbar";
 import { ChatList } from "@/components/chat/ChatList";
 import { Tag } from "@/components/ui/Tag";
@@ -5,6 +6,9 @@ import { Avatar } from "@/components/ui/Avatar";
 import { chatService } from "@/services/chat.service";
 import { dashboardService } from "@/services/dashboard.service";
 import { authService } from "@/services/auth.service";
+import { noticeService } from "@/services/notice.service";
+import { projectService } from "@/services/project.service";
+import { taskService } from "@/services/task.service";
 import { getServerToken } from "@/lib/server-auth";
 import styles from "./chat.module.css";
 
@@ -12,51 +16,97 @@ import styles from "./chat.module.css";
 // Here we just need the token for downstream API calls.
 export default async function ChatHomePage() {
   const token = getServerToken();
-  const [me, rooms, activities] = await Promise.all([
+  const [me, rooms, activities, notices, projects] = await Promise.all([
     authService.getMe(token),
     chatService.listRooms({ token }),
-    dashboardService.listDashboardActivities({ token })
+    dashboardService.listDashboardActivities({ token }),
+    noticeService.listNotices({ token }),
+    projectService.listProjects({ token })
   ]);
+
+  // Tasks-due-soon: scan a slice of projects the caller can see and pick
+  // their assignments that are late or due today.
+  const taskBatches = await Promise.all(
+    projects.slice(0, 8).map((p) =>
+      taskService
+        .listByProject(p.id, { token })
+        .then((ts) =>
+          ts
+            .filter((t) => t.assigneeIds.includes(me.id) && t.status !== "done")
+            .map((t) => ({ task: t, project: p }))
+        )
+        .catch(() => [])
+    )
+  );
+  const myActiveTasks = taskBatches.flat();
+  const dueSoonTasks = myActiveTasks
+    .filter((x) => x.task.dueState === "late" || x.task.dueState === "today")
+    .slice(0, 5);
+
+  const unreadMessageTotal = rooms.reduce((sum, r) => sum + r.unread, 0);
+  const activeProjects = projects.filter(
+    (p) => p.status !== "done" && p.status !== "cancelled"
+  );
+  const myProjects = activeProjects.filter((p) => p.memberIds.includes(me.id));
+  const noticesToConfirm = notices.filter((n) => n.isMandatory && !n.myConfirmed);
+  const dateLabel = new Date().toLocaleDateString("ko-KR", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "long"
+  });
 
   return (
     <>
       <div className={styles.row}>
         <ChatList rooms={rooms} />
         <main className={styles.main}>
-          <Topbar title="채팅" sub="회의실 1, 회의실 2, 회의실 3 ... 외 9개" />
+          <Topbar title="채팅" sub={`${rooms.length}개 대화방`} />
           <div className="content">
             <div className={styles.dash}>
               <div className={styles.hello}>
-                안녕하세요, <em>{me.name}</em> 책임님 👋
+                안녕하세요, <em>{me.name}</em> {me.position}님 👋
               </div>
               <div className={styles.helloSub}>
-                오늘은 2026년 5월 13일 수요일 · 오늘의 업무 현황을 알려드립니다.
+                오늘은 {dateLabel} · 오늘의 업무 현황을 알려드립니다.
               </div>
 
               <div className={styles.statGrid}>
                 <div className="stat">
                   <div className="stat__label">읽지 않은 메시지</div>
-                  <div className="stat__value">12</div>
+                  <div className="stat__value">{unreadMessageTotal}</div>
                   <div className="stat__sub">
-                    멘션 <b className="alert">3건</b> 포함
+                    {rooms.filter((r) => r.unread > 0).length}개 대화방
                   </div>
                 </div>
                 <div className="stat">
                   <div className="stat__label">진행 중인 프로젝트</div>
-                  <div className="stat__value">3</div>
-                  <div className="stat__sub">담당 2 · 참여 1</div>
-                </div>
-                <div className="stat">
-                  <div className="stat__label">오늘 마감 업무</div>
-                  <div className="stat__value">5</div>
+                  <div className="stat__value">{activeProjects.length}</div>
                   <div className="stat__sub">
-                    <b className="alert">2건 지연</b> · 3건 진행중
+                    내가 참여 {myProjects.length}건
                   </div>
                 </div>
                 <div className="stat">
-                  <div className="stat__label">확인이 필요한 공지</div>
-                  <div className="stat__value">2</div>
-                  <div className="stat__sub">필독 1건 · 일반 1건</div>
+                  <div className="stat__label">오늘/지연 업무</div>
+                  <div className="stat__value">{dueSoonTasks.length}</div>
+                  <div className="stat__sub">
+                    {dueSoonTasks.filter((x) => x.task.dueState === "late").length > 0 ? (
+                      <>
+                        <b className="alert">
+                          지연 {dueSoonTasks.filter((x) => x.task.dueState === "late").length}건
+                        </b>
+                      </>
+                    ) : (
+                      "지연 없음"
+                    )}
+                  </div>
+                </div>
+                <div className="stat">
+                  <div className="stat__label">확인 필요 공지</div>
+                  <div className="stat__value">{noticesToConfirm.length}</div>
+                  <div className="stat__sub">
+                    전체 공지 {notices.length}건
+                  </div>
                 </div>
               </div>
 
@@ -65,62 +115,40 @@ export default async function ChatHomePage() {
                   <div className="card__head">
                     <div>
                       <div className="card__title">오늘의 업무</div>
-                      <div className="card__sub">담당자: 김민준 · 5월 13일 기준</div>
+                      <div className="card__sub">{me.name} · {dateLabel} 기준</div>
                     </div>
-                    <button className="btn btn--ghost btn--sm" style={{ marginLeft: "auto" }}>
-                      전체 보기 →
-                    </button>
+                    <Link
+                      href="/dashboard"
+                      className="btn btn--ghost btn--sm"
+                      style={{ marginLeft: "auto" }}
+                    >
+                      대시보드 →
+                    </Link>
                   </div>
                   <div className={styles.cardBody}>
-                    <div className={styles.noticeRow}>
-                      <div>
-                        <div className={styles.noticeTitle}>SUS304 시험성적서 검토 회신</div>
-                        <div className={styles.noticeMeta}>
-                          P-2410 강판 자동화 라인 · 진행률 80%
-                        </div>
+                    {dueSoonTasks.length === 0 ? (
+                      <div className={styles.emptyRow}>
+                        오늘/지연 업무가 없습니다.
                       </div>
-                      <Tag tone="red" dot>
-                        지연 1일
-                      </Tag>
-                    </div>
-                    <div className={styles.noticeRow}>
-                      <div>
-                        <div className={styles.noticeTitle}>7월 생산일정 초안 작성</div>
-                        <div className={styles.noticeMeta}>
-                          P-2411 신소재 SPC · 마감일 오늘 18:00
-                        </div>
-                      </div>
-                      <Tag tone="amber" dot>
-                        오늘 마감
-                      </Tag>
-                    </div>
-                    <div className={styles.noticeRow}>
-                      <div>
-                        <div className={styles.noticeTitle}>설비점검 체크리스트 승인</div>
-                        <div className={styles.noticeMeta}>제조1팀 · 마감일 5월 14일</div>
-                      </div>
-                      <Tag tone="blue" dot>
-                        진행중
-                      </Tag>
-                    </div>
-                    <div className={styles.noticeRow}>
-                      <div>
-                        <div className={styles.noticeTitle}>월간 KPI 리뷰 자료 정리</div>
-                        <div className={styles.noticeMeta}>
-                          생산기술팀 정기보고 · 마감일 5월 16일
-                        </div>
-                      </div>
-                      <Tag dot>대기</Tag>
-                    </div>
-                    <div className={styles.noticeRow}>
-                      <div>
-                        <div className={styles.noticeTitle}>신규 인입 자재 입고 확인</div>
-                        <div className={styles.noticeMeta}>자재팀 협조 · 마감일 5월 16일</div>
-                      </div>
-                      <Tag tone="green" dot>
-                        완료
-                      </Tag>
-                    </div>
+                    ) : (
+                      dueSoonTasks.map(({ task, project }) => (
+                        <Link
+                          key={task.id}
+                          href={`/projects/${project.id}/tasks`}
+                          className={styles.noticeRow}
+                        >
+                          <div>
+                            <div className={styles.noticeTitle}>{task.title}</div>
+                            <div className={styles.noticeMeta}>
+                              {project.code} {project.name} · 진행률 {task.progress}%
+                            </div>
+                          </div>
+                          <Tag tone={task.dueState === "late" ? "red" : "amber"} dot>
+                            {task.dueLabel}
+                          </Tag>
+                        </Link>
+                      ))
+                    )}
                   </div>
                 </section>
 
@@ -128,31 +156,34 @@ export default async function ChatHomePage() {
                   <div className="card__head">
                     <div>
                       <div className="card__title">확인이 필요한 공지</div>
-                      <div className="card__sub">읽음/확인 처리 대기</div>
+                      <div className="card__sub">필독·전체 공지</div>
                     </div>
+                    <Link
+                      href="/notices"
+                      className="btn btn--ghost btn--sm"
+                      style={{ marginLeft: "auto" }}
+                    >
+                      전체 →
+                    </Link>
                   </div>
                   <div className={styles.cardBody}>
-                    <div className={styles.noticeRow}>
-                      <div>
-                        <div className={styles.noticeTitle}>[필독] 7월 안전교육 이수 안내</div>
-                        <div className={styles.noticeMeta}>인사팀 · 마감일 5월 20일</div>
-                      </div>
-                      <Tag tone="red">확인 필요</Tag>
-                    </div>
-                    <div className={styles.noticeRow}>
-                      <div>
-                        <div className={styles.noticeTitle}>사내 보안정책 개정 안내(v3.2)</div>
-                        <div className={styles.noticeMeta}>정보지원팀 · 5월 12일</div>
-                      </div>
-                      <Tag tone="amber">확인 필요</Tag>
-                    </div>
-                    <div className={styles.noticeRow}>
-                      <div>
-                        <div className={styles.noticeTitle}>한미르톡 v2.4.1 업데이트 안내</div>
-                        <div className={styles.noticeMeta}>시스템 공지 · 5월 11일</div>
-                      </div>
-                      <Tag tone="green">확인 완료</Tag>
-                    </div>
+                    {notices.length === 0 ? (
+                      <div className={styles.emptyRow}>최근 공지가 없습니다.</div>
+                    ) : (
+                      notices.slice(0, 5).map((n) => (
+                        <div key={n.id} className={styles.noticeRow}>
+                          <div>
+                            <div className={styles.noticeTitle}>{n.title}</div>
+                            <div className={styles.noticeMeta}>
+                              {n.authorTeam} · {n.createdAt}
+                            </div>
+                          </div>
+                          <Tag tone={n.tone}>
+                            {n.myConfirmed ? "확인 완료" : n.isMandatory ? "확인 필요" : "공지"}
+                          </Tag>
+                        </div>
+                      ))
+                    )}
                   </div>
 
                   <div
@@ -165,20 +196,24 @@ export default async function ChatHomePage() {
                     </div>
                   </div>
                   <div className={styles.cardBodyTight}>
-                    {activities.map((act) => (
-                      <div key={act.id} className={styles.activity}>
-                        <Avatar initials={act.initials} tone={act.tone ?? "default"} size="sm" />
-                        <div className="flex-1">
-                          <div className={styles.activityBody}>
-                            <b>{act.author}</b>
-                            {act.body}
-                          </div>
-                          <div className={styles.activityTime}>
-                            {act.context} · {act.time}
+                    {activities.length === 0 ? (
+                      <div className={styles.emptyRow}>표시할 활동이 없습니다.</div>
+                    ) : (
+                      activities.map((act) => (
+                        <div key={act.id} className={styles.activity}>
+                          <Avatar initials={act.initials} tone={act.tone ?? "default"} size="sm" />
+                          <div className="flex-1">
+                            <div className={styles.activityBody}>
+                              <b>{act.author}</b>
+                              {act.body}
+                            </div>
+                            <div className={styles.activityTime}>
+                              {act.context} · {act.time}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      ))
+                    )}
                   </div>
                 </section>
               </div>

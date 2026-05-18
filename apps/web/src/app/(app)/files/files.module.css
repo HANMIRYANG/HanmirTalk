@@ -243,3 +243,98 @@
   .layout { grid-template-columns: 1fr; }
   .scope { display: none; }
 }
+
+/* Phase 0 interactive additions */
+.scopeItem {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.scopeItem:hover { background: var(--bg-soft); color: var(--text-1); }
+.scopeEmpty {
+  padding: 6px 10px;
+  font-size: 11.5px;
+  color: var(--text-4);
+}
+
+.crumbLink {
+  background: transparent;
+  border: none;
+  color: var(--brand-blue);
+  cursor: pointer;
+  font-size: inherit;
+  padding: 0;
+}
+.crumbLink:hover { text-decoration: underline; }
+
+.filterSlot {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.filterSlot:hover { border-color: var(--brand-blue); }
+.filterLabel { pointer-events: none; }
+.filterLabel b { color: var(--text-1); font-weight: 600; }
+.nativeSelect {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+
+.empty {
+  padding: 36px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-4);
+}
+
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  padding: 0 18px 18px;
+}
+.cardItem {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: inherit;
+  text-decoration: none;
+}
+.cardItem:hover { border-color: var(--brand-blue); box-shadow: var(--shadow-sm); }
+.cardIc { width: 56px; height: 56px; font-size: 12px; }
+.cardName { font-size: 13px; font-weight: 700; color: var(--text-1); }
+.cardMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+}
+.cardFoot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  margin-top: auto;
+}
+.cardDate { margin-left: auto; }

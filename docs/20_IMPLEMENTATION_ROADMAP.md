@@ -49,36 +49,37 @@
 
 ### C-1. UI 토글/필터/검색 (doc/19 Group A)
 
-- [ ] `apps/web/src/app/(app)/projects/[id]/tasks/page.tsx` — 보드/타임라인/표 뷰 토글 (현재 목록 고정)
-- [ ] 같은 페이지 — 담당자/상태/우선순위/정렬 필터 드롭다운
-- [ ] 같은 페이지 — 업무 검색 input (`useState` + 클라이언트 필터)
-- [ ] 같은 페이지 — 완료 그룹 접기/펼치기
-- [ ] `apps/web/src/app/(app)/projects/[id]/gantt/page.tsx` — 일/주/월/분기 타임스케일
-- [ ] 같은 페이지 — 기간/담당자/상태 필터
-- [ ] `apps/web/src/app/(app)/files/page.tsx` — 좌측 사이드바 scope 필터 (전체/최근/즐겨찾기/내가 공유/개인 보관함/프로젝트별/부서별/유형별)
-- [ ] 같은 페이지 — 목록/카드/상세 뷰 토글
-- [ ] 같은 페이지 — 유형/소유자/기간/정렬 필터
-- [ ] 같은 페이지 — 파일 검색 input
-- [ ] `apps/web/src/components/chat/ChatList.tsx` — 전체/읽지 않음/고정/멘션 pill 필터링
+- [x] `apps/web/src/app/(app)/projects/[id]/tasks/page.tsx` — 보드/타임라인/표 뷰 토글 (TasksWorkspace 클라이언트 컴포넌트)
+- [x] 같은 페이지 — 담당자/상태/우선순위/정렬 필터 드롭다운
+- [x] 같은 페이지 — 업무 검색 input (`useState` + 클라이언트 필터)
+- [x] 같은 페이지 — 완료 그룹 접기/펼치기
+- [x] `apps/web/src/app/(app)/projects/[id]/gantt/page.tsx` — 일/주/월/분기 타임스케일 (GanttToolbar)
+- [x] 같은 페이지 — 기간/담당자/상태 필터 + PDF 내보내기(window.print) + 일정 추가(TaskCreateButton 재사용)
+- [x] `apps/web/src/app/(app)/files/page.tsx` — 좌측 사이드바 scope 필터 (전체/최근/즐겨찾기/내가 공유/개인 보관함/프로젝트별/부서별/유형별) (FileLibrary)
+- [x] 같은 페이지 — 목록/카드/상세 뷰 토글
+- [x] 같은 페이지 — 유형/소유자/기간/정렬 필터
+- [x] 같은 페이지 — 파일 검색 input
+- [x] `apps/web/src/components/chat/ChatList.tsx` — 전체/읽지 않음/고정/멘션 pill 필터링 (멘션은 Phase 5 후 동작)
 
 ### C-2. 데이터 바인딩 정리 (doc/19 Group F)
 
-- [ ] **`Topbar.tsx` 하드코딩 "김민준 / 생산기술팀 · 책임"** → `authService.getMe()` 결과 사용. Topbar를 client component 분리 또는 layout에서 me를 prop으로 전달
-- [ ] 같은 곳 — 알림 dot → unread notice 카운트로 분기 표시
-- [ ] `/chat/page.tsx` 상단 요약 카드의 하드코딩 숫자 (12, 3, 5, 2 등) 모두 실 데이터 바인딩
-- [ ] `/files/page.tsx` 사이드바 카운트 (842, 28, 12, 36, 14, 42 등) 모두 실 데이터 바인딩하거나 표시 제거
+- [x] **`Topbar.tsx` 하드코딩 "김민준 / 생산기술팀 · 책임"** → `authService.tryGetMe()` 비동기 호출로 실제 사용자 표시
+- [x] 같은 곳 — 알림 dot → 확인 필요한 필독 공지 개수에 따라 표시/숨김
+- [x] `/chat/page.tsx` 상단 요약 카드의 하드코딩 숫자 (12, 3, 5, 2 등) 모두 실 데이터 바인딩 (rooms.unread, projects.length 등)
+- [x] `/files` 사이드바 카운트 — FileLibrary가 실제 files 배열로 scope별 카운트 계산
 
 ### C-3. PWA 기본 (doc/13)
 
-- [ ] `apps/web/public/manifest.webmanifest` 작성 (name, short_name, icons, start_url, display: standalone, background_color, theme_color)
-- [ ] `apps/web/public/icon-192.png`, `icon-512.png` 한미르 로고 기반 생성
-- [ ] `apps/web/src/app/layout.tsx` `<head>`에 manifest link, theme-color meta
-- [ ] `apps/web/public/sw.js` (또는 next-pwa) 기본 캐싱 정책 (네트워크 우선, 오프라인 시 정적 자원 캐시)
-- [ ] 로그인 유지 동작 확인 (이미 cookie 기반이므로 자연스럽게 됨)
+- [x] `apps/web/public/manifest.webmanifest` start_url을 `/dashboard`로 갱신, orientation을 `any`로 (이미 다른 필드 존재)
+- [x] 로고는 기존 `apps/web/public/assets/hanmir-logo.png` 재사용 (manifest icons)
+- [x] `apps/web/src/app/layout.tsx` — manifest, theme-color, appleWebApp 메타 이미 존재 ✓
+- [x] `apps/web/public/sw.js` — network-first nav + cache-first static, /api·socket.io·/download 캐시 제외
+- [x] `apps/web/src/components/shell/PwaRegister.tsx` — 인증 셸에서 SW 등록 (HTTPS 또는 localhost 한정)
+- [x] 로그인 유지 동작 — cookie 기반이라 자연 동작
 
 ### C-4. README 갱신
 
-- [ ] `README.md` 기능 구현 현황 요약 — Phase 0 항목 ✅로 갱신
+- [x] `README.md` 기능 구현 현황 요약 — Phase 0 항목 ✅로 갱신 (별도 commit)
 
 ---
 

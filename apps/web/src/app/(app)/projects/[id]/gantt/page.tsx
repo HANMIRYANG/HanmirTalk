@@ -3,8 +3,10 @@ import { Topbar } from "@/components/shell/Topbar";
 import { ProjectHeader } from "@/components/project/ProjectHeader";
 import { GanttTimeline, type GanttRow } from "@/components/project/GanttTimeline";
 import { projectService } from "@/services/project.service";
+import { userService } from "@/services/user.service";
 import { getServerToken } from "@/lib/server-auth";
-import { cn } from "@/lib/classNames";
+import { TaskCreateButton } from "@/app/(app)/projects/[id]/tasks/TaskCreateButton";
+import { GanttToolbar, GanttPdfButton } from "./GanttToolbar";
 import styles from "./gantt.module.css";
 
 interface Props {
@@ -128,6 +130,8 @@ export default async function ProjectGanttPage({ params }: Props) {
   const project = await projectService.getProject(params.id, { token });
   if (!project) notFound();
 
+  const users = await userService.listUsers({ token });
+
   return (
     <>
       <Topbar title="프로젝트" sub={`${project.code} ${project.name}`} />
@@ -136,72 +140,17 @@ export default async function ProjectGanttPage({ params }: Props) {
         activeTab="gantt"
         rightActions={
           <>
-            <button className="btn btn--outline btn--sm" type="button">
-              PDF 내보내기
-            </button>
-            <button className="btn btn--primary btn--sm" type="button">
-              + 일정 추가
-            </button>
+            <GanttPdfButton />
+            <TaskCreateButton
+              projectId={params.id}
+              users={users}
+              label="+ 일정 추가"
+            />
           </>
         }
       />
 
-      <div className={styles.toolbar}>
-        <div className={styles.seg}>
-          <button className={styles.segBtn} type="button">
-            일
-          </button>
-          <button className={cn(styles.segBtn, styles.segActive)} type="button">
-            주
-          </button>
-          <button className={styles.segBtn} type="button">
-            월
-          </button>
-          <button className={styles.segBtn} type="button">
-            분기
-          </button>
-        </div>
-        <button className={styles.filterBtn} type="button">
-          기간: <b>5월 — 6월</b>
-        </button>
-        <button className={styles.filterBtn} type="button">
-          담당자: <b>전체</b>
-        </button>
-        <button className={styles.filterBtn} type="button">
-          상태: <b>완료 제외</b>
-        </button>
-
-        <div className={styles.legend}>
-          <span>
-            <span className={styles.dot} style={{ background: "var(--success)" }} />
-            완료
-          </span>
-          <span>
-            <span className={styles.dot} style={{ background: "var(--brand-blue)" }} />
-            진행중
-          </span>
-          <span>
-            <span className={styles.dot} style={{ background: "#B9BEC6" }} />
-            대기
-          </span>
-          <span>
-            <span className={styles.dot} style={{ background: "var(--danger)" }} />
-            지연
-          </span>
-          <span>
-            <span
-              className={styles.dot}
-              style={{
-                background: "var(--brand-orange)",
-                transform: "rotate(45deg)",
-                width: 8,
-                height: 8
-              }}
-            />
-            마일스톤
-          </span>
-        </div>
-      </div>
+      <GanttToolbar />
 
       <div className="content no-pad">
         <div className={styles.ganttWrap}>

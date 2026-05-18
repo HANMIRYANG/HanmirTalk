@@ -151,7 +151,8 @@ docs `15_DEVELOPMENT_PHASES.md` 기준 진척도. 백엔드 라우트와 프론�
 | 7 | `/dashboard` 종합 화면 | ✅ (기존 서비스 집계) | ✅ (KPI 4종 + 내 업무 + 진행중 프로젝트 + 최근 공지/활동 + admin KPI) |
 | 7 | `/admin` 좌측 메뉴 동작화 | — | ✅ (대시보드/users/depts/audit anchor + 프로젝트/채팅/공지/제품/파일 Link, 미구현 항목은 "준비중" 뱃지) |
 | 7 | 검색 (메시지/파일/프로젝트) | ❌ | ❌ |
-| 7 | PWA / 모바일 최적화 점검 | — | 부분 (모바일 nav만) |
+| 7 | PWA / 모바일 최적화 점검 | — | ✅ manifest + service worker + PwaRegister (Phase 0) |
+| 0 | UI 토글/필터/검색 + 데이터 바인딩 | — | ✅ /tasks·/gantt·/files·ChatList + Topbar 실사용자 (Phase 0) |
 | - | PostgreSQL 어댑터 | ✅ (코드/마이그레이션/실DB smoke 모두 완료) | — |
 
 기호: ✅ 구현 완료, ⚠️ 부분 구현 / UI 미연결, ❌ 미착수

@@ -48,8 +48,17 @@
   border-bottom: 1px solid var(--border-soft);
 }
 .noticeRow:last-child { border-bottom: none; }
+a.noticeRow { color: inherit; text-decoration: none; }
+a.noticeRow:hover .noticeTitle { color: var(--brand-blue); }
 .noticeTitle { font-size: 13.5px; font-weight: 600; color: var(--text-1); }
 .noticeMeta { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
+
+.emptyRow {
+  padding: 20px 0;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-4);
+}
 
 .activity {
   display: flex;

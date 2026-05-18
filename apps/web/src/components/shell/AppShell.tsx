@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Sidebar } from "./Sidebar";
 import { MobileNav } from "./MobileNav";
 import { NoticeLive } from "./NoticeLive";
+import { PwaRegister } from "./PwaRegister";
 
 interface AppShellProps {
   children: ReactNode;
@@ -16,6 +17,7 @@ export function AppShell({ children }: AppShellProps) {
         <MobileNav />
       </div>
       <NoticeLive />
+      <PwaRegister />
     </div>
   );
 }
