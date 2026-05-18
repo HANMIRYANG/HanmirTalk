@@ -11,6 +11,8 @@ import { userService } from "@/services/user.service";
 import { dashboardService } from "@/services/dashboard.service";
 import { getServerToken } from "@/lib/server-auth";
 import { cn } from "@/lib/classNames";
+import { ProjectActions } from "./ProjectActions";
+import { ProjectMembersCard } from "./ProjectMembersCard";
 import styles from "./detail.module.css";
 
 interface Props {
@@ -36,19 +38,20 @@ export default async function ProjectDetailPage({ params }: Props) {
   const project = await projectService.getProject(params.id, { token });
   if (!project) notFound();
 
-  const visibleMembers = project.memberIds.slice(0, 4);
-  const remaining = Math.max(0, project.memberIds.length - visibleMembers.length);
-
   const [users, activities] = await Promise.all([
     userService.listUsers({ token }),
     dashboardService.listProjectActivities({ token })
   ]);
-  const userById = new Map(users.map((u) => [u.id, u] as const));
 
   return (
     <>
       <Topbar title="프로젝트" sub={`${project.code} ${project.name}`} />
-      <ProjectHeader project={project} variant="detail" activeTab="overview" />
+      <ProjectHeader
+        project={project}
+        variant="detail"
+        activeTab="overview"
+        rightActions={<ProjectActions project={project} />}
+      />
 
       <div className="content no-pad">
         <div className={styles.body}>
@@ -194,46 +197,7 @@ export default async function ProjectDetailPage({ params }: Props) {
               </div>
             </section>
 
-            <section className="card">
-              <div className="card__head">
-                <h3>멤버 {project.memberIds.length}명</h3>
-                <button className="btn btn--ghost btn--sm" style={{ marginLeft: "auto" }} type="button">
-                  + 초대
-                </button>
-              </div>
-              <div className={styles.memberBody}>
-                {visibleMembers.map((id) => {
-                  const u = userById.get(id);
-                  if (!u) return null;
-                  const isOwner = u.name === project.ownerName.split(" ")[0];
-                  return (
-                    <div key={id} className={styles.memberRow}>
-                      <Avatar initials={u.initials} tone={u.avatarTone ?? "default"} />
-                      <div>
-                        <div className={styles.memberName}>{u.name}</div>
-                        <div className={styles.memberRole}>
-                          {u.position} · {u.departmentName}
-                        </div>
-                      </div>
-                      {isOwner ? (
-                        <Tag tone="orange" className={styles.memberTag}>
-                          담당자
-                        </Tag>
-                      ) : null}
-                    </div>
-                  );
-                })}
-                {remaining > 0 ? (
-                  <div className={styles.memberRow}>
-                    <Avatar initials={`+${remaining}`} tone="gray" />
-                    <div>
-                      <div className={styles.memberName}>외 {remaining}명</div>
-                      <div className={styles.memberRole}>영업본부 · 자재팀 · 외주</div>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            </section>
+            <ProjectMembersCard project={project} users={users} />
 
             <section className="card">
               <div className="card__head">

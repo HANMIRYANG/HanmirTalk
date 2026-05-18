@@ -198,7 +198,7 @@
 .dueLate { color: var(--danger); font-weight: 600; }
 .dueToday { color: var(--brand-orange); font-weight: 600; }
 
-.progressCell { display: flex; align-items: center; gap: 8px; }
+.progressCell { display: flex; align-items: center; gap: 6px; }
 .progressBar { flex: 1; height: 5px; }
 .progressVal {
   font-size: 11.5px;
@@ -208,9 +208,78 @@
   text-align: right;
 }
 
+.statusSelect {
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  padding: 4px 8px;
+  background: var(--surface);
+  color: var(--text-1);
+  min-width: 92px;
+  cursor: pointer;
+}
+.statusSelect:disabled { opacity: 0.6; cursor: progress; }
+.statusSelect:focus { outline: 2px solid var(--brand-blue); outline-offset: -1px; }
+
+.progressInput {
+  width: 36px;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: right;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-3);
+  padding: 2px 4px;
+  border-radius: 4px;
+  -moz-appearance: textfield;
+}
+.progressInput:hover,
+.progressInput:focus {
+  background: var(--surface);
+  border-color: var(--border-strong);
+  color: var(--text-1);
+  outline: none;
+}
+.progressInput:disabled { opacity: 0.6; cursor: progress; }
+.progressInput::-webkit-inner-spin-button,
+.progressInput::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.progressPct {
+  font-size: 11.5px;
+  color: var(--text-4);
+  font-weight: 600;
+}
+
+.priorityCell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+}
+.deleteBtn {
+  font-size: 11.5px;
+  color: var(--text-4);
+  background: none;
+  border: none;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s ease, color 0.1s ease, background-color 0.1s ease;
+}
+.tasks tbody tr:hover .deleteBtn,
+.deleteBtn:focus { opacity: 1; }
+.deleteBtn:hover { color: var(--danger); background: var(--danger-bg); }
+.deleteBtn:disabled { cursor: progress; opacity: 0.5; }
+
+.rowBusy { opacity: 0.55; }
+
 .colCheck { width: 36px; }
-.colStatus { width: 110px; }
+.colStatus { width: 120px; }
 .colAssign { width: 96px; }
 .colDue { width: 120px; }
-.colProgress { width: 140px; }
-.colPriority { width: 80px; }
+.colProgress { width: 160px; }
+.colPriority { width: 120px; }

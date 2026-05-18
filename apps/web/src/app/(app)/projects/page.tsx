@@ -5,6 +5,7 @@ import { ProgressBar } from "@/components/ui/ProgressBar";
 import { projectService } from "@/services/project.service";
 import { getServerToken } from "@/lib/server-auth";
 import { projectStatusLabel, salesStatusLabel } from "@hanmir/shared";
+import { ProjectCreateButton } from "./ProjectCreateButton";
 import styles from "./projects.module.css";
 
 const TONE_BY_STATUS = {
@@ -24,6 +25,10 @@ export default async function ProjectListPage() {
     <>
       <Topbar title="프로젝트" sub="진행 중인 프로젝트와 책임자, 진행률을 확인하세요." />
       <div className="content">
+        <div className={styles.toolbar}>
+          <div className={styles.toolbarMeta}>{projects.length}개 프로젝트</div>
+          <ProjectCreateButton />
+        </div>
         <div className={styles.grid}>
           {projects.map((p) => (
             <Link key={p.id} href={`/projects/${p.id}`} className={styles.card}>

@@ -1,36 +1,20 @@
 import { notFound } from "next/navigation";
 import { Topbar } from "@/components/shell/Topbar";
 import { ProjectHeader } from "@/components/project/ProjectHeader";
-import { Tag } from "@/components/ui/Tag";
-import { Avatar } from "@/components/ui/Avatar";
-import { ProgressBar } from "@/components/ui/ProgressBar";
 import { ChevronDownIcon, SearchIcon } from "@/components/ui/icons";
 import { projectService } from "@/services/project.service";
 import { taskService } from "@/services/task.service";
 import { userService } from "@/services/user.service";
 import { getServerToken } from "@/lib/server-auth";
-import { taskPriorityLabel, taskStatusLabel, type TaskItem, type User } from "@hanmir/shared";
+import type { TaskItem, TaskStatus, User } from "@hanmir/shared";
 import { cn } from "@/lib/classNames";
+import { TaskRow } from "./TaskRow";
+import { TaskCreateButton } from "./TaskCreateButton";
 import styles from "./tasks.module.css";
 
 interface Props {
   params: { id: string };
 }
-
-const PRIO_TONE: Record<string, "red" | "amber" | "default"> = {
-  top: "red",
-  high: "amber",
-  normal: "default",
-  low: "default"
-};
-
-const STATUS_TONE: Record<string, "blue" | "amber" | "red" | "default" | "green"> = {
-  todo: "default",
-  in_progress: "blue",
-  review: "amber",
-  done: "green",
-  on_hold: "amber"
-};
 
 export default async function ProjectTasksPage({ params }: Props) {
   const token = getServerToken();
@@ -58,9 +42,7 @@ export default async function ProjectTasksPage({ params }: Props) {
             <button className="btn btn--outline btn--sm" type="button">
               CSV 내보내기
             </button>
-            <button className="btn btn--primary btn--sm" type="button">
-              + 업무 추가
-            </button>
+            <TaskCreateButton projectId={params.id} users={users} />
           </>
         }
       />
@@ -100,6 +82,9 @@ export default async function ProjectTasksPage({ params }: Props) {
             accent="danger"
             tasks={delayed}
             userById={userById}
+            projectId={params.id}
+            users={users}
+            createDefaultStatus="in_progress"
             showThead
           />
           <TaskGroup
@@ -107,8 +92,19 @@ export default async function ProjectTasksPage({ params }: Props) {
             count={inProgress.length}
             tasks={inProgress}
             userById={userById}
+            projectId={params.id}
+            users={users}
+            createDefaultStatus="in_progress"
           />
-          <TaskGroup label="대기" count={todo.length} tasks={todo} userById={userById} />
+          <TaskGroup
+            label="대기"
+            count={todo.length}
+            tasks={todo}
+            userById={userById}
+            projectId={params.id}
+            users={users}
+            createDefaultStatus="todo"
+          />
 
           <div className={styles.groupHead} style={{ borderTop: "1px solid var(--border-soft)" }}>
             <ChevronDownIcon size={12} />
@@ -143,6 +139,9 @@ function TaskGroup({
   accent,
   tasks,
   userById,
+  projectId,
+  users,
+  createDefaultStatus,
   showThead
 }: {
   label: string;
@@ -150,6 +149,9 @@ function TaskGroup({
   accent?: "danger";
   tasks: TaskItem[];
   userById: Map<string, User>;
+  projectId: string;
+  users: User[];
+  createDefaultStatus: TaskStatus;
   showThead?: boolean;
 }) {
   return (
@@ -164,9 +166,12 @@ function TaskGroup({
             {count}
           </span>
         </div>
-        <button className={styles.groupAdd} type="button">
-          + 업무 추가
-        </button>
+        <TaskCreateButton
+          projectId={projectId}
+          users={users}
+          defaultStatus={createDefaultStatus}
+          className={styles.groupAdd}
+        />
       </div>
       <table className={styles.tasks}>
         <colgroup>
@@ -193,79 +198,23 @@ function TaskGroup({
         ) : null}
         <tbody>
           {tasks.map((t) => (
-            <tr key={t.id}>
-              <td>
-                <span
-                  className={cn(
-                    styles.check,
-                    t.status === "in_progress" && styles.checkProgress,
-                    t.status === "done" && styles.checkDone
-                  )}
-                />
-              </td>
-              <td>
-                <div className={styles.title}>
-                  {t.title}
-                  <span className={styles.id}>{t.code}</span>
-                  {t.subtaskCount ? (
-                    <span className={styles.subs}>↳ 하위 {t.subtaskCount}</span>
-                  ) : null}
-                </div>
-              </td>
-              <td>
-                <Tag tone={STATUS_TONE[t.status]} dot>
-                  {t.dueState === "late" ? "지연" : taskStatusLabel[t.status]}
-                </Tag>
-              </td>
-              <td>
-                {t.assigneeIds.length > 0 ? (
-                  <div className={styles.assignees}>
-                    {t.assigneeIds.map((id) => {
-                      const u = userById.get(id);
-                      return u ? (
-                        <Avatar
-                          key={id}
-                          initials={u.initials}
-                          tone={u.avatarTone ?? "default"}
-                          className={styles.assigneeAvatar}
-                        />
-                      ) : null;
-                    })}
-                  </div>
-                ) : (
-                  <div className={styles.assignees}>
-                    <Avatar initials="미지정" tone="gray" className={styles.assigneeAvatar} />
-                  </div>
-                )}
-              </td>
-              <td>
-                <span
-                  className={cn(
-                    styles.due,
-                    t.dueState === "late" && styles.dueLate,
-                    t.dueState === "today" && styles.dueToday
-                  )}
-                >
-                  {t.dueLabel}
-                </span>
-              </td>
-              <td>
-                <div className={styles.progressCell}>
-                  <ProgressBar
-                    value={t.progress}
-                    tone={t.dueState === "late" ? "orange" : "blue"}
-                    className={styles.progressBar}
-                  />
-                  <span className={styles.progressVal}>{t.progress}%</span>
-                </div>
-              </td>
-              <td>
-                <Tag tone={PRIO_TONE[t.priority]}>{taskPriorityLabel[t.priority]}</Tag>
-              </td>
-            </tr>
+            <TaskRow
+              key={t.id}
+              task={t}
+              assignees={resolveAssignees(t, userById)}
+            />
           ))}
         </tbody>
       </table>
     </>
   );
+}
+
+function resolveAssignees(task: TaskItem, userById: Map<string, User>): User[] {
+  const out: User[] = [];
+  for (const id of task.assigneeIds) {
+    const user = userById.get(id);
+    if (user) out.push(user);
+  }
+  return out;
 }
