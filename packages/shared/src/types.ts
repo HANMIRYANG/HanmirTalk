@@ -120,9 +120,14 @@ export interface Room {
   type: RoomType;
   projectId?: string;
   members: RoomMember[];
+  // Per-user unread count (messages newer than this user's last_read_message).
+  // 0 when the caller is not authenticated or has no member row.
   unread: number;
   muted?: boolean;
   pinned?: boolean;
+  // Id of the currently-pinned message in this room (set via POST
+  // /rooms/:id/pin). Undefined when nothing is pinned.
+  pinnedMessageId?: string;
   lastMessageAt: string;
   lastMessagePreview: string;
   lastMessageAuthor?: string;
@@ -131,6 +136,15 @@ export interface Room {
   avatarLabel?: string;
   avatarTone?: User["avatarTone"];
   tag?: { label: string; tone?: "blue" | "green" | "amber" | "red" | "orange" };
+}
+
+// Returned by GET /rooms/:id/pinned. Lightweight (just the bits the banner
+// needs); fetch the full message via listByRoom if more is required.
+export interface PinnedMessageRef {
+  id: string;
+  authorName: string;
+  body: string;
+  createdAt: string;
 }
 
 export interface MessageAttachment {

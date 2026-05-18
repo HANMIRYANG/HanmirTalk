@@ -13,6 +13,7 @@ import type {
   ListFilesFilter,
   Notice,
   NoticeReadStatus,
+  PinnedMessageRef,
   Product,
   Project,
   Room,
@@ -43,8 +44,10 @@ export interface DepartmentRepository {
 }
 
 export interface RoomRepository {
-  list(): Promise<Room[]>;
-  findById(id: string): Promise<Room | undefined>;
+  // `userId` enables per-user unread counts and is required for the
+  // accurate badge. Calls without it (e.g. unauth) get unread=0.
+  list(userId?: string): Promise<Room[]>;
+  findById(id: string, userId?: string): Promise<Room | undefined>;
 }
 
 export interface MessageRepository {
@@ -57,7 +60,16 @@ export interface MessageRepository {
     message: ChatMessage,
     opts?: { attachmentId?: string }
   ): Promise<ChatMessage>;
-  getPinned(roomId: string): Promise<{ author: string; body: string } | undefined>;
+  // Marks `lastMessageId` as the most recent message this user has seen.
+  // Memory: keeps a Map. PG: updates room_members.last_read_message_id.
+  // Caller-side responsibility to send the latest visible id from the UI.
+  markRead(roomId: string, userId: string, lastMessageId: string): Promise<void>;
+  // Single pinned message per room. `pin` validates that the message
+  // belongs to the room and sets `rooms.pinned_message_id`. `unpin`
+  // clears it. Both return whether the room was found.
+  pin(roomId: string, messageId: string): Promise<"ok" | "room_not_found" | "message_not_in_room">;
+  unpin(roomId: string): Promise<"ok" | "room_not_found">;
+  getPinned(roomId: string): Promise<PinnedMessageRef | undefined>;
 }
 
 export interface ProjectRepository {

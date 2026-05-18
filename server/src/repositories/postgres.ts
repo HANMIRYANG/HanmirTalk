@@ -32,6 +32,7 @@ import type {
   Notice,
   NoticeReadStatus,
   NoticeReadStatusEntry,
+  PinnedMessageRef,
   Product,
   Project,
   ProjectStatus,
@@ -708,11 +709,13 @@ interface RoomRow {
   name: string;
   type: string;
   project_id: string | null;
+  pinned_message_id: string | null;
   member_user_ids: string[] | null;
   member_roles: string[] | null;
   last_message_at: Date | null;
   last_message_preview: string | null;
   last_message_author: string | null;
+  unread_count: string | number | null;
 }
 
 function rowToRoom(row: RoomRow): Room {
@@ -728,20 +731,21 @@ function rowToRoom(row: RoomRow): Room {
     name: row.name,
     type: row.type as Room["type"],
     projectId: row.project_id ?? undefined,
+    pinnedMessageId: row.pinned_message_id ?? undefined,
     members,
-    // TODO(unread): per-user unread requires joining `room_members.last_read_message_id`
-    // against the latest message id for the current user. Plumb currentUser
-    // through the repository or surface a separate `unreadFor(userId, roomId)`.
-    unread: 0,
+    unread: Number(row.unread_count) || 0,
     lastMessageAt: row.last_message_at ? formatDate(row.last_message_at) : "",
     lastMessagePreview: row.last_message_preview ?? "",
     lastMessageAuthor: row.last_message_author ?? undefined
   };
 }
 
+// `$1` is the current user id (nullable — pass NULL when unauth) and is
+// reused for the unread subquery. Callers must add the `$2 ...` predicate
+// at the WHERE site themselves so list/findById share the same shape.
 const ROOM_SELECT = `
   SELECT
-    r.id, r.name, r.type, r.project_id,
+    r.id, r.name, r.type, r.project_id, r.pinned_message_id,
     COALESCE(
       (SELECT array_agg(rm.user_id ORDER BY rm.joined_at)
          FROM room_members rm WHERE rm.room_id = r.id),
@@ -761,7 +765,28 @@ const ROOM_SELECT = `
     (SELECT u.name FROM messages m
        JOIN users u ON u.id = m.user_id
        WHERE m.room_id = r.id AND NOT m.is_deleted
-       ORDER BY m.created_at DESC LIMIT 1) AS last_message_author
+       ORDER BY m.created_at DESC LIMIT 1) AS last_message_author,
+    -- Unread = messages newer than this user's last_read_message and not
+    -- authored by them. last_read_message resolves via room_members; when
+    -- the user has no row, we treat every foreign message as unread.
+    CASE
+      WHEN $1::UUID IS NULL THEN 0
+      ELSE (
+        SELECT COUNT(*) FROM messages mu
+        WHERE mu.room_id = r.id
+          AND NOT mu.is_deleted
+          AND mu.user_id <> $1
+          AND mu.created_at > COALESCE(
+            (SELECT mm.created_at FROM messages mm
+              WHERE mm.id = (
+                SELECT rm2.last_read_message_id
+                FROM room_members rm2
+                WHERE rm2.room_id = r.id AND rm2.user_id = $1
+              )),
+            TIMESTAMP 'epoch'
+          )
+      )
+    END AS unread_count
   FROM rooms r
   WHERE r.is_active IS NOT FALSE
 `;
@@ -769,17 +794,21 @@ const ROOM_SELECT = `
 class PgRoomRepository implements RoomRepository {
   constructor(private readonly pool: Pool) {}
 
-  async list(): Promise<Room[]> {
+  async list(userId?: string): Promise<Room[]> {
     const { rows } = await this.pool.query<RoomRow>(
-      `${ROOM_SELECT} ORDER BY r.created_at DESC`
+      `${ROOM_SELECT} ORDER BY r.created_at DESC`,
+      [userId ?? null]
     );
     return rows.map(rowToRoom);
   }
 
-  async findById(id: string): Promise<Room | undefined> {
+  async findById(id: string, userId?: string): Promise<Room | undefined> {
     const { rows } = await this.pool.query<RoomRow>(
-      `${ROOM_SELECT.replace("WHERE r.is_active IS NOT FALSE", "WHERE r.id = $1 AND r.is_active IS NOT FALSE")}`,
-      [id]
+      `${ROOM_SELECT.replace(
+        "WHERE r.is_active IS NOT FALSE",
+        "WHERE r.id = $2 AND r.is_active IS NOT FALSE"
+      )}`,
+      [userId ?? null, id]
     );
     return rows[0] ? rowToRoom(rows[0]) : undefined;
   }
@@ -899,12 +928,70 @@ class PgMessageRepository implements MessageRepository {
     return rowToMessage(persisted[0]);
   }
 
-  // The current schema has no `pinned` flag on messages. Pinned messages will
-  // be modelled in a future migration (e.g. `room_pinned_messages`). Until
-  // then `getPinned` returns undefined in postgres mode so the chat header
-  // simply omits the pinned banner.
-  async getPinned(_roomId: string): Promise<{ author: string; body: string } | undefined> {
-    return undefined;
+  async markRead(roomId: string, userId: string, lastMessageId: string): Promise<void> {
+    // Use the existing room_members row; insert one if absent so the user's
+    // read marker survives even without a prior join. role="member" is the
+    // schema default so we satisfy the NOT NULL.
+    await this.pool.query(
+      `INSERT INTO room_members (room_id, user_id, role, last_read_message_id)
+       VALUES ($1, $2, 'member', $3)
+       ON CONFLICT (room_id, user_id)
+       DO UPDATE SET last_read_message_id = EXCLUDED.last_read_message_id`,
+      [roomId, userId, lastMessageId]
+    );
+  }
+
+  async pin(
+    roomId: string,
+    messageId: string
+  ): Promise<"ok" | "room_not_found" | "message_not_in_room"> {
+    // Confirm the message belongs to the room before mutating rooms.
+    const { rows: msgRows } = await this.pool.query<{ room_id: string }>(
+      `SELECT room_id FROM messages WHERE id = $1`,
+      [messageId]
+    );
+    if (msgRows.length === 0 || msgRows[0].room_id !== roomId) {
+      return "message_not_in_room";
+    }
+    const { rowCount } = await this.pool.query(
+      `UPDATE rooms SET pinned_message_id = $1 WHERE id = $2 AND is_active IS NOT FALSE`,
+      [messageId, roomId]
+    );
+    if (!rowCount) return "room_not_found";
+    return "ok";
+  }
+
+  async unpin(roomId: string): Promise<"ok" | "room_not_found"> {
+    const { rowCount } = await this.pool.query(
+      `UPDATE rooms SET pinned_message_id = NULL WHERE id = $1 AND is_active IS NOT FALSE`,
+      [roomId]
+    );
+    if (!rowCount) return "room_not_found";
+    return "ok";
+  }
+
+  async getPinned(roomId: string): Promise<PinnedMessageRef | undefined> {
+    const { rows } = await this.pool.query<{
+      id: string;
+      content: string | null;
+      created_at: Date;
+      author_name: string | null;
+    }>(
+      `SELECT m.id, m.content, m.created_at, u.name AS author_name
+         FROM rooms r
+         JOIN messages m ON m.id = r.pinned_message_id
+         JOIN users u ON u.id = m.user_id
+        WHERE r.id = $1 AND NOT m.is_deleted`,
+      [roomId]
+    );
+    if (rows.length === 0) return undefined;
+    const r = rows[0];
+    return {
+      id: r.id,
+      authorName: r.author_name ?? "",
+      body: r.content ?? "",
+      createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at)
+    };
   }
 }
 

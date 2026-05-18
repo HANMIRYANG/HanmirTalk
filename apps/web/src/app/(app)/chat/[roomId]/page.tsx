@@ -5,6 +5,8 @@ import { MoreIcon, PinIcon, UsersIcon } from "@/components/ui/icons";
 import { MessageItem } from "@/components/chat/MessageItem";
 import { MessageComposer } from "@/components/chat/MessageComposer";
 import { RoomInfoPane } from "@/components/chat/RoomInfoPane";
+import { PinnedBanner } from "@/components/chat/PinnedBanner";
+import { ChatRoomMounter } from "@/components/chat/ChatRoomMounter";
 import { chatService } from "@/services/chat.service";
 import { projectService } from "@/services/project.service";
 import { userService } from "@/services/user.service";
@@ -98,21 +100,19 @@ export default async function ChatRoomPage({ params }: Props) {
         </header>
 
         {pinned ? (
-          <div className={styles.pinned}>
-            <PinIcon size={14} />
-            <div>
-              <b>고정 메시지</b> · {pinned.author}: {pinned.body}
-            </div>
-            <button className="btn btn--ghost btn--sm" style={{ marginLeft: "auto" }} type="button">
-              자세히
-            </button>
-          </div>
+          <PinnedBanner roomId={room.id} pinned={pinned} />
         ) : null}
 
         <div className={styles.msgs}>
           <div className={styles.daySep}>2026년 5월 13일 수요일</div>
           {messages.map((m) => (
-            <MessageItem key={m.id} message={m} />
+            <MessageItem
+              key={m.id}
+              message={m}
+              roomId={room.id}
+              isPinned={m.id === room.pinnedMessageId}
+              canPin
+            />
           ))}
         </div>
 
@@ -120,6 +120,10 @@ export default async function ChatRoomPage({ params }: Props) {
           roomId={room.id}
           roomName={room.name}
           projectId={room.projectId}
+        />
+        <ChatRoomMounter
+          roomId={room.id}
+          latestMessageId={messages[messages.length - 1]?.id}
         />
       </main>
 

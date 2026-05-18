@@ -1,12 +1,18 @@
 import type { ChatMessage } from "@hanmir/shared";
 import { Avatar } from "@/components/ui/Avatar";
-import { DownloadIcon } from "@/components/ui/icons";
+import { DownloadIcon, PinIcon } from "@/components/ui/icons";
 import { fileService } from "@/services/file.service";
 import { cn } from "@/lib/classNames";
+import { MessagePinButton } from "./MessagePinButton";
 import styles from "./MessageItem.module.css";
 
 interface MessageItemProps {
   message: ChatMessage;
+  // Optional context for actions. When omitted, only the read-only render
+  // is produced (e.g. for embedding messages elsewhere).
+  roomId?: string;
+  isPinned?: boolean;
+  canPin?: boolean;
 }
 
 const fileColor: Record<string, string> = {
@@ -27,7 +33,12 @@ const fileLabel: Record<string, string> = {
   zip: "ZIP"
 };
 
-export function MessageItem({ message }: MessageItemProps) {
+export function MessageItem({
+  message,
+  roomId,
+  isPinned = false,
+  canPin = false
+}: MessageItemProps) {
   if (message.isSystem) {
     return (
       <div className={styles.sys}>
@@ -50,6 +61,18 @@ export function MessageItem({ message }: MessageItemProps) {
           <span className={styles.name}>{message.authorName}</span>
           {message.authorRole ? <span className={styles.role}>{message.authorRole}</span> : null}
           <span className={styles.time}>{message.createdAt}</span>
+          {isPinned ? (
+            <span className={styles.pinTag} title="고정된 메시지">
+              <PinIcon size={11} /> 고정됨
+            </span>
+          ) : null}
+          {canPin && roomId ? (
+            <MessagePinButton
+              roomId={roomId}
+              messageId={message.id}
+              isPinned={isPinned}
+            />
+          ) : null}
         </div>
         <div className={styles.body}>{renderBodyWithMentions(message.body, message.mentions)}</div>
 

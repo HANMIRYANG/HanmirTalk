@@ -4,6 +4,7 @@ import type {
   CreateDepartmentInput,
   CreateFileInput,
   CreateNoticeInput,
+  PinnedMessageRef,
   CreateProductInput,
   CreateProjectInput,
   CreateTaskInput,
@@ -193,19 +194,71 @@ class MemoryDepartmentRepository implements DepartmentRepository {
 
 class MemoryRoomRepository implements RoomRepository {
   private readonly data: Room[] = clone(seedRooms);
-  async list(): Promise<Room[]> {
-    return clone(this.data);
+  // Wired by createMemoryRepositories — lets list/findById call into the
+  // message repo for unread count + pinned message lookup without a
+  // circular import.
+  private messages?: MemoryMessageRepository;
+
+  setMessageAccessor(messages: MemoryMessageRepository): void {
+    this.messages = messages;
   }
-  async findById(id: string): Promise<Room | undefined> {
+
+  private decorate(room: Room, userId?: string): Room {
+    const out = clone(room);
+    if (this.messages) {
+      out.unread = userId ? this.messages.unreadCount(room.id, userId) : 0;
+      const pin = this.messages.getPinnedId(room.id);
+      out.pinnedMessageId = pin;
+    }
+    return out;
+  }
+
+  async list(userId?: string): Promise<Room[]> {
+    return this.data.map((r) => this.decorate(r, userId));
+  }
+
+  async findById(id: string, userId?: string): Promise<Room | undefined> {
     const found = this.data.find((r) => r.id === id);
-    return found ? clone(found) : undefined;
+    return found ? this.decorate(found, userId) : undefined;
   }
 }
 
 class MemoryMessageRepository implements MessageRepository {
   private readonly data: Record<string, ChatMessage[]> = clone(seedMessages);
-  private readonly pinned: Record<string, { author: string; body: string }> =
-    clone(seedPinnedMessages);
+  // userId -> roomId -> lastReadMessageId
+  private readonly lastRead = new Map<string, Map<string, string>>();
+  // roomId -> messageId of the pinned message. Seeded so the demo chat
+  // banner still has something to show on r-p2410.
+  private readonly pinnedByRoom = new Map<string, string>();
+
+  constructor() {
+    // Carry the seed "pinned" demo content over to the new structure by
+    // matching body text against the seed messages of each room.
+    for (const [roomId, seed] of Object.entries(seedPinnedMessages)) {
+      const list = this.data[roomId] ?? [];
+      const hit = list.find(
+        (m) => m.body.trim() === seed.body.trim() && m.authorName === seed.author
+      );
+      if (hit) this.pinnedByRoom.set(roomId, hit.id);
+    }
+  }
+
+  unreadCount(roomId: string, userId: string): number {
+    const list = this.data[roomId];
+    if (!list || list.length === 0) return 0;
+    const lastId = this.lastRead.get(userId)?.get(roomId);
+    if (!lastId) {
+      // Never marked read: every message not authored by this user counts.
+      return list.filter((m) => m.authorId !== userId).length;
+    }
+    const idx = list.findIndex((m) => m.id === lastId);
+    if (idx === -1) return list.filter((m) => m.authorId !== userId).length;
+    return list.slice(idx + 1).filter((m) => m.authorId !== userId).length;
+  }
+
+  getPinnedId(roomId: string): string | undefined {
+    return this.pinnedByRoom.get(roomId);
+  }
 
   async listByRoom(roomId: string): Promise<ChatMessage[]> {
     return clone(this.data[roomId] ?? []);
@@ -223,9 +276,48 @@ class MemoryMessageRepository implements MessageRepository {
     return clone(message);
   }
 
-  async getPinned(roomId: string): Promise<{ author: string; body: string } | undefined> {
-    const found = this.pinned[roomId];
-    return found ? clone(found) : undefined;
+  async markRead(
+    roomId: string,
+    userId: string,
+    lastMessageId: string
+  ): Promise<void> {
+    let userMap = this.lastRead.get(userId);
+    if (!userMap) {
+      userMap = new Map<string, string>();
+      this.lastRead.set(userId, userMap);
+    }
+    userMap.set(roomId, lastMessageId);
+  }
+
+  async pin(
+    roomId: string,
+    messageId: string
+  ): Promise<"ok" | "room_not_found" | "message_not_in_room"> {
+    const list = this.data[roomId];
+    if (!list) return "room_not_found";
+    if (!list.some((m) => m.id === messageId)) return "message_not_in_room";
+    this.pinnedByRoom.set(roomId, messageId);
+    return "ok";
+  }
+
+  async unpin(roomId: string): Promise<"ok" | "room_not_found"> {
+    // Memory: we don't track room existence here — defer to the route, which
+    // already checks the rooms repo before calling unpin. Just clear.
+    this.pinnedByRoom.delete(roomId);
+    return "ok";
+  }
+
+  async getPinned(roomId: string): Promise<PinnedMessageRef | undefined> {
+    const id = this.pinnedByRoom.get(roomId);
+    if (!id) return undefined;
+    const msg = this.data[roomId]?.find((m) => m.id === id);
+    if (!msg) return undefined;
+    return {
+      id: msg.id,
+      authorName: msg.authorName,
+      body: msg.body,
+      createdAt: msg.createdAt
+    };
   }
 }
 
@@ -699,11 +791,16 @@ export function createMemoryRepositories(): Repositories {
   const notices = new MemoryNoticeRepository();
   // Read-status + new-notice recipient counts need the live active-user list.
   notices.setUserAccessor(() => users._data);
+  const rooms = new MemoryRoomRepository();
+  const messages = new MemoryMessageRepository();
+  // Rooms decorate themselves with per-user unread + pinned message id from
+  // the message repo; wire that here.
+  rooms.setMessageAccessor(messages);
   return {
     users,
     departments,
-    rooms: new MemoryRoomRepository(),
-    messages: new MemoryMessageRepository(),
+    rooms,
+    messages,
     projects,
     tasks,
     products: new MemoryProductRepository(),

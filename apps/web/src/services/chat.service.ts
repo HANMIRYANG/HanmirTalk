@@ -1,4 +1,4 @@
-import type { ChatMessage, Room } from "@hanmir/shared";
+import type { ChatMessage, PinnedMessageRef, Room } from "@hanmir/shared";
 import { apiRequest, apiRequestOrNull } from "./api-client";
 
 export interface AuthOptions {
@@ -34,10 +34,37 @@ export const chatService = {
   async getPinnedMessage(
     roomId: string,
     opts: AuthOptions = {}
-  ): Promise<{ author: string; body: string } | undefined> {
-    return apiRequestOrNull<{ author: string; body: string }>(
+  ): Promise<PinnedMessageRef | undefined> {
+    return apiRequestOrNull<PinnedMessageRef>(
       `/rooms/${encodeURIComponent(roomId)}/pinned`,
       { token: opts.token }
     );
+  },
+  async markRead(
+    roomId: string,
+    lastMessageId: string,
+    opts: AuthOptions = {}
+  ): Promise<{ ok: boolean }> {
+    return apiRequest<{ ok: boolean }>(`/rooms/${encodeURIComponent(roomId)}/read`, {
+      method: "POST",
+      body: { lastMessageId },
+      token: opts.token
+    });
+  },
+  async pinMessage(
+    roomId: string,
+    messageId: string,
+    opts: AuthOptions = {}
+  ): Promise<{ ok: boolean; pinned?: PinnedMessageRef }> {
+    return apiRequest<{ ok: boolean; pinned?: PinnedMessageRef }>(
+      `/rooms/${encodeURIComponent(roomId)}/pin`,
+      { method: "POST", body: { messageId }, token: opts.token }
+    );
+  },
+  async unpinMessage(roomId: string, opts: AuthOptions = {}): Promise<{ ok: boolean }> {
+    return apiRequest<{ ok: boolean }>(`/rooms/${encodeURIComponent(roomId)}/pin`, {
+      method: "DELETE",
+      token: opts.token
+    });
   }
 };

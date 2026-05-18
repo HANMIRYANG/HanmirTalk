@@ -136,7 +136,9 @@ docs `15_DEVELOPMENT_PHASES.md` 기준 진척도. 백엔드 라우트와 프론�
 | 3 | WebSocket (`message:new` 등) | ❌ | ❌ |
 | 3 | 파일 업로드/다운로드/삭제 | ✅ (multer + 로컬 디스크, `attachments` 테이블) | ✅ (`/files` 업로드, `/projects/[id]/files` 패널) |
 | 3 | 채팅 메시지 첨부 | ✅ (POST `/rooms/:id/messages`가 `attachmentId` 수용, PG는 attachments.message_id 링크) | ✅ (MessageComposer 클립 버튼 + 첨부 칩, MessageItem 다운로드 버튼) |
-| 3 | 읽음 처리 / unread / mute / pin write | ❌ | ❌ |
+| 3 | 메시지 읽음 처리 + per-user unread | ✅ (`room_members.last_read_message_id` 활용, 양 adapter) | ✅ (`ChatRoomMounter`가 자동 mark-read, ChatList unread 배지) |
+| 3 | 메시지 핀 (단일) | ✅ (PG: `rooms.pinned_message_id` via 마이그레이션 005) | ✅ (`MessagePinButton` hover, `PinnedBanner` 해제 버튼) |
+| 3 | mute | ❌ | ❌ |
 | 4 | 공지 read + 확인 | ✅ | ✅ (`/notices`, 확인 버튼) |
 | 4 | 공지 작성 / 확인자 조회 | ✅ (admin only) | ✅ (`+ 공지 작성` 모달, 카드별 `확인 현황` 모달) |
 | 5 | Project CRUD + 멤버 (soft delete) | ✅ | ✅ (`/projects` 생성, `/projects/[id]` 수정·취소·멤버 추가/제외) |
@@ -173,7 +175,10 @@ docs `15_DEVELOPMENT_PHASES.md` 기준 진척도. 백엔드 라우트와 프론�
 | `GET /rooms/:id` | seed/PG | `chatService.getRoom` | `/chat/[roomId]` |
 | `GET /rooms/:roomId/messages` | seed/PG | `chatService.listMessages` | `/chat/[roomId]` |
 | `POST /rooms/:roomId/messages` (`attachmentId?` 옵션) | in-memory/PG append | `chatService.sendMessage` | `MessageComposer` (텍스트 / 첨부 / 동시) |
-| `GET /rooms/:roomId/pinned` | seed (PG: undefined) | `chatService.getPinnedMessage` | `/chat/[roomId]` 핀 배너 |
+| `GET /rooms/:roomId/pinned` | memory + PG | `chatService.getPinnedMessage` | `PinnedBanner` (id+author+body+createdAt 노출) |
+| `POST /rooms/:roomId/pin` (requireAuth) | memory + PG | `chatService.pinMessage` | `MessagePinButton` (메시지 hover) |
+| `DELETE /rooms/:roomId/pin` (requireAuth) | memory + PG | `chatService.unpinMessage` | `PinnedBanner` 해제 버튼 / 같은 버튼 토글 |
+| `POST /rooms/:roomId/read` (requireAuth) | memory + PG | `chatService.markRead` | `ChatRoomMounter` (chat room 마운트/최신 메시지 변경 시 자동) |
 | `GET /projects` | seed/PG | `projectService.listProjects` | `/projects` |
 | `GET /projects/:id` | seed/PG | `projectService.getProject` | `/projects/[id]` |
 | `POST /projects` | seed/PG | `projectService.createProject` | `/projects` `+ 프로젝트 추가` 모달 |
@@ -273,6 +278,7 @@ npm run dev          # 프론트, http://localhost:3000
    - `002`: shared `Project` / `TaskItem` DTO가 쓰지만 `001`에 빠져 있던 컬럼(`code`, `full_name`, `goals`, `outputs` 등) 추가.
    - `003`: 부서 6개 + admin/super_admin/manager/project_owner 로그인용 시드 사용자 4명. idempotent (`ON CONFLICT DO NOTHING`).
    - `004`: `notices.room_id`를 nullable로 변경 (MVP 공지 작성에 room이 필요 없음). idempotent.
+   - `005`: `rooms.pinned_message_id` 컬럼 추가 (room 당 단일 pinned message). idempotent.
 3. `.env` 또는 환경에 `DATABASE_URL=postgres://user:pass@host:5432/hanmir_talk`.
 4. `npm run dev:server` 또는 `npm run build:server && npm run start:server`로 기동. 로그에 `repository adapter: postgres`가 보이면 활성 상태.
 
@@ -284,8 +290,8 @@ npm run dev          # 프론트, http://localhost:3000
 | `departments` | ✅ list / findById / create / update / delete | hard delete + in-use 체크. soft delete는 TODO. |
 | `projects` | ✅ list / findById / create / update / cancel(soft) / addMember / removeMember | memberIds + taskCounts + delayedCount 모두 SQL에서 집계 |
 | `tasks` | ✅ list / listByProject / findById / create / update / delete | DTO `assigneeIds`는 첫 번째만 영속화 (TODO: `task_assignees` 조인 테이블) |
-| `rooms` | ✅ list / findById | members/lastMessage* SQL 집계. `unread`/`muted`/`pinned`은 0/undefined 기본값 (TODO: 사용자별 unread). |
-| `messages` | ✅ listByRoom / append. `getPinned`은 undefined 반환 | pinned 모델이 schema에 없음 (후속 migration). |
+| `rooms` | ✅ list(userId?) / findById(id, userId?) | members/lastMessage* SQL 집계 + per-user unread + pinnedMessageId. `muted`는 0/undefined 기본값. |
+| `messages` | ✅ listByRoom / append / markRead / pin / unpin / getPinned | pinned는 마이그레이션 005의 `rooms.pinned_message_id`를 사용. read는 `room_members.last_read_message_id` (001에 이미 있던 컬럼) 사용. |
 | `products` | ✅ list / findById | spec/lots/history/documents/quarter 등 별도 테이블이 없는 필드는 빈 배열/기본값. |
 | `files` | ✅ listFolders / listFiles / findById | `attachments`를 `FileEntry`로 변환. folders는 빈 배열 반환 (테이블 없음). |
 | `notices` | ✅ list(userId?) / findById(id, userId?) / create / markConfirmed(id, userId) / getReadStatus(id) | `notice_reads`로 사용자별 확인 상태 추적. tone은 `is_required`에서 파생. `room_id`는 nullable (마이그레이션 004). |

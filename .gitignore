@@ -21,3 +21,7 @@ packages/shared/src/**/*.d.ts
 # via .gitkeep so the server can write into it on fresh clones.
 server/uploads/*
 !server/uploads/.gitkeep
+
+# Stray duplicated upload root from earlier when the dev server's cwd was
+# `server/` (config.uploadDir then resolved to server/server/uploads).
+server/server/
