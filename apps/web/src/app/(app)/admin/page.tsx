@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Topbar } from "@/components/shell/Topbar";
 import { ProgressBar } from "@/components/ui/ProgressBar";
@@ -17,7 +18,7 @@ const ADMIN_ROLES = new Set(["admin", "super_admin"]);
 export default async function AdminPage() {
   const token = getServerToken();
   const me = await authService.getMe(token);
-  if (!ADMIN_ROLES.has(me.role)) redirect("/chat");
+  if (!ADMIN_ROLES.has(me.role)) redirect("/dashboard");
 
   const [users, departments, kpis, audit, deptStats] = await Promise.all([
     userService.listUsers({ token }),
@@ -31,46 +32,58 @@ export default async function AdminPage() {
     <div className={styles.layout}>
       <aside className={styles.anav}>
         <div className={styles.anavTitle}>개요</div>
-        <div className={cn(styles.anavItem, styles.anavActive)}>
+        <a href="#dashboard-top" className={cn(styles.anavItem, styles.anavActive)}>
           <ChatIcon size={14} />
           관리자 대시보드
-        </div>
+        </a>
 
         <div className={styles.anavTitle} style={{ marginTop: 10 }}>
           사용자
         </div>
-        <div className={styles.anavItem}>계정 관리</div>
-        <div className={styles.anavItem}>권한 / 역할</div>
-        <div className={styles.anavItem}>부서 관리</div>
-        <div className={styles.anavItem}>초대 / 가입 승인</div>
+        <a href="#users" className={styles.anavItem}>계정 관리</a>
+        <span className={cn(styles.anavItem, styles.anavDisabled)} aria-disabled="true">
+          권한 / 역할
+        </span>
+        <a href="#departments" className={styles.anavItem}>부서 관리</a>
+        <span className={cn(styles.anavItem, styles.anavDisabled)} aria-disabled="true">
+          초대 / 가입 승인
+        </span>
 
         <div className={styles.anavTitle} style={{ marginTop: 10 }}>
           콘텐츠
         </div>
-        <div className={styles.anavItem}>프로젝트 관리</div>
-        <div className={styles.anavItem}>채팅방 관리</div>
-        <div className={styles.anavItem}>공지 발송 관리</div>
-        <div className={styles.anavItem}>제품정보 관리</div>
+        <Link href="/projects" className={styles.anavItem}>프로젝트 관리</Link>
+        <Link href="/chat" className={styles.anavItem}>채팅방 관리</Link>
+        <Link href="/notices" className={styles.anavItem}>공지 발송 관리</Link>
+        <Link href="/products" className={styles.anavItem}>제품정보 관리</Link>
 
         <div className={styles.anavTitle} style={{ marginTop: 10 }}>
           정책
         </div>
-        <div className={styles.anavItem}>파일 / 보존 정책</div>
-        <div className={styles.anavItem}>보안 / 로그인</div>
-        <div className={styles.anavItem}>감사 로그</div>
-        <div className={styles.anavItem}>알림 정책</div>
+        <Link href="/files" className={styles.anavItem}>파일 / 보존 정책</Link>
+        <span className={cn(styles.anavItem, styles.anavDisabled)} aria-disabled="true">
+          보안 / 로그인
+        </span>
+        <a href="#audit" className={styles.anavItem}>감사 로그</a>
+        <span className={cn(styles.anavItem, styles.anavDisabled)} aria-disabled="true">
+          알림 정책
+        </span>
 
         <div className={styles.anavTitle} style={{ marginTop: 10 }}>
           시스템
         </div>
-        <div className={styles.anavItem}>서비스 상태</div>
-        <div className={styles.anavItem}>버전 / 업데이트</div>
+        <span className={cn(styles.anavItem, styles.anavDisabled)} aria-disabled="true">
+          서비스 상태
+        </span>
+        <span className={cn(styles.anavItem, styles.anavDisabled)} aria-disabled="true">
+          버전 / 업데이트
+        </span>
       </aside>
 
       <main className={styles.main}>
         <Topbar title="관리자" sub="한미르톡 운영 현황" />
 
-        <section className={styles.ahead}>
+        <section className={styles.ahead} id="dashboard-top">
           <h1>관리자 대시보드</h1>
           <div className={styles.aheadSub}>
             한미르주식회사 전사 한미르톡 운영 현황 · 2026.05.13 기준
@@ -102,17 +115,17 @@ export default async function AdminPage() {
           </div>
 
           <div className={styles.grid2}>
-            <UsersAdminCard initialUsers={users} departments={departments} />
+            <div id="users">
+              <UsersAdminCard initialUsers={users} departments={departments} />
+            </div>
 
             <div className="col gap-16">
-              <section className="card">
+              <section className="card" id="audit">
                 <div className="card__head">
                   <h3>감사 로그 (Audit)</h3>
                   <span className="muted t-xs">최근 24시간</span>
                   <div className="right">
-                    <button className="btn btn--ghost btn--sm" type="button">
-                      전체 →
-                    </button>
+                    <span className="muted t-xs">전체 보기는 추후 추가</span>
                   </div>
                 </div>
                 <div className={styles.audit}>
@@ -156,7 +169,9 @@ export default async function AdminPage() {
             </div>
           </div>
 
-          <DepartmentsAdminCard initialDepartments={departments} />
+          <div id="departments">
+            <DepartmentsAdminCard initialDepartments={departments} />
+          </div>
         </div>
       </main>
     </div>

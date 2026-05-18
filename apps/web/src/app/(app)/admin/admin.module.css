@@ -28,12 +28,32 @@
   color: var(--text-2);
   border-radius: var(--r-sm);
   cursor: pointer;
+  text-decoration: none;
 }
 .anavItem:hover { background: var(--bg-soft); color: var(--text-1); }
 .anavActive {
   background: var(--brand-blue-50);
   color: var(--brand-blue);
   font-weight: 600;
+}
+.anavDisabled {
+  color: var(--text-4);
+  cursor: not-allowed;
+  font-style: italic;
+}
+.anavDisabled:hover {
+  background: transparent;
+  color: var(--text-4);
+}
+.anavDisabled::after {
+  content: "준비중";
+  font-size: 10px;
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg-soft);
+  color: var(--text-4);
+  font-style: normal;
 }
 
 .main {
