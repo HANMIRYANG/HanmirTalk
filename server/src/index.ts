@@ -1,6 +1,8 @@
+import { createServer } from "http";
 import { Pool } from "pg";
 import { createApp } from "./app";
 import { config } from "./config";
+import { realtime } from "./realtime";
 import { createMemoryRepositories } from "./repositories/memory";
 import { createPostgresRepositories } from "./repositories/postgres";
 import type { Repositories } from "./repositories/types";
@@ -20,7 +22,11 @@ function buildRepositories(): { repos: Repositories; mode: "memory" | "postgres"
 const { repos, mode } = buildRepositories();
 const app = createApp({ repos });
 
-app.listen(config.port, () => {
+// Plain http server so socket.io can attach alongside Express.
+const httpServer = createServer(app);
+realtime.attach(httpServer);
+
+httpServer.listen(config.port, () => {
   // eslint-disable-next-line no-console
   console.log(`[hanmir-server] repository adapter: ${mode}`);
   // eslint-disable-next-line no-console

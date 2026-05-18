@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { CreateNoticeInput } from "@hanmir/shared";
 import type { Repositories } from "../repositories/types";
 import { requireAuth, requireRole } from "../auth/middleware";
+import { realtime } from "../realtime";
 
 function isString(value: unknown): value is string {
   return typeof value === "string";
@@ -43,6 +44,7 @@ export function createNoticesRouter(repos: Repositories): Router {
       id: user.id,
       departmentName: user.departmentName
     });
+    realtime.emitNoticeNew(created);
     res.status(201).json(created);
   });
 

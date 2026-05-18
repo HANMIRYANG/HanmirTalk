@@ -3,6 +3,7 @@ import type { ChatMessage } from "@hanmir/shared";
 import { randomBytes } from "crypto";
 import type { Repositories } from "../repositories/types";
 import { requireAuth } from "../auth/middleware";
+import { realtime } from "../realtime";
 
 function newId(prefix: string): string {
   return `${prefix}-${randomBytes(6).toString("hex")}`;
@@ -90,6 +91,7 @@ export function createRoomsRouter(repos: Repositories): Router {
       return;
     }
     const pinned = await repos.messages.getPinned(req.params.roomId);
+    realtime.emitRoomPinChanged(req.params.roomId, pinned ?? null);
     res.json({ ok: true, pinned });
   });
 
@@ -100,6 +102,7 @@ export function createRoomsRouter(repos: Repositories): Router {
       return;
     }
     await repos.messages.unpin(req.params.roomId);
+    realtime.emitRoomPinChanged(req.params.roomId, null);
     res.json({ ok: true });
   });
 
@@ -156,6 +159,7 @@ export function createRoomsRouter(repos: Repositories): Router {
     const saved = await repos.messages.append(req.params.roomId, message, {
       attachmentId
     });
+    realtime.emitMessageNew(req.params.roomId, saved);
     res.status(201).json(saved);
   });
 

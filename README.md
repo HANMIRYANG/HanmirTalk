@@ -133,7 +133,7 @@ docs `15_DEVELOPMENT_PHASES.md` 기준 진척도. 백엔드 라우트와 프론�
 | 2 | 역할/권한 (`requireRole`) | ✅ (`admin/super_admin`, writer 4종) | ✅ (admin redirect, 403 인라인) |
 | 3 | 채팅방 read | ✅ | ✅ (`/chat`, `/chat/[roomId]`) |
 | 3 | 메시지 보내기 | ✅ (append, 인증 필수) | ✅ (`MessageComposer`) |
-| 3 | WebSocket (`message:new` 등) | ❌ | ❌ |
+| 3 | WebSocket (`message:new` / `room:pin` / `notice:new`) | ✅ (socket.io 4.8, 핸드셰이크 시 토큰 검증) | ✅ (`ChatRoomMounter` room 구독, `NoticeLive` 전역 구독) |
 | 3 | 파일 업로드/다운로드/삭제 | ✅ (multer + 로컬 디스크, `attachments` 테이블) | ✅ (`/files` 업로드, `/projects/[id]/files` 패널) |
 | 3 | 채팅 메시지 첨부 | ✅ (POST `/rooms/:id/messages`가 `attachmentId` 수용, PG는 attachments.message_id 링크) | ✅ (MessageComposer 클립 버튼 + 첨부 칩, MessageItem 다운로드 버튼) |
 | 3 | 메시지 읽음 처리 + per-user unread | ✅ (`room_members.last_read_message_id` 활용, 양 adapter) | ✅ (`ChatRoomMounter`가 자동 mark-read, ChatList unread 배지) |

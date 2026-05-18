@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Sidebar } from "./Sidebar";
 import { MobileNav } from "./MobileNav";
+import { NoticeLive } from "./NoticeLive";
 
 interface AppShellProps {
   children: ReactNode;
@@ -14,6 +15,7 @@ export function AppShell({ children }: AppShellProps) {
         {children}
         <MobileNav />
       </div>
+      <NoticeLive />
     </div>
   );
 }
