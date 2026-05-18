@@ -4,14 +4,17 @@ import { Topbar } from "@/components/shell/Topbar";
 import { Tag } from "@/components/ui/Tag";
 import { Avatar } from "@/components/ui/Avatar";
 import { ProgressBar } from "@/components/ui/ProgressBar";
-import { PinIcon } from "@/components/ui/icons";
 import { productService } from "@/services/product.service";
 import { userService } from "@/services/user.service";
 import { projectService } from "@/services/project.service";
+import { authService } from "@/services/auth.service";
 import { getServerToken } from "@/lib/server-auth";
 import { salesStatusLabel } from "@hanmir/shared";
 import { cn } from "@/lib/classNames";
+import { ProductActions } from "./ProductActions";
 import styles from "./detail.module.css";
+
+const WRITER_ROLES = new Set(["admin", "super_admin", "manager", "project_owner"]);
 
 interface Props {
   params: { id: string };
@@ -44,12 +47,14 @@ export default async function ProductDetailPage({ params }: Props) {
   const product = await productService.getProduct(params.id, { token });
   if (!product) notFound();
 
-  const [owner, relatedProjects] = await Promise.all([
-    userService.getUser(product.ownerId, { token }),
+  const [owner, relatedProjects, me] = await Promise.all([
+    product.ownerId ? userService.getUser(product.ownerId, { token }) : Promise.resolve(undefined),
     Promise.all(
       product.relatedProjectIds.map((id) => projectService.getProject(id, { token }))
-    ).then((items) => items.filter((p): p is NonNullable<typeof p> => Boolean(p)))
+    ).then((items) => items.filter((p): p is NonNullable<typeof p> => Boolean(p))),
+    authService.getMe(token)
   ]);
+  const canManage = WRITER_ROLES.has(me.role);
 
   return (
     <>
@@ -79,16 +84,7 @@ export default async function ProductDetailPage({ params }: Props) {
             </div>
           </div>
           <div className={styles.actions}>
-            <button className="btn btn--outline btn--sm" type="button">
-              <PinIcon size={14} />
-              즐겨찾기
-            </button>
-            <button className="btn btn--outline btn--sm" type="button">
-              제품 채팅방 열기
-            </button>
-            <button className="btn btn--primary btn--sm" type="button">
-              영업 상태 변경
-            </button>
+            {canManage ? <ProductActions product={product} /> : null}
           </div>
         </div>
       </section>

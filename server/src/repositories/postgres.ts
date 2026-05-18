@@ -21,6 +21,7 @@ import type {
   CreateDepartmentInput,
   CreateFileInput,
   CreateNoticeInput,
+  CreateProductInput,
   CreateProjectInput,
   CreateTaskInput,
   CreateUserInput,
@@ -40,6 +41,7 @@ import type {
   TaskPriority,
   TaskStatus,
   UpdateDepartmentInput,
+  UpdateProductInput,
   UpdateProjectInput,
   UpdateTaskInput,
   UpdateUserInput,
@@ -983,6 +985,71 @@ class PgProductRepository implements ProductRepository {
       [id]
     );
     return rows[0] ? rowToProduct(rows[0]) : undefined;
+  }
+
+  async create(input: CreateProductInput): Promise<Product> {
+    const featuresText = input.features?.join("\n") ?? null;
+    const applicationsText = input.applications?.join("\n") ?? null;
+    const cautionsText = input.cautions?.join("\n") ?? null;
+    const { rows } = await this.pool.query<{ id: string }>(
+      `INSERT INTO products (
+         name, category, description, features, application_area,
+         caution, sales_status, sales_block_reason, owner_id
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id`,
+      [
+        input.name,
+        input.category ?? null,
+        input.description ?? null,
+        featuresText,
+        applicationsText,
+        cautionsText,
+        // Same NOT NULL workaround as projects.sales_status. Default to
+        // the enum value so reads round-trip cleanly.
+        input.salesStatus ?? "preparing",
+        input.salesNote ?? null,
+        input.ownerId ?? null
+      ]
+    );
+    const created = await this.findById(rows[0].id);
+    if (!created) throw new Error("[postgres] failed to read back created product");
+    return created;
+  }
+
+  async update(id: string, input: UpdateProductInput): Promise<Product | undefined> {
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    const add = (col: string, val: unknown) => {
+      params.push(val);
+      sets.push(`${col} = $${params.length}`);
+    };
+    if (input.name !== undefined) add("name", input.name);
+    if (input.category !== undefined) add("category", input.category);
+    if (input.description !== undefined) add("description", input.description);
+    if (input.features !== undefined) add("features", input.features.join("\n"));
+    if (input.applications !== undefined)
+      add("application_area", input.applications.join("\n"));
+    if (input.cautions !== undefined) add("caution", input.cautions.join("\n"));
+    if (input.salesStatus !== undefined) add("sales_status", input.salesStatus);
+    if (input.salesNote !== undefined) add("sales_block_reason", input.salesNote);
+    if (input.ownerId !== undefined) add("owner_id", input.ownerId);
+    if (sets.length === 0) return this.findById(id);
+    sets.push(`updated_at = NOW()`);
+    params.push(id);
+    const { rowCount } = await this.pool.query(
+      `UPDATE products SET ${sets.join(", ")} WHERE id = $${params.length}`,
+      params
+    );
+    if (!rowCount) return undefined;
+    return this.findById(id);
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      `DELETE FROM products WHERE id = $1`,
+      [id]
+    );
+    return (rowCount ?? 0) > 0;
   }
 }
 

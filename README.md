@@ -143,7 +143,8 @@ docs `15_DEVELOPMENT_PHASES.md` 기준 진척도. 백엔드 라우트와 프론�
 | 5 | Task CRUD + 상태 변경 | ✅ | ✅ (`/projects/[id]/tasks` 인라인 편집 + 생성 모달) |
 | 5 | Project 진행률/지연 자동 집계 | ✅ (memory CUD/PG read 모두) | ✅ (목록/카드 표시) |
 | 6 | 제품 read | ✅ | ✅ (`/products`, `/products/[id]`) |
-| 6 | 제품 등록/수정/문서/영업상태 변경 | ❌ | ❌ |
+| 6 | 제품 등록/수정/삭제/영업상태 변경 | ✅ (writer roles) | ✅ (`/products` `+ 제품 등록`, 상세 페이지 영업 상태 dropdown + 수정/삭제 액션) |
+| 6 | 제품 문서 첨부 / LOT / 시험성적서 등 부속 | ❌ (별도 테이블 미연동) | ❌ |
 | 7 | 관리자 KPI/감사/부서통계 | ✅ (seed) | ✅ (`/admin`) |
 | 7 | `/dashboard` 종합 화면 | ❌ (라우트는 있으나 페이지 없음) | ❌ |
 | 7 | 검색 (메시지/파일/프로젝트) | ❌ | ❌ |
@@ -186,7 +187,10 @@ docs `15_DEVELOPMENT_PHASES.md` 기준 진척도. 백엔드 라우트와 프론�
 | `PATCH /tasks/:id` | seed/PG | `taskService.updateTask` | TaskRow 인라인 (상태/진행률) |
 | `DELETE /tasks/:id` | seed/PG | `taskService.deleteTask` | TaskRow hover 삭제 버튼 |
 | `GET /products` | seed/PG | `productService.listProducts` | `/products` |
+| `POST /products` (writer) | seed/PG | `productService.createProduct` | `/products` `+ 제품 등록` 모달 |
 | `GET /products/:id` | seed/PG | `productService.getProduct` | `/products/[id]` |
+| `PATCH /products/:id` (writer) | seed/PG | `productService.updateProduct` | `/products/[id]` 영업 상태 dropdown + 수정 모달 |
+| `DELETE /products/:id` (writer) | seed/PG | `productService.deleteProduct` | `/products/[id]` 삭제 액션 |
 | `GET /files` (?projectId 등 필터) | seed/PG | `fileService.listFiles` | `/files`, `/projects/[id]/files` |
 | `GET /files/folders` | seed (PG: 빈 배열) | `fileService.listFolders` | `/files` |
 | `POST /files/upload` (multipart, requireAuth) | memory store / PG attachments | `fileService.uploadFile` | `/files` 업로드 버튼, `/projects/[id]/files` 패널 업로드 |

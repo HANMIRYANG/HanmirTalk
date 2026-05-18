@@ -316,6 +316,34 @@ export interface SalesStatusEvent {
   state: "done" | "current" | "future";
 }
 
+export interface CreateProductInput {
+  // Only `name` is required; the rest map to the columns the current
+  // products table actually has. DTO-only fields (code, fullName, spec,
+  // lots, history, quarter) are ignored at the persistence layer until
+  // their own tables/columns are added.
+  name: string;
+  category?: string;
+  description?: string;
+  features?: string[];
+  applications?: string[];
+  cautions?: string[];
+  salesStatus?: SalesStatus;
+  salesNote?: string;
+  ownerId?: string;
+}
+
+export interface UpdateProductInput {
+  name?: string;
+  category?: string;
+  description?: string;
+  features?: string[];
+  applications?: string[];
+  cautions?: string[];
+  salesStatus?: SalesStatus;
+  salesNote?: string;
+  ownerId?: string;
+}
+
 export interface Product {
   id: string;
   code: string;

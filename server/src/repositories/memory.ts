@@ -4,6 +4,7 @@ import type {
   CreateDepartmentInput,
   CreateFileInput,
   CreateNoticeInput,
+  CreateProductInput,
   CreateProjectInput,
   CreateTaskInput,
   CreateUserInput,
@@ -20,6 +21,7 @@ import type {
   Room,
   TaskItem,
   UpdateDepartmentInput,
+  UpdateProductInput,
   UpdateProjectInput,
   UpdateTaskInput,
   UpdateUserInput,
@@ -399,12 +401,71 @@ class MemoryTaskRepository implements TaskRepository {
 
 class MemoryProductRepository implements ProductRepository {
   private readonly data: Product[] = clone(seedProducts);
+
   async list(): Promise<Product[]> {
     return clone(this.data);
   }
+
   async findById(id: string): Promise<Product | undefined> {
     const found = this.data.find((p) => p.id === id);
     return found ? clone(found) : undefined;
+  }
+
+  async create(input: CreateProductInput): Promise<Product> {
+    const today = new Date().toISOString().slice(0, 10);
+    const product: Product = {
+      id: newId("pr"),
+      code: "",
+      name: input.name,
+      fullName: input.name,
+      category: input.category ?? "",
+      subCategory: "",
+      description: input.description ?? "",
+      features: input.features ?? [],
+      applications: input.applications ?? [],
+      cautions: input.cautions ?? [],
+      salesStatus: input.salesStatus ?? "preparing",
+      salesNote: input.salesNote ?? "",
+      salesUpdatedAt: today,
+      salesUpdatedBy: "",
+      ownerId: input.ownerId ?? "",
+      spec: [],
+      lots: [],
+      history: [],
+      relatedProjectIds: [],
+      documents: [],
+      quarter: { totalKg: "", revenue: "", avgPrice: "", topClient: "", targetRatio: 0 }
+    };
+    this.data.unshift(product);
+    return clone(product);
+  }
+
+  async update(id: string, input: UpdateProductInput): Promise<Product | undefined> {
+    const target = this.data.find((p) => p.id === id);
+    if (!target) return undefined;
+    if (input.name !== undefined) {
+      target.name = input.name;
+      target.fullName = input.name;
+    }
+    if (input.category !== undefined) target.category = input.category;
+    if (input.description !== undefined) target.description = input.description;
+    if (input.features !== undefined) target.features = input.features;
+    if (input.applications !== undefined) target.applications = input.applications;
+    if (input.cautions !== undefined) target.cautions = input.cautions;
+    if (input.salesStatus !== undefined) {
+      target.salesStatus = input.salesStatus;
+      target.salesUpdatedAt = new Date().toISOString().slice(0, 10);
+    }
+    if (input.salesNote !== undefined) target.salesNote = input.salesNote;
+    if (input.ownerId !== undefined) target.ownerId = input.ownerId;
+    return clone(target);
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const idx = this.data.findIndex((p) => p.id === id);
+    if (idx === -1) return false;
+    this.data.splice(idx, 1);
+    return true;
   }
 }
 

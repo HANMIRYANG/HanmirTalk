@@ -3,6 +3,7 @@ import type {
   CreateDepartmentInput,
   CreateFileInput,
   CreateNoticeInput,
+  CreateProductInput,
   CreateProjectInput,
   CreateTaskInput,
   CreateUserInput,
@@ -17,6 +18,7 @@ import type {
   Room,
   TaskItem,
   UpdateDepartmentInput,
+  UpdateProductInput,
   UpdateProjectInput,
   UpdateTaskInput,
   UpdateUserInput,
@@ -81,6 +83,9 @@ export interface TaskRepository {
 export interface ProductRepository {
   list(): Promise<Product[]>;
   findById(id: string): Promise<Product | undefined>;
+  create(input: CreateProductInput): Promise<Product>;
+  update(id: string, input: UpdateProductInput): Promise<Product | undefined>;
+  delete(id: string): Promise<boolean>;
 }
 
 export interface FileRepository {
