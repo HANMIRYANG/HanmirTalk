@@ -47,7 +47,14 @@ export interface RoomRepository {
 
 export interface MessageRepository {
   listByRoom(roomId: string): Promise<ChatMessage[]>;
-  append(roomId: string, message: ChatMessage): Promise<ChatMessage>;
+  // `opts.attachmentId` links a previously-uploaded file (via POST
+  // /files/upload) to the new message. PG: UPDATE attachments SET
+  // message_id = ... after INSERT. Memory: already embedded in `message`.
+  append(
+    roomId: string,
+    message: ChatMessage,
+    opts?: { attachmentId?: string }
+  ): Promise<ChatMessage>;
   getPinned(roomId: string): Promise<{ author: string; body: string } | undefined>;
 }
 

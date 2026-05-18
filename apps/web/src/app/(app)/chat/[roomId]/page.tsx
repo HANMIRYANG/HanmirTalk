@@ -116,7 +116,11 @@ export default async function ChatRoomPage({ params }: Props) {
           ))}
         </div>
 
-        <MessageComposer roomId={room.id} roomName={room.name} />
+        <MessageComposer
+          roomId={room.id}
+          roomName={room.name}
+          projectId={room.projectId}
+        />
       </main>
 
       <RoomInfoPane

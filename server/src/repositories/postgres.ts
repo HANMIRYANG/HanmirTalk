@@ -864,16 +864,32 @@ class PgMessageRepository implements MessageRepository {
     return rows.map(rowToMessage);
   }
 
-  async append(roomId: string, message: ChatMessage): Promise<ChatMessage> {
+  async append(
+    roomId: string,
+    message: ChatMessage,
+    opts?: { attachmentId?: string }
+  ): Promise<ChatMessage> {
     const { rows } = await this.pool.query<{ id: string }>(
       `INSERT INTO messages (room_id, user_id, content, message_type)
        VALUES ($1, $2, $3, $4)
        RETURNING id`,
       [roomId, message.authorId, message.body, message.isSystem ? "system" : "text"]
     );
+    const newId = rows[0].id;
+    // Link the previously-uploaded attachment to this message. Restrict the
+    // UPDATE to rows uploaded by the same user so a caller cannot reattach
+    // someone else's file. Silent no-op when the id doesn't match — the
+    // route layer surfaced ownership errors before reaching here.
+    if (opts?.attachmentId) {
+      await this.pool.query(
+        `UPDATE attachments SET message_id = $1
+          WHERE id = $2 AND uploaded_by = $3 AND message_id IS NULL`,
+        [newId, opts.attachmentId, message.authorId]
+      );
+    }
     const { rows: persisted } = await this.pool.query<MessageRow>(
       `${MESSAGE_SELECT} WHERE m.id = $1`,
-      [rows[0].id]
+      [newId]
     );
     if (persisted.length === 0) {
       throw new Error("[postgres] failed to read back appended message");

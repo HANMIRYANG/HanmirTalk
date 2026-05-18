@@ -1,7 +1,7 @@
 import type { ChatMessage } from "@hanmir/shared";
 import { Avatar } from "@/components/ui/Avatar";
-import { IconButton } from "@/components/ui/IconButton";
 import { DownloadIcon } from "@/components/ui/icons";
+import { fileService } from "@/services/file.service";
 import { cn } from "@/lib/classNames";
 import styles from "./MessageItem.module.css";
 
@@ -63,9 +63,16 @@ export function MessageItem({ message }: MessageItemProps) {
               <div className={styles.fileMeta}>{message.attachment.meta}</div>
             </div>
             <div className={styles.fileActions}>
-              <IconButton aria-label="다운로드">
-                <DownloadIcon size={16} />
-              </IconButton>
+              <a
+                href={fileService.downloadUrl(message.attachment.id)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn btn--outline btn--sm"
+                aria-label="다운로드"
+                title="다운로드"
+              >
+                <DownloadIcon size={14} />
+              </a>
             </div>
           </div>
         ) : null}

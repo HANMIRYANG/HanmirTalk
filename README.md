@@ -135,7 +135,7 @@ docs `15_DEVELOPMENT_PHASES.md` 기준 진척도. 백엔드 라우트와 프론�
 | 3 | 메시지 보내기 | ✅ (append, 인증 필수) | ✅ (`MessageComposer`) |
 | 3 | WebSocket (`message:new` 등) | ❌ | ❌ |
 | 3 | 파일 업로드/다운로드/삭제 | ✅ (multer + 로컬 디스크, `attachments` 테이블) | ✅ (`/files` 업로드, `/projects/[id]/files` 패널) |
-| 3 | 채팅 메시지 첨부 | ❌ (백엔드 준비, 메시지 연동 미구현) | ❌ |
+| 3 | 채팅 메시지 첨부 | ✅ (POST `/rooms/:id/messages`가 `attachmentId` 수용, PG는 attachments.message_id 링크) | ✅ (MessageComposer 클립 버튼 + 첨부 칩, MessageItem 다운로드 버튼) |
 | 3 | 읽음 처리 / unread / mute / pin write | ❌ | ❌ |
 | 4 | 공지 read + 확인 | ✅ | ✅ (`/notices`, 확인 버튼) |
 | 4 | 공지 작성 / 확인자 조회 | ✅ (admin only) | ✅ (`+ 공지 작성` 모달, 카드별 `확인 현황` 모달) |
@@ -171,7 +171,7 @@ docs `15_DEVELOPMENT_PHASES.md` 기준 진척도. 백엔드 라우트와 프론�
 | `GET /rooms` | seed/PG | `chatService.listRooms` | `/chat` |
 | `GET /rooms/:id` | seed/PG | `chatService.getRoom` | `/chat/[roomId]` |
 | `GET /rooms/:roomId/messages` | seed/PG | `chatService.listMessages` | `/chat/[roomId]` |
-| `POST /rooms/:roomId/messages` | in-memory/PG append | `chatService.sendMessage` | `MessageComposer` |
+| `POST /rooms/:roomId/messages` (`attachmentId?` 옵션) | in-memory/PG append | `chatService.sendMessage` | `MessageComposer` (텍스트 / 첨부 / 동시) |
 | `GET /rooms/:roomId/pinned` | seed (PG: undefined) | `chatService.getPinnedMessage` | `/chat/[roomId]` 핀 배너 |
 | `GET /projects` | seed/PG | `projectService.listProjects` | `/projects` |
 | `GET /projects/:id` | seed/PG | `projectService.getProject` | `/projects/[id]` |

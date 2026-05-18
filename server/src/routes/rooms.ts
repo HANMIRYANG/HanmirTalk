@@ -52,9 +52,34 @@ export function createRoomsRouter(repos: Repositories): Router {
     }
     const user = req.currentUser!;
     const body = typeof req.body?.body === "string" ? req.body.body : "";
-    if (!body.trim()) {
+    const attachmentId =
+      typeof req.body?.attachmentId === "string" && req.body.attachmentId
+        ? req.body.attachmentId
+        : undefined;
+    // Allow attachment-only messages (empty body) so users can share a file
+    // without writing text.
+    if (!body.trim() && !attachmentId) {
       res.status(400).json({ error: "empty_message" });
       return;
+    }
+    let attachment: ChatMessage["attachment"] | undefined;
+    if (attachmentId) {
+      const file = await repos.files.findById(attachmentId);
+      if (!file) {
+        res.status(400).json({ error: "attachment_not_found" });
+        return;
+      }
+      if (file.uploaderId !== user.id) {
+        // Prevent users from broadcasting other people's uploads.
+        res.status(403).json({ error: "attachment_not_owned" });
+        return;
+      }
+      attachment = {
+        id: file.id,
+        kind: file.kind,
+        name: file.name,
+        meta: file.size
+      };
     }
     const message: ChatMessage = {
       id: newId("m"),
@@ -66,9 +91,12 @@ export function createRoomsRouter(repos: Repositories): Router {
       initials: user.initials,
       body,
       createdAt: new Date().toISOString(),
-      isMine: true
+      isMine: true,
+      attachment
     };
-    const saved = await repos.messages.append(req.params.roomId, message);
+    const saved = await repos.messages.append(req.params.roomId, message, {
+      attachmentId
+    });
     res.status(201).json(saved);
   });
 

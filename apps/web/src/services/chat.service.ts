@@ -17,11 +17,18 @@ export const chatService = {
       token: opts.token
     });
   },
-  async sendMessage(roomId: string, body: string, opts: AuthOptions = {}): Promise<ChatMessage> {
+  async sendMessage(
+    roomId: string,
+    body: string,
+    opts: AuthOptions & { attachmentId?: string } = {}
+  ): Promise<ChatMessage> {
+    const { token, attachmentId } = opts;
+    const payload: { body: string; attachmentId?: string } = { body };
+    if (attachmentId) payload.attachmentId = attachmentId;
     return apiRequest<ChatMessage>(`/rooms/${encodeURIComponent(roomId)}/messages`, {
       method: "POST",
-      body: { body },
-      token: opts.token
+      body: payload,
+      token
     });
   },
   async getPinnedMessage(

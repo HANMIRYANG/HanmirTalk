@@ -209,7 +209,13 @@ class MemoryMessageRepository implements MessageRepository {
     return clone(this.data[roomId] ?? []);
   }
 
-  async append(roomId: string, message: ChatMessage): Promise<ChatMessage> {
+  async append(
+    roomId: string,
+    message: ChatMessage,
+    _opts?: { attachmentId?: string }
+  ): Promise<ChatMessage> {
+    // Memory mode: the route already embedded the attachment into the
+    // message body (it looked it up via files.findById). Nothing extra here.
     const list = this.data[roomId] ?? (this.data[roomId] = []);
     list.push(message);
     return clone(message);
