@@ -178,7 +178,7 @@ export default async function ChatHomePage() {
                               {n.authorTeam} · {n.createdAt}
                             </div>
                           </div>
-                          <Tag tone={n.tone}>
+                          <Tag tone={n.tone} dot>
                             {n.myConfirmed ? "확인 완료" : n.isMandatory ? "확인 필요" : "공지"}
                           </Tag>
                         </div>

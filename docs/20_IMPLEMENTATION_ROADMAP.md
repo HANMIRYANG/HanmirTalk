@@ -524,16 +524,22 @@
 
 ---
 
-## Q. 빠른 의사결정 항목 (사용자 확인 필요)
+## Q. 의사결정 기록 (2026-05-18 확정)
 
-작업 들어가기 전에 결정해 두면 좋을 것들:
+작업 들어가기 전 사용자 확정 항목 — 본 결정에 따라 각 phase가 빌드됨:
 
-1. **AI 명령용 LLM 키** — Anthropic 사용 (권장: claude-sonnet-4-6 또는 claude-opus-4-7)? 비용 한도?
-2. **Web Push 방식** — Web Push API (VAPID, 모든 브라우저) vs FCM (모바일 친화)? Web Push 권장
-3. **메시지 검색 한국어 처리** — `simple` tsvector + 클라이언트 substring fallback? 또는 pg_trgm 도입?
-4. **결정사항 read-status** — 공지처럼 확인 추적 필요? 또는 단순 read-only?
-5. **사용자 초대 이메일** — Phase 1 에 SMTP 같이 도입? 또는 토큰 URL 복사 방식만?
-6. **사이드바 그룹화** — 현재 평평한 네비. Phase 0 정리 시 카테고리(`업무`, `자료`, `시스템`) 그룹화 도입?
-7. **간트 차트 라이브러리** — 자체 구현 (현재 CSS grid) 유지 vs `frappe-gantt` 같은 라이브러리?
+1. **AI 명령용 LLM** → ✅ **`claude-sonnet-4-6`** 사용. 비용 한도는 환경변수 `AI_DAILY_TOKEN_LIMIT`로 운영 직전 설정 (Phase 5)
+2. **Web Push 방식** → ✅ **Web Push API + VAPID** (Firebase 의존성 없음, PWA 친화) (Phase 6)
+3. **메시지 검색 한국어 처리** → ✅ **`simple` tsvector + 클라이언트 substring 폴백** (Phase 2)
+4. **결정사항 read-status** → ✅ **공지처럼 확인 추적 필요**. `decisions` 테이블 + `decision_reads(decision_id, user_id, confirmed_at)` 별도 테이블 추가 (Phase 3)
+5. **사용자 초대 이메일** → ✅ **Phase 1에 SMTP 같이 도입**. dev는 mailhog 컨테이너, 운영은 SMTP_* env로 분기
+6. **사이드바 그룹화** → ✅ **현재 평평한 nav 유지** (항목 6-7개 규모라 그룹화 ROI 낮음)
+7. **간트 차트 라이브러리** → ✅ **자체 CSS grid 유지**, 라이브러리 도입은 후속 phase
 
-위 항목 결정해 주시면 phase 진입 전 본 문서에 명시 후 작업 들어가겠습니다.
+### 결정에 따른 Phase 마이그레이션 번호 추가
+
+| 번호 | 내용 | Phase |
+| --- | --- | --- |
+| 012a | `decisions` 테이블 + `decision_reads` 테이블 (결정 4의 결과) | Phase 3 |
+
+(005~016 외 추가 슬롯이 필요할 경우 `012a`, `014b` 형태로 부번호 사용)

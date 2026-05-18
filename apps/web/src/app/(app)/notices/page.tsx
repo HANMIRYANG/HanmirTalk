@@ -99,9 +99,13 @@ function NoticeCard({
       <div className={styles.head}>
         <div className={styles.headLeft}>
           {notice.isMandatory ? (
-            <Tag tone={TONE_BY[notice.tone]}>{notice.myConfirmed ? "확인 완료" : "확인 필요"}</Tag>
+            <Tag tone={TONE_BY[notice.tone]} dot>
+              {notice.myConfirmed ? "확인 완료" : "확인 필요"}
+            </Tag>
           ) : (
-            <Tag tone="green">확인 완료</Tag>
+            <Tag tone="green" dot>
+              확인 완료
+            </Tag>
           )}
           <div className={styles.title}>{notice.title}</div>
         </div>
