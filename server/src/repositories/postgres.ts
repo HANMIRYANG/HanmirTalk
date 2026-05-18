@@ -451,7 +451,11 @@ class PgProjectRepository implements ProjectRepository {
         input.type ?? null,
         input.externalPartners ?? null,
         input.relatedProductIds ?? [],
-        input.salesStatus ?? null,
+        // `projects.sales_status` is NOT NULL. The schema's column default is
+        // the Korean label '준비중', which doesn't match the app's enum keys
+        // (preparing/unavailable/internal/conditional/available). Default to
+        // the enum value here so reads round-trip cleanly through SalesStatus.
+        input.salesStatus ?? "preparing",
         createdBy
       ]
     );

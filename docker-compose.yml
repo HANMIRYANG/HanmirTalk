@@ -1,0 +1,41 @@
+# Hanmir Talk — local dev infra
+#
+# Just Postgres for now. Bring it up with:
+#   docker compose up -d
+# and verify with:
+#   docker compose logs -f postgres
+#
+# The first time the volume is created the SQL files under
+# `server/src/db/migrations/` are mounted into Postgres' init dir and run in
+# alphabetical order (001 → 002 → 003). Subsequent boots skip them.
+#
+# To re-apply migrations against an existing volume, use `npm run db:migrate`.
+# To wipe everything and start over, run `npm run db:reset`
+# (== `docker compose down -v && docker compose up -d`).
+#
+# The credentials below are intentionally weak — DEV ONLY.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: hanmir-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hanmir
+      POSTGRES_PASSWORD: hanmir_dev
+      POSTGRES_DB: hanmir_talk
+      # Force UTF-8 + KR locale to avoid surprises with Korean strings.
+      LANG: ko_KR.UTF-8
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - hanmir_pgdata:/var/lib/postgresql/data
+      - ./server/src/db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hanmir -d hanmir_talk"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  hanmir_pgdata:
