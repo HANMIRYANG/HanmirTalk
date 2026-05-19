@@ -2,25 +2,50 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Room } from "@hanmir/shared";
 import { Avatar } from "@/components/ui/Avatar";
 import { Tag } from "@/components/ui/Tag";
 import { IconButton } from "@/components/ui/IconButton";
 import { MuteIcon, PlusIcon } from "@/components/ui/icons";
+import { getSocket } from "@/lib/socket";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/classNames";
+import { NewChatModal } from "./NewChatModal";
 import styles from "./ChatList.module.css";
 
 interface ChatListProps {
   rooms: Room[];
   activeRoomId?: string;
+  // Phase 4 G-2 — required for new-chat modal (filter self out of the
+  // user picker, become DM counterparty correctly).
+  currentUserId: string;
 }
 
 type Filter = "all" | "unread" | "pinned" | "mention";
 
-export function ChatList({ rooms, activeRoomId }: ChatListProps) {
+export function ChatList({ rooms, activeRoomId, currentUserId }: ChatListProps) {
   const pathname = usePathname() ?? "";
+  const router = useRouter();
   const [filter, setFilter] = useState<Filter>("all");
+  const [newChatOpen, setNewChatOpen] = useState(false);
+
+  // Phase 4 G-1 — refresh the list when the user gets added to a new
+  // room (room:created), an existing room mutates (room:updated), or
+  // they leave one (room:membership). The server emits these to the
+  // user-scoped channel so every tab updates.
+  useEffect(() => {
+    const socket = getSocket();
+    const refresh = () => router.refresh();
+    socket.on("room:created", refresh);
+    socket.on("room:updated", refresh);
+    socket.on("room:membership", refresh);
+    return () => {
+      socket.off("room:created", refresh);
+      socket.off("room:updated", refresh);
+      socket.off("room:membership", refresh);
+    };
+  }, [router]);
 
   const counts = useMemo(
     () => ({
@@ -52,10 +77,20 @@ export function ChatList({ rooms, activeRoomId }: ChatListProps) {
     <aside className={styles.chatlist}>
       <div className={styles.head}>
         <h2>채팅</h2>
-        <IconButton aria-label="새 채팅" className={styles.headBtn}>
+        <IconButton
+          aria-label="새 채팅"
+          className={styles.headBtn}
+          onClick={() => setNewChatOpen(true)}
+        >
           <PlusIcon size={18} />
         </IconButton>
       </div>
+      {newChatOpen ? (
+        <NewChatModal
+          currentUserId={currentUserId}
+          onClose={() => setNewChatOpen(false)}
+        />
+      ) : null}
 
       <div className={styles.filter}>
         <button

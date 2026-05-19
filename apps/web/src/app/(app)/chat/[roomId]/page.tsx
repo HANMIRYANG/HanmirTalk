@@ -1,12 +1,13 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { IconButton } from "@/components/ui/IconButton";
-import { MoreIcon, PinIcon, UsersIcon } from "@/components/ui/icons";
+import { PinIcon, UsersIcon } from "@/components/ui/icons";
 import { MessageItem } from "@/components/chat/MessageItem";
 import { MessageComposer } from "@/components/chat/MessageComposer";
 import { RoomInfoPane } from "@/components/chat/RoomInfoPane";
 import { PinnedBanner } from "@/components/chat/PinnedBanner";
 import { ChatRoomMounter } from "@/components/chat/ChatRoomMounter";
+import { ChatRoomActions } from "@/components/chat/ChatRoomActions";
 import { chatService } from "@/services/chat.service";
 import { projectService } from "@/services/project.service";
 import { userService } from "@/services/user.service";
@@ -85,15 +86,13 @@ export default async function ChatRoomPage({ params }: Props) {
             ) : null}
           </div>
           <div className={styles.actions}>
-            <IconButton aria-label="멤버">
+            <IconButton aria-label="멤버" title="우측 패널에 멤버 표시">
               <UsersIcon size={18} />
             </IconButton>
-            <IconButton aria-label="고정">
+            <IconButton aria-label="고정" title="고정된 메시지 (메시지 hover 후 핀 버튼으로 고정/해제)">
               <PinIcon size={18} />
             </IconButton>
-            <IconButton aria-label="더보기">
-              <MoreIcon size={18} />
-            </IconButton>
+            <ChatRoomActions room={room} />
           </div>
         </header>
 

@@ -10,6 +10,7 @@ import type {
   PinnedMessageRef,
   CreateProductInput,
   CreateProjectInput,
+  CreateRoomInput,
   CreateTaskInput,
   CreateUserInput,
   Decision,
@@ -31,6 +32,7 @@ import type {
   UpdateDepartmentInput,
   UpdateProductInput,
   UpdateProjectInput,
+  UpdateRoomInput,
   UpdateTaskInput,
   UpdateUserInput,
   User
@@ -255,11 +257,27 @@ class MemoryDepartmentRepository implements DepartmentRepository {
 }
 
 class MemoryRoomRepository implements RoomRepository {
-  private readonly data: Room[] = clone(seedRooms);
+  private readonly data: Room[];
+  // Phase 4 G-1 — per-user mute state. Set<roomId> per userId. We carry
+  // over the seed's static `muted: true` onto u-kim-minjun (the default
+  // dev login) so the demo data still looks like before, then drop the
+  // static field so it can't shadow the dynamic per-user state.
+  private readonly mutedByUser = new Map<string, Set<string>>();
   // Wired by createMemoryRepositories — lets list/findById call into the
   // message repo for unread count + pinned message lookup without a
   // circular import.
   private messages?: MemoryMessageRepository;
+
+  constructor() {
+    const seeded = clone(seedRooms);
+    const kimMutes = new Set<string>();
+    for (const r of seeded) {
+      if (r.muted) kimMutes.add(r.id);
+      delete (r as { muted?: boolean }).muted;
+    }
+    if (kimMutes.size > 0) this.mutedByUser.set("u-kim-minjun", kimMutes);
+    this.data = seeded;
+  }
 
   setMessageAccessor(messages: MemoryMessageRepository): void {
     this.messages = messages;
@@ -272,6 +290,9 @@ class MemoryRoomRepository implements RoomRepository {
       const pin = this.messages.getPinnedId(room.id);
       out.pinnedMessageId = pin;
     }
+    // Per-user mute overlay. Without a userId we leave muted undefined
+    // (server-side admin tools etc.) instead of guessing.
+    out.muted = userId ? this.mutedByUser.get(userId)?.has(room.id) ?? false : undefined;
     return out;
   }
 
@@ -282,6 +303,126 @@ class MemoryRoomRepository implements RoomRepository {
   async findById(id: string, userId?: string): Promise<Room | undefined> {
     const found = this.data.find((r) => r.id === id);
     return found ? this.decorate(found, userId) : undefined;
+  }
+
+  async create(input: CreateRoomInput, createdBy: { id: string }): Promise<Room> {
+    const type = input.type ?? "group";
+    // Creator is always a member with owner role. Other ids get plain
+    // member role. Dedupe so passing yourself in memberIds is fine.
+    const memberSet = new Set<string>([createdBy.id, ...(input.memberIds ?? [])]);
+    const room: Room = {
+      id: newId("r"),
+      name: input.name,
+      type,
+      description: input.description,
+      projectId: input.projectId,
+      members: Array.from(memberSet).map((uid) => ({
+        userId: uid,
+        isOwner: uid === createdBy.id || undefined
+      })),
+      unread: 0,
+      lastMessageAt: "",
+      lastMessagePreview: ""
+    };
+    this.data.unshift(room);
+    return this.decorate(room, createdBy.id);
+  }
+
+  async update(id: string, input: UpdateRoomInput): Promise<Room | undefined> {
+    const idx = this.data.findIndex((r) => r.id === id);
+    if (idx < 0) return undefined;
+    const next: Room = { ...this.data[idx] };
+    if (input.name !== undefined) next.name = input.name;
+    if (input.description !== undefined) next.description = input.description;
+    this.data[idx] = next;
+    return this.decorate(next);
+  }
+
+  async findOrCreateDirect(userIdA: string, userIdB: string): Promise<Room> {
+    // Direct rooms have exactly two members. Order-independent search.
+    const a = userIdA;
+    const b = userIdB;
+    const existing = this.data.find(
+      (r) =>
+        r.type === "direct" &&
+        r.members.length === 2 &&
+        r.members.some((m) => m.userId === a) &&
+        r.members.some((m) => m.userId === b)
+    );
+    if (existing) return this.decorate(existing, a);
+    return this.create(
+      {
+        // Direct-room name is just a placeholder; the UI renders the
+        // counterparty's name based on the member list.
+        name: "1:1 대화",
+        type: "direct",
+        memberIds: [b]
+      },
+      { id: a }
+    );
+  }
+
+  async addMember(id: string, userId: string): Promise<Room | undefined> {
+    const idx = this.data.findIndex((r) => r.id === id);
+    if (idx < 0) return undefined;
+    const current = this.data[idx];
+    if (current.members.some((m) => m.userId === userId)) {
+      return this.decorate(current);
+    }
+    this.data[idx] = {
+      ...current,
+      members: [...current.members, { userId }]
+    };
+    return this.decorate(this.data[idx]);
+  }
+
+  async removeMember(id: string, userId: string): Promise<Room | undefined> {
+    const idx = this.data.findIndex((r) => r.id === id);
+    if (idx < 0) return undefined;
+    const current = this.data[idx];
+    this.data[idx] = {
+      ...current,
+      members: current.members.filter((m) => m.userId !== userId)
+    };
+    // Also drop their mute state so it doesn't linger if they get re-added.
+    this.mutedByUser.get(userId)?.delete(id);
+    return this.decorate(this.data[idx]);
+  }
+
+  async setMute(id: string, userId: string, muted: boolean): Promise<Room | undefined> {
+    const room = this.data.find((r) => r.id === id);
+    if (!room) return undefined;
+    let set = this.mutedByUser.get(userId);
+    if (!set) {
+      set = new Set<string>();
+      this.mutedByUser.set(userId, set);
+    }
+    if (muted) set.add(id);
+    else set.delete(id);
+    return this.decorate(room, userId);
+  }
+
+  async leave(
+    id: string,
+    userId: string
+  ): Promise<{ ok: true; archived: boolean } | { ok: false }> {
+    const idx = this.data.findIndex((r) => r.id === id);
+    if (idx < 0) return { ok: false };
+    const current = this.data[idx];
+    if (!current.members.some((m) => m.userId === userId)) {
+      // Not a member — treat as success (idempotent leave).
+      return { ok: true, archived: false };
+    }
+    const remaining = current.members.filter((m) => m.userId !== userId);
+    this.mutedByUser.get(userId)?.delete(id);
+    if (remaining.length === 0) {
+      // Last member — archive (memory mode just removes the room from
+      // the active list since there's no is_active column on the DTO).
+      this.data.splice(idx, 1);
+      return { ok: true, archived: true };
+    }
+    this.data[idx] = { ...current, members: remaining };
+    return { ok: true, archived: false };
   }
 }
 

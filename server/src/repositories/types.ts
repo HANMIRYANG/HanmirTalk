@@ -8,6 +8,7 @@ import type {
   CreateNoticeInput,
   CreateProductInput,
   CreateProjectInput,
+  CreateRoomInput,
   CreateTaskInput,
   CreateUserInput,
   Decision,
@@ -27,6 +28,7 @@ import type {
   UpdateDepartmentInput,
   UpdateProductInput,
   UpdateProjectInput,
+  UpdateRoomInput,
   UpdateTaskInput,
   UpdateUserInput,
   User
@@ -89,6 +91,29 @@ export interface RoomRepository {
   // accurate badge. Calls without it (e.g. unauth) get unread=0.
   list(userId?: string): Promise<Room[]>;
   findById(id: string, userId?: string): Promise<Room | undefined>;
+  // Phase 4 G-1 — room CUD + membership ops.
+  // `createdBy` becomes a member with role "owner". Other memberIds get
+  // role "member". `type` defaults to "group" if not provided.
+  create(input: CreateRoomInput, createdBy: { id: string }): Promise<Room>;
+  update(id: string, input: UpdateRoomInput): Promise<Room | undefined>;
+  // Direct message rooms (type="direct") between exactly two users. The
+  // pair is order-independent and the repo is responsible for finding
+  // any existing direct room with this exact pair before creating a new
+  // one (idempotent — POST /rooms/direct is safe to call repeatedly).
+  findOrCreateDirect(userIdA: string, userIdB: string): Promise<Room>;
+  // Add / remove a member. Returns the updated room or undefined when
+  // the room doesn't exist. Adding an existing member is a no-op (the
+  // server route can still return 200 with the room).
+  addMember(id: string, userId: string): Promise<Room | undefined>;
+  removeMember(id: string, userId: string): Promise<Room | undefined>;
+  // Per-user mute. `enabled=true` mutes (notification_enabled=false in
+  // the schema; the column name is a double-negative we keep for backward
+  // compatibility). Returns the updated room scoped to this user.
+  setMute(id: string, userId: string, muted: boolean): Promise<Room | undefined>;
+  // Leave: remove the caller's row. If they were the last member the
+  // room transitions to is_active=false (soft archive — no hard delete
+  // so historical messages keep their fk references).
+  leave(id: string, userId: string): Promise<{ ok: true; archived: boolean } | { ok: false }>;
 }
 
 export interface MessageRepository {

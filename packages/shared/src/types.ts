@@ -122,11 +122,15 @@ export interface Room {
   id: string;
   name: string;
   type: RoomType;
+  description?: string;
   projectId?: string;
   members: RoomMember[];
   // Per-user unread count (messages newer than this user's last_read_message).
   // 0 when the caller is not authenticated or has no member row.
   unread: number;
+  // Per-user mute (Phase 4 G-1). True when the caller has notifications
+  // disabled for this room. Server fills it based on the authenticated
+  // caller's room_members.notification_enabled.
   muted?: boolean;
   pinned?: boolean;
   // Id of the currently-pinned message in this room (set via POST
@@ -140,6 +144,22 @@ export interface Room {
   avatarLabel?: string;
   avatarTone?: User["avatarTone"];
   tag?: { label: string; tone?: "blue" | "green" | "amber" | "red" | "orange" };
+}
+
+// Phase 4 G-1 — payload for POST /rooms (create) and PATCH /rooms/:id (update).
+// Creator becomes a member automatically; passing them in memberIds is OK
+// (the server dedupes). `type` defaults to "group" when omitted.
+export interface CreateRoomInput {
+  name: string;
+  type?: RoomType;
+  description?: string;
+  projectId?: string;
+  memberIds?: string[];
+}
+
+export interface UpdateRoomInput {
+  name?: string;
+  description?: string;
 }
 
 // Returned by GET /rooms/:id/pinned. Lightweight (just the bits the banner

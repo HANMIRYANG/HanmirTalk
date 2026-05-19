@@ -1,4 +1,10 @@
-import type { ChatMessage, PinnedMessageRef, Room } from "@hanmir/shared";
+import type {
+  ChatMessage,
+  CreateRoomInput,
+  PinnedMessageRef,
+  Room,
+  UpdateRoomInput
+} from "@hanmir/shared";
 import { apiRequest, apiRequestOrNull } from "./api-client";
 
 export interface AuthOptions {
@@ -107,5 +113,89 @@ export const chatService = {
       token: opts.token
     });
     return response.results;
+  },
+
+  // ── Phase 4 G-1/G-2 — room operations ──────────────────────────────
+
+  // Create a new room. Caller becomes owner. Returns the created Room.
+  async createRoom(input: CreateRoomInput, opts: AuthOptions = {}): Promise<Room> {
+    return apiRequest<Room>("/rooms", {
+      method: "POST",
+      body: input,
+      token: opts.token
+    });
+  },
+
+  async updateRoom(
+    roomId: string,
+    input: UpdateRoomInput,
+    opts: AuthOptions = {}
+  ): Promise<Room> {
+    return apiRequest<Room>(`/rooms/${encodeURIComponent(roomId)}`, {
+      method: "PATCH",
+      body: input,
+      token: opts.token
+    });
+  },
+
+  // Find or create the DM room between caller and `userId`. Idempotent —
+  // safe to call from a "1:1 대화 시작" button without checking first.
+  async openDirectMessage(userId: string, opts: AuthOptions = {}): Promise<Room> {
+    return apiRequest<Room>("/rooms/direct", {
+      method: "POST",
+      body: { userId },
+      token: opts.token,
+      // Server returns 200 (existing) or 201 (newly created).
+      expectStatus: [200, 201]
+    });
+  },
+
+  async addMember(
+    roomId: string,
+    userId: string,
+    opts: AuthOptions = {}
+  ): Promise<Room> {
+    return apiRequest<Room>(`/rooms/${encodeURIComponent(roomId)}/members`, {
+      method: "POST",
+      body: { userId },
+      token: opts.token
+    });
+  },
+
+  async removeMember(
+    roomId: string,
+    userId: string,
+    opts: AuthOptions = {}
+  ): Promise<Room> {
+    return apiRequest<Room>(
+      `/rooms/${encodeURIComponent(roomId)}/members/${encodeURIComponent(userId)}`,
+      { method: "DELETE", token: opts.token }
+    );
+  },
+
+  async muteRoom(roomId: string, opts: AuthOptions = {}): Promise<Room> {
+    return apiRequest<Room>(`/rooms/${encodeURIComponent(roomId)}/mute`, {
+      method: "POST",
+      token: opts.token
+    });
+  },
+
+  async unmuteRoom(roomId: string, opts: AuthOptions = {}): Promise<Room> {
+    return apiRequest<Room>(`/rooms/${encodeURIComponent(roomId)}/mute`, {
+      method: "DELETE",
+      token: opts.token
+    });
+  },
+
+  // Leave the room. Returns `{ ok, archived }` — archived=true means the
+  // caller was the last member and the room is now soft-archived.
+  async leaveRoom(
+    roomId: string,
+    opts: AuthOptions = {}
+  ): Promise<{ ok: boolean; archived: boolean }> {
+    return apiRequest<{ ok: boolean; archived: boolean }>(
+      `/rooms/${encodeURIComponent(roomId)}/leave`,
+      { method: "POST", token: opts.token }
+    );
   }
 };

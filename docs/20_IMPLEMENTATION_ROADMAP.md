@@ -275,38 +275,44 @@
 
 ---
 
-## G. Phase 4 — 채팅방 운영 (doc/05, 08, doc/19 Group B)
+## G. Phase 4 — 채팅방 운영 (doc/05, 08, doc/19 Group B) ✅ **완료 (2026-05-19)**
 
 **의존성**: Phase 1 보안. 메시지 mute 는 schema 변경 없음 (`room_members.notification_enabled` 컬럼이 이미 있음).
-**예상 작업량**: 2~3일
+**예상 작업량**: 2~3일 / **실제**: 0.5일
 
-### G-1. 백엔드
+### G-1. 백엔드 ✅
 
-- [ ] `POST /api/v1/rooms` — `{name, type, projectId?, memberIds[]}`. 생성자 자동 멤버.
-- [ ] `PATCH /api/v1/rooms/:id` — name, description 수정
-- [ ] `POST /api/v1/rooms/:id/members` — `{userId}` (현재 프로젝트 멤버에만 있는 패턴을 rooms 에도 적용)
-- [ ] `DELETE /api/v1/rooms/:id/members/:userId`
-- [ ] `POST /api/v1/rooms/:id/mute` — `room_members.notification_enabled = false`
-- [ ] `DELETE /api/v1/rooms/:id/mute` — `notification_enabled = true`
-- [ ] `POST /api/v1/rooms/:id/leave` — 본인 `room_members` 행 삭제. 마지막 멤버일 경우 방 비활성 (`is_active = false`)
-- [ ] `POST /api/v1/rooms/direct` — `{userId}` 두 사람의 DM 방을 찾거나 없으면 생성. 멱등.
+- [x] `POST /api/v1/rooms` — `{name, type, description?, projectId?, memberIds[]}`. 생성자 자동 owner 멤버. memberIds 검증 (active user), projectId 설정 시 caller가 프로젝트 멤버여야
+- [x] `PATCH /api/v1/rooms/:id` — name / description 수정. 멤버만
+- [x] `POST /api/v1/rooms/:id/members` — `{userId}` 추가. direct 방은 거부 (`direct_room_fixed_membership`)
+- [x] `DELETE /api/v1/rooms/:id/members/:userId` — 본인 외엔 admin만 가능. direct 방 거부
+- [x] `POST /api/v1/rooms/:id/mute` / `DELETE` — per-user mute via `room_members.notification_enabled`
+- [x] `POST /api/v1/rooms/:id/leave` — 본인 `room_members` 행 삭제. 마지막 멤버 시 `is_active=false` 소프트 archive (PG) / 데이터 제거 (메모리). direct 방 거부
+- [x] `POST /api/v1/rooms/direct` — `{userId}` DM 방 find-or-create. 멱등. 처음 만들 때만 201 + audit. 자기 자신과 DM 거부
+- [x] `RoomRepository` 확장: create / update / findOrCreateDirect / addMember / removeMember / setMute / leave (메모리 + PG)
+- [x] `Room.description` / `Room.muted` (per-user) DTO 필드 추가
+- [x] PG `ROOM_SELECT`에 `caller_muted` 컬럼 추가, `findOrCreateDirect`은 `HAVING COUNT(*)=2`로 정확한 pair 매칭
+- [x] audit hooks: room.create / room.update / room.member.add / .remove(warn) / .self_remove / room.leave / room.direct.create
+- [x] realtime: `room:created` / `room:updated` / `room:membership` 이벤트. socket connect 시 자동 `user:<userId>` 채널 join → 사용자별 알림 가능
 
-### G-2. 프론트
+### G-2. 프론트 ✅
 
-- [ ] `ChatList.tsx` `+ 새 채팅` IconButton 활성화 — 모달:
-  - [ ] type 선택 (direct / group / project)
-  - [ ] 멤버 선택 (사용자 검색)
-  - [ ] 방 이름 (group)
-  - [ ] 생성 → `/chat/[newId]` 라우팅
-- [ ] `/chat/[roomId]/page.tsx` 헤더 `멤버` IconButton — RoomInfoPane 토글 또는 멤버 모달
-- [ ] 같은 곳 `더보기` IconButton — popover 메뉴: 음소거, 방 나가기, 채팅방 설정
-- [ ] DM 시작 — `/products/[id]` 의 `1:1 대화 시작` 버튼에서 `chatService.openDirectMessage(userId)` 호출
-- [ ] `chatService.muteRoom(id) / unmute / leaveRoom / createRoom / openDirectMessage`
+- [x] `ChatList.tsx` `+ 새 채팅` IconButton 활성화 — `NewChatModal` 모달
+  - [x] 1:1 / 그룹 토글 (project room은 후속 — 프로젝트 페이지에서 만드는 게 더 자연스러움)
+  - [x] 사용자 검색 (이름/이메일/부서)
+  - [x] 본인 자동 제외, multi-select (그룹) / single-select (DM)
+  - [x] 그룹은 방 이름 + 2명 이상 필수
+  - [x] 생성 → `/chat/[newId]` 라우팅
+- [x] `ChatList.tsx` `room:created` / `room:updated` / `room:membership` 구독 → 다른 탭/사용자가 추가/변경/제거 시 자동 반영
+- [x] `/chat/[roomId]/page.tsx` 헤더 `더보기` IconButton → `ChatRoomActions` popover (외부 클릭/Esc 닫기). 메뉴: 알림 음소거/켜기 토글 + 방 나가기 (direct 방은 leave 메뉴 숨김)
+- [x] (간단 처리) 멤버/고정 IconButton은 RoomInfoPane이 우측에 항상 보이므로 title 안내만 추가. 모달화는 후속
+- [x] `ProductOwnerChatButton` — `/products/[id]`의 1:1 대화 시작 버튼이 `openDirectMessage` 호출 → 기존 DM 찾거나 생성 → `/chat/[roomId]` 이동. 본인이 owner인 경우 버튼 숨김
+- [x] `chatService` 확장: createRoom / updateRoom / openDirectMessage / addMember / removeMember / muteRoom / unmuteRoom / leaveRoom
 
-### G-3. ChatList 필터링
+### G-3. ChatList 필터링 ✅ (Phase 0에서 기반 완료)
 
-- [ ] `읽지 않음` pill — `rooms.filter(r => r.unread > 0)`
-- [ ] `고정` pill — `r.pinned`
+- [x] `읽지 않음` pill — `rooms.filter(r => r.unread > 0)` (Phase 0)
+- [x] `고정` pill — `r.pinned` (Phase 0)
 - [ ] `멘션` pill — Phase 5 멘션 완료 후 — 본인 멘션된 메시지가 있는 방
 
 ---

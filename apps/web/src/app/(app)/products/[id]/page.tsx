@@ -8,6 +8,7 @@ import { productService } from "@/services/product.service";
 import { userService } from "@/services/user.service";
 import { projectService } from "@/services/project.service";
 import { requireServerMe } from "@/lib/server-auth";
+import { ProductOwnerChatButton } from "./ProductOwnerChatButton";
 import { salesStatusLabel } from "@hanmir/shared";
 import { cn } from "@/lib/classNames";
 import { ProductActions } from "./ProductActions";
@@ -290,9 +291,7 @@ export default async function ProductDetailPage({ params }: Props) {
                     <div className={styles.ownerMeta}>{owner.departmentName}</div>
                   </div>
                 </div>
-                <button className="btn btn--outline btn--sm mt-12" style={{ width: "100%" }} type="button">
-                  1:1 대화 시작
-                </button>
+                <ProductOwnerChatButton ownerId={owner.id} isSelf={owner.id === me.id} />
               </section>
             ) : null}
           </aside>

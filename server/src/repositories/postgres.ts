@@ -28,6 +28,7 @@ import type {
   CreateNoticeInput,
   CreateProductInput,
   CreateProjectInput,
+  CreateRoomInput,
   CreateTaskInput,
   CreateUserInput,
   Decision,
@@ -45,6 +46,7 @@ import type {
   Project,
   ProjectStatus,
   Room,
+  RoomType,
   SalesStatus,
   TaskItem,
   TaskPriority,
@@ -53,6 +55,7 @@ import type {
   UpdateDepartmentInput,
   UpdateProductInput,
   UpdateProjectInput,
+  UpdateRoomInput,
   UpdateTaskInput,
   UpdateUserInput,
   User,
@@ -756,6 +759,7 @@ interface RoomRow {
   id: string;
   name: string;
   type: string;
+  description: string | null;
   project_id: string | null;
   pinned_message_id: string | null;
   member_user_ids: string[] | null;
@@ -764,6 +768,10 @@ interface RoomRow {
   last_message_preview: string | null;
   last_message_author: string | null;
   unread_count: string | number | null;
+  // Phase 4 G-1 — per-user mute (room_members.notification_enabled is
+  // false when muted; we surface as `muted: true` for clarity). NULL when
+  // the caller has no row in this room.
+  caller_muted: boolean | null;
 }
 
 function rowToRoom(row: RoomRow): Room {
@@ -778,10 +786,12 @@ function rowToRoom(row: RoomRow): Room {
     id: row.id,
     name: row.name,
     type: row.type as Room["type"],
+    description: row.description ?? undefined,
     projectId: row.project_id ?? undefined,
     pinnedMessageId: row.pinned_message_id ?? undefined,
     members,
     unread: Number(row.unread_count) || 0,
+    muted: row.caller_muted ?? undefined,
     lastMessageAt: row.last_message_at ? formatDate(row.last_message_at) : "",
     lastMessagePreview: row.last_message_preview ?? "",
     lastMessageAuthor: row.last_message_author ?? undefined
@@ -793,7 +803,7 @@ function rowToRoom(row: RoomRow): Room {
 // at the WHERE site themselves so list/findById share the same shape.
 const ROOM_SELECT = `
   SELECT
-    r.id, r.name, r.type, r.project_id, r.pinned_message_id,
+    r.id, r.name, r.type, r.description, r.project_id, r.pinned_message_id,
     COALESCE(
       (SELECT array_agg(rm.user_id ORDER BY rm.joined_at)
          FROM room_members rm WHERE rm.room_id = r.id),
@@ -814,6 +824,10 @@ const ROOM_SELECT = `
        JOIN users u ON u.id = m.user_id
        WHERE m.room_id = r.id AND NOT m.is_deleted
        ORDER BY m.created_at DESC LIMIT 1) AS last_message_author,
+    -- Per-user mute. NULL when caller has no room_members row; UI treats
+    -- NULL as "not muted" anyway. notification_enabled=false ⇒ muted.
+    (SELECT NOT rm3.notification_enabled FROM room_members rm3
+       WHERE rm3.room_id = r.id AND rm3.user_id = $1) AS caller_muted,
     -- Unread = messages newer than this user's last_read_message and not
     -- authored by them. last_read_message resolves via room_members; when
     -- the user has no row, we treat every foreign message as unread.
@@ -859,6 +873,163 @@ class PgRoomRepository implements RoomRepository {
       [userId ?? null, id]
     );
     return rows[0] ? rowToRoom(rows[0]) : undefined;
+  }
+
+  async create(input: CreateRoomInput, createdBy: { id: string }): Promise<Room> {
+    const type: RoomType = input.type ?? "group";
+    const memberSet = new Set<string>([createdBy.id, ...(input.memberIds ?? [])]);
+    // Insert + add members in one transaction so a partial failure doesn't
+    // leave an orphaned room (no members → can't be listed by anyone).
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const { rows } = await client.query<{ id: string }>(
+        `INSERT INTO rooms (name, type, description, project_id, created_by)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id`,
+        [input.name, type, input.description ?? null, input.projectId ?? null, createdBy.id]
+      );
+      const roomId = rows[0].id;
+      for (const uid of memberSet) {
+        await client.query(
+          `INSERT INTO room_members (room_id, user_id, role)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (room_id, user_id) DO NOTHING`,
+          [roomId, uid, uid === createdBy.id ? "owner" : "member"]
+        );
+      }
+      await client.query("COMMIT");
+      const created = await this.findById(roomId, createdBy.id);
+      if (!created) throw new Error("[postgres] failed to read back created room");
+      return created;
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  async update(id: string, input: UpdateRoomInput): Promise<Room | undefined> {
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    const add = (col: string, val: unknown) => {
+      params.push(val);
+      sets.push(`${col} = $${params.length}`);
+    };
+    if (input.name !== undefined) add("name", input.name);
+    if (input.description !== undefined) add("description", input.description);
+    if (sets.length === 0) return this.findById(id);
+    sets.push("updated_at = NOW()");
+    params.push(id);
+    const { rowCount } = await this.pool.query(
+      `UPDATE rooms SET ${sets.join(", ")}
+        WHERE id = $${params.length} AND is_active IS NOT FALSE`,
+      params
+    );
+    if (!rowCount) return undefined;
+    return this.findById(id);
+  }
+
+  async findOrCreateDirect(userIdA: string, userIdB: string): Promise<Room> {
+    // Find any active direct room whose membership is exactly {A, B}.
+    // The HAVING + COUNT trick lets us pin "exactly two members, both of
+    // which are A or B" without ambiguity.
+    const { rows } = await this.pool.query<{ id: string }>(
+      `SELECT r.id
+         FROM rooms r
+         JOIN room_members rm ON rm.room_id = r.id
+        WHERE r.type = 'direct'
+          AND r.is_active IS NOT FALSE
+          AND rm.user_id IN ($1, $2)
+        GROUP BY r.id
+       HAVING COUNT(*) = 2
+          AND (SELECT COUNT(*) FROM room_members rm2 WHERE rm2.room_id = r.id) = 2
+        LIMIT 1`,
+      [userIdA, userIdB]
+    );
+    if (rows[0]) {
+      const existing = await this.findById(rows[0].id, userIdA);
+      if (existing) return existing;
+    }
+    return this.create(
+      { name: "1:1 대화", type: "direct", memberIds: [userIdB] },
+      { id: userIdA }
+    );
+  }
+
+  async addMember(id: string, userId: string): Promise<Room | undefined> {
+    const exists = await this.pool.query<{ id: string }>(
+      `SELECT id FROM rooms WHERE id = $1 AND is_active IS NOT FALSE`,
+      [id]
+    );
+    if (exists.rows.length === 0) return undefined;
+    await this.pool.query(
+      `INSERT INTO room_members (room_id, user_id, role)
+       VALUES ($1, $2, 'member')
+       ON CONFLICT (room_id, user_id) DO NOTHING`,
+      [id, userId]
+    );
+    return this.findById(id, userId);
+  }
+
+  async removeMember(id: string, userId: string): Promise<Room | undefined> {
+    const exists = await this.pool.query<{ id: string }>(
+      `SELECT id FROM rooms WHERE id = $1`,
+      [id]
+    );
+    if (exists.rows.length === 0) return undefined;
+    await this.pool.query(
+      `DELETE FROM room_members WHERE room_id = $1 AND user_id = $2`,
+      [id, userId]
+    );
+    return this.findById(id);
+  }
+
+  async setMute(id: string, userId: string, muted: boolean): Promise<Room | undefined> {
+    // notification_enabled is the inverse of `muted`. UPDATE only — the
+    // caller must already be a member (D-8 route layer guarantees this).
+    const { rowCount } = await this.pool.query(
+      `UPDATE room_members SET notification_enabled = $3
+        WHERE room_id = $1 AND user_id = $2`,
+      [id, userId, !muted]
+    );
+    if (!rowCount) {
+      // Not a member of an existing room: nothing to mute. Returning the
+      // room (if it exists) keeps the API uniform — the muted flag will
+      // just be undefined.
+      return this.findById(id, userId);
+    }
+    return this.findById(id, userId);
+  }
+
+  async leave(
+    id: string,
+    userId: string
+  ): Promise<{ ok: true; archived: boolean } | { ok: false }> {
+    const exists = await this.pool.query<{ id: string }>(
+      `SELECT id FROM rooms WHERE id = $1`,
+      [id]
+    );
+    if (exists.rows.length === 0) return { ok: false };
+    await this.pool.query(
+      `DELETE FROM room_members WHERE room_id = $1 AND user_id = $2`,
+      [id, userId]
+    );
+    const remaining = await this.pool.query<{ c: string }>(
+      `SELECT COUNT(*)::text AS c FROM room_members WHERE room_id = $1`,
+      [id]
+    );
+    const count = Number(remaining.rows[0]?.c ?? 0);
+    if (count === 0) {
+      // Soft archive — historical messages keep their fk references.
+      await this.pool.query(
+        `UPDATE rooms SET is_active = false, updated_at = NOW() WHERE id = $1`,
+        [id]
+      );
+      return { ok: true, archived: true };
+    }
+    return { ok: true, archived: false };
   }
 }
 

@@ -1,6 +1,6 @@
 import type { Server as HttpServer } from "http";
 import { Server as SocketServer, type Socket } from "socket.io";
-import type { ChatMessage, Decision, Notice, PinnedMessageRef } from "@hanmir/shared";
+import type { ChatMessage, Decision, Notice, PinnedMessageRef, Room } from "@hanmir/shared";
 import { sessionStore } from "./auth/session";
 import { SESSION_COOKIE } from "./auth/token";
 import { config } from "./config";
@@ -65,6 +65,12 @@ class Realtime {
     });
 
     io.on("connection", (socket: Socket) => {
+      // Phase 4 G-1 — auto-join a per-user channel so room lifecycle
+      // events (room:created / :updated / :membership) reach every tab
+      // for this user regardless of which rooms they're currently viewing.
+      const userId = (socket.data as { userId: string }).userId;
+      if (userId) socket.join(`user:${userId}`);
+
       // Clients explicitly subscribe to each room they're viewing so we
       // don't blast every message to every connection. Notice events are
       // app-wide and go to all connected sockets.
@@ -151,6 +157,33 @@ class Realtime {
 
   emitNoticeNew(notice: Notice): void {
     this.io?.emit("notice:new", notice);
+  }
+
+  // Phase 4 G-1 — room lifecycle events. We broadcast to every member's
+  // *user channel* so the ChatList in their open tabs refreshes. Each
+  // socket auto-joins `user:<userId>` on connect (handler below).
+  emitRoomCreated(room: Room): void {
+    for (const m of room.members) {
+      this.io?.to(`user:${m.userId}`).emit("room:created", room);
+    }
+  }
+
+  emitRoomUpdated(room: Room): void {
+    // Send to room members + the room's own broadcast channel (for the
+    // header / RoomInfoPane currently open).
+    for (const m of room.members) {
+      this.io?.to(`user:${m.userId}`).emit("room:updated", room);
+    }
+    this.io?.to(`room:${room.id}`).emit("room:updated", room);
+  }
+
+  emitRoomMembershipChanged(
+    roomId: string,
+    change: { kind: "join" | "leave"; userId: string; archived?: boolean }
+  ): void {
+    this.io?.to(`room:${roomId}`).emit("room:membership", { roomId, ...change });
+    // Also notify the leaver's other tabs so their ChatList drops the room.
+    this.io?.to(`user:${change.userId}`).emit("room:membership", { roomId, ...change });
   }
 
   // Phase 3 F-1 — decisions are project-scoped, so we broadcast to a
