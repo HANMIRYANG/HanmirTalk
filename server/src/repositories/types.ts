@@ -2,6 +2,7 @@ import type {
   AuditEntry,
   ChatMessage,
   CreateAuditInput,
+  CreateDecisionInput,
   CreateDepartmentInput,
   CreateFileInput,
   CreateNoticeInput,
@@ -9,6 +10,8 @@ import type {
   CreateProjectInput,
   CreateTaskInput,
   CreateUserInput,
+  Decision,
+  DecisionReadStatus,
   Department,
   FileEntry,
   FileFolder,
@@ -20,6 +23,7 @@ import type {
   Project,
   Room,
   TaskItem,
+  UpdateDecisionInput,
   UpdateDepartmentInput,
   UpdateProductInput,
   UpdateProjectInput,
@@ -187,6 +191,25 @@ export interface NoticeRepository {
   getReadStatus(id: string): Promise<NoticeReadStatus | undefined>;
 }
 
+// Phase 3 F-1 — project decisions. CRUD lives here so the route layer
+// stays thin; ownership checks (writer role / decided_by) are enforced
+// at the route layer like for messages.
+export interface DecisionRepository {
+  listByProject(projectId: string, userId?: string): Promise<Decision[]>;
+  findById(id: string, userId?: string): Promise<Decision | undefined>;
+  create(
+    projectId: string,
+    input: CreateDecisionInput,
+    decidedBy: { id: string }
+  ): Promise<Decision>;
+  update(id: string, input: UpdateDecisionInput): Promise<Decision | undefined>;
+  // Soft delete — sets is_deleted=true. Returns whether the row existed.
+  softDelete(id: string): Promise<boolean>;
+  // Read tracking, mirror of NoticeRepository.markConfirmed.
+  markConfirmed(id: string, userId: string): Promise<Decision | undefined>;
+  getReadStatus(id: string): Promise<DecisionReadStatus | undefined>;
+}
+
 export interface Repositories {
   users: UserRepository;
   departments: DepartmentRepository;
@@ -197,6 +220,7 @@ export interface Repositories {
   products: ProductRepository;
   files: FileRepository;
   notices: NoticeRepository;
+  decisions: DecisionRepository;
   audit: AuditRepository;
   refreshTokens: RefreshTokenRepository;
 }

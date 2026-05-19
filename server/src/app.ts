@@ -12,6 +12,7 @@ import { createAuthRouter } from "./routes/auth";
 import { createUsersRouter } from "./routes/users";
 import { createRoomsRouter } from "./routes/rooms";
 import { createMessagesRouter } from "./routes/messages";
+import { createDecisionsRouter, createProjectDecisionsRouter } from "./routes/decisions";
 import { createProjectsRouter } from "./routes/projects";
 import { createTasksRouter } from "./routes/tasks";
 import { createProductsRouter } from "./routes/products";
@@ -48,6 +49,14 @@ export function createApp(deps: AppDeps = { repos: createMemoryRepositories() })
   app.use(`${config.apiPrefix}/rooms`, requireAuth, createRoomsRouter(deps.repos));
   app.use(`${config.apiPrefix}/messages`, requireAuth, createMessagesRouter(deps.repos));
   app.use(`${config.apiPrefix}/projects`, requireAuth, createProjectsRouter(deps.repos));
+  // Phase 3 F-1 — project-scoped decisions (list + create) live under
+  // /projects/:projectId/decisions. Per-id ops mount separately below.
+  app.use(
+    `${config.apiPrefix}/projects/:projectId/decisions`,
+    requireAuth,
+    createProjectDecisionsRouter(deps.repos)
+  );
+  app.use(`${config.apiPrefix}/decisions`, requireAuth, createDecisionsRouter(deps.repos));
   app.use(`${config.apiPrefix}/tasks`, requireAuth, createTasksRouter(deps.repos));
   app.use(`${config.apiPrefix}/products`, requireAuth, createProductsRouter(deps.repos));
   app.use(`${config.apiPrefix}/files`, requireAuth, createFilesRouter(deps.repos));

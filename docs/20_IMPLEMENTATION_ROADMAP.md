@@ -236,32 +236,42 @@
 
 ---
 
-## F. Phase 3 — 결정사항 (decisions) (doc/03, 05, 07, 08)
+## F. Phase 3 — 결정사항 (decisions) (doc/03, 05, 07, 08) ✅ **완료 (2026-05-19)**
 
-**의존성**: 마이그레이션 012. Phase 1 audit 영속화 완료 권장 (decisions CUD 도 audit).
-**예상 작업량**: 2일
+**의존성**: 마이그레이션 012. Phase 1 audit hook 적용.
+**예상 작업량**: 2일 / **실제**: 0.5일
 
-### F-1. 백엔드
+> **스키마 reconcile**: 001_initial.sql에 decisions 테이블이 이미 존재. 컬럼명을 그대로 사용하기로 결정 — DTO에서 `related_message_id` → `sourceMessageId` 매핑. 012는 `is_deleted` 컬럼과 `decision_reads` 테이블만 추가.
 
-- [ ] **마이그레이션 012_decisions.sql** — `decisions(id, project_id NOT NULL FK, title NOT NULL, content NOT NULL, decided_by NOT NULL FK users, decision_date DATE NOT NULL, source_message_id UUID FK messages NULL, created_at, updated_at)`
-- [ ] shared types: `Decision`, `CreateDecisionInput`, `UpdateDecisionInput`
-- [ ] `DecisionRepository` 인터페이스 + memory + postgres adapter
-- [ ] Routes:
-  - [ ] `GET /api/v1/projects/:projectId/decisions`
-  - [ ] `POST /api/v1/projects/:projectId/decisions` — writer role
-  - [ ] `GET /api/v1/decisions/:id`
-  - [ ] `PATCH /api/v1/decisions/:id` — writer or decided_by
-  - [ ] `DELETE /api/v1/decisions/:id` — admin or decided_by (soft)
-  - [ ] `POST /api/v1/messages/:messageId/create-decision` — 채팅에서 결정사항 만들기 (writer)
+### F-1. 백엔드 ✅
 
-### F-2. 프론트
+- [x] **마이그레이션 012_decisions.sql** — `decisions.is_deleted BOOLEAN`, `decision_reads(decision_id, user_id, confirmed_at, UNIQUE)` 신규 테이블. 인덱스 (project_id, decided_by, user_id).
+- [x] shared types: `Decision`, `CreateDecisionInput`, `UpdateDecisionInput`, `DecisionReadStatus`, `DecisionReadStatusEntry`. `sourceMessageId` + `sourceRoomId` (DB join으로 자동 채워짐) + `totalRecipients` / `confirmedCount` / `myConfirmed` 포함
+- [x] `DecisionRepository` 인터페이스 + 메모리/PG 어댑터. `listByProject` / `findById` / `create` / `update` / `softDelete` / `markConfirmed` / `getReadStatus`. soft-deleted은 title/content가 "삭제된 결정사항입니다"로 마스킹
+- [x] Routes:
+  - [x] `GET /api/v1/projects/:projectId/decisions` — 본인 멤버 프로젝트 한정 (admin 전체)
+  - [x] `POST /api/v1/projects/:projectId/decisions` — writer role + 멤버십 검증
+  - [x] `GET /api/v1/decisions/:id`
+  - [x] `PATCH /api/v1/decisions/:id` — admin 또는 decided_by 본인
+  - [x] `DELETE /api/v1/decisions/:id` — admin 또는 decided_by (soft). idempotent
+  - [x] `POST /api/v1/decisions/:id/confirm` — 읽음 처리 (per-user)
+  - [x] `GET /api/v1/decisions/:id/read-status` — admin 또는 decided_by, 확인 명단 반환
+  - [x] `POST /api/v1/messages/:messageId/create-decision` — 채팅 메시지에서 결정사항 생성 (writer + 프로젝트 멤버, source 메시지가 프로젝트 방이어야)
+- [x] audit hooks (D-4 sweep과 일관): `decision.create` / `decision.create.from_message` / `decision.update` / `decision.delete`(warn)
+- [x] realtime: `decision:new` / `decision:updated` / `decision:deleted` 이벤트. `project:join` / `project:leave` socket 이벤트 + 멤버십 검증 (`canAccessProject`)
 
-- [ ] `apps/web/src/services/decision.service.ts`
-- [ ] `/projects/[id]/decisions/page.tsx` 신설
-- [ ] `ProjectHeader.tsx` 의 `결정 기록` 탭 — href를 새 라우트로
-- [ ] 결정 작성 모달 (writer)
-- [ ] 인라인 편집 / 삭제
-- [ ] `MessageItem.tsx` 에 hover 메뉴 `결정사항으로 만들기` (writer) — 미리보기 모달 → 확정
+### F-2. 프론트 ✅
+
+- [x] `apps/web/src/services/decision.service.ts` — 8개 메소드 (CRUD + confirm + read-status + createFromMessage)
+- [x] `/projects/[id]/decisions/page.tsx` 신설 — SSR로 목록 + me 로드, client component `DecisionsWorkspace`에 위임
+- [x] `ProjectHeader.tsx` `결정 기록` 탭 href를 `/projects/:id/decisions`로
+- [x] `DecisionCreateModal` — writer만 [+ 결정 기록] 버튼 노출. 제목/내용/결정일 입력
+- [x] `DecisionInlineEditor` — 카드 내 [수정] 클릭 시 textarea 인라인 편집 (Ctrl+Enter 저장, Esc 취소). admin 또는 decided_by 본인만
+- [x] 삭제 confirm + soft delete tombstone (italic + muted)
+- [x] 본인 미확인 결정사항에 [확인] 버튼 → markConfirmed. 우측 상단 "{confirmed}/{total} 확인" 카운터 + 본인 확인 완료/필요 Tag
+- [x] 출처 메시지 보기 링크 — sourceMessageId가 있으면 `/chat/<roomId>#m-<msgId>`로 이동
+- [x] `project:join` socket 구독 → decision:new/updated/deleted 발생 시 router.refresh로 SSR 재렌더링 (다른 사용자/탭 실시간 반영)
+- [x] `MessageItem.tsx` — `canCreateDecision` + `projectId` props 추가. hover 메뉴에 [결정사항] 버튼. 클릭 시 `CreateDecisionFromMessageModal` 모달 — 메시지 본문 prefill, 저장 후 결정 페이지로 push
 
 ---
 
@@ -573,7 +583,7 @@
 | 009 | audit_logs | (완료) Phase 1 D-4 |
 | 010 | messages.edited_at | (완료) Phase 2 E-1 |
 | 011 | messages FTS + trgm 인덱스 | (완료) Phase 2 E-3 |
-| 012 | decisions | Phase 3 |
+| 012 | decisions.is_deleted + decision_reads | (완료) Phase 3 |
 | 013 | messages.entities / ai_generated / ai_command / source_message_ids | Phase 5 |
 | 014 | user_notifications / user_notification_settings | Phase 6 |
 | 015 | product_specs / product_lots / sales_status_events | Phase 7 |

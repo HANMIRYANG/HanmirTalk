@@ -19,7 +19,7 @@ const TABS: { key: ProjectHeaderProps["activeTab"]; label: string; href?: (id: s
   // TODO(chat): map project → its room id when project rooms are introduced.
   { key: "chat", label: "대화", href: () => "/chat/r-p2410" },
   { key: "files", label: "파일", href: (id) => `/projects/${id}/files` },
-  { key: "decisions", label: "결정 기록" },
+  { key: "decisions", label: "결정 기록", href: (id) => `/projects/${id}/decisions` },
   { key: "settings", label: "설정" }
 ];
 

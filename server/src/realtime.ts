@@ -1,6 +1,6 @@
 import type { Server as HttpServer } from "http";
 import { Server as SocketServer, type Socket } from "socket.io";
-import type { ChatMessage, Notice, PinnedMessageRef } from "@hanmir/shared";
+import type { ChatMessage, Decision, Notice, PinnedMessageRef } from "@hanmir/shared";
 import { sessionStore } from "./auth/session";
 import { SESSION_COOKIE } from "./auth/token";
 import { config } from "./config";
@@ -81,6 +81,21 @@ class Realtime {
       socket.on("room:leave", (roomId: unknown) => {
         if (typeof roomId === "string" && roomId) socket.leave(`room:${roomId}`);
       });
+      // Phase 3 F-1 — project channel for decision events. Membership is
+      // gated by canAccessProject (mirror of canAccessRoom): admin pass,
+      // otherwise project member only. Silent ignore for foreign projects.
+      socket.on("project:join", async (projectId: unknown) => {
+        if (typeof projectId !== "string" || !projectId) return;
+        const userId = (socket.data as { userId: string }).userId;
+        if (!this.repos || !userId) return;
+        const allowed = await this.canAccessProject(projectId, userId);
+        if (!allowed) return;
+        socket.join(`project:${projectId}`);
+      });
+      socket.on("project:leave", (projectId: unknown) => {
+        if (typeof projectId === "string" && projectId)
+          socket.leave(`project:${projectId}`);
+      });
     });
 
     this.io = io;
@@ -99,6 +114,19 @@ class Realtime {
     if (!room || !user) return false;
     if (user.role === "admin" || user.role === "super_admin") return true;
     return room.members.some((m) => m.userId === userId);
+  }
+
+  // Mirror of the HTTP `ensureProjectAccess` helper for the project
+  // broadcast channel (used by decision events).
+  private async canAccessProject(projectId: string, userId: string): Promise<boolean> {
+    if (!this.repos) return false;
+    const [project, user] = await Promise.all([
+      this.repos.projects.findById(projectId),
+      this.repos.users.findById(userId)
+    ]);
+    if (!project || !user) return false;
+    if (user.role === "admin" || user.role === "super_admin") return true;
+    return project.memberIds.includes(userId);
   }
 
   emitMessageNew(roomId: string, message: ChatMessage): void {
@@ -123,6 +151,22 @@ class Realtime {
 
   emitNoticeNew(notice: Notice): void {
     this.io?.emit("notice:new", notice);
+  }
+
+  // Phase 3 F-1 — decisions are project-scoped, so we broadcast to a
+  // project-specific channel. Subscribers (decisions page) join via
+  // `project:<id>` when mounted. The decision payload is already
+  // masked / decorated by the API layer.
+  emitDecisionNew(projectId: string, decision: Decision): void {
+    this.io?.to(`project:${projectId}`).emit("decision:new", decision);
+  }
+
+  emitDecisionUpdated(projectId: string, decision: Decision): void {
+    this.io?.to(`project:${projectId}`).emit("decision:updated", decision);
+  }
+
+  emitDecisionDeleted(projectId: string, decision: Decision): void {
+    this.io?.to(`project:${projectId}`).emit("decision:deleted", decision);
   }
 }
 

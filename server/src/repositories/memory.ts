@@ -3,6 +3,7 @@ import type {
   AuditEntry,
   ChatMessage,
   CreateAuditInput,
+  CreateDecisionInput,
   CreateDepartmentInput,
   CreateFileInput,
   CreateNoticeInput,
@@ -11,6 +12,9 @@ import type {
   CreateProjectInput,
   CreateTaskInput,
   CreateUserInput,
+  Decision,
+  DecisionReadStatus,
+  DecisionReadStatusEntry,
   Department,
   FileEntry,
   FileFolder,
@@ -23,6 +27,7 @@ import type {
   Project,
   Room,
   TaskItem,
+  UpdateDecisionInput,
   UpdateDepartmentInput,
   UpdateProductInput,
   UpdateProjectInput,
@@ -42,6 +47,7 @@ import { seedFiles, seedFolders } from "../seed/files";
 import { seedNotices } from "../seed/notices";
 import type {
   AuditRepository,
+  DecisionRepository,
   DepartmentRepository,
   FileRepository,
   IssuedRefreshToken,
@@ -314,6 +320,16 @@ class MemoryMessageRepository implements MessageRepository {
 
   getPinnedId(roomId: string): string | undefined {
     return this.pinnedByRoom.get(roomId);
+  }
+
+  // Synchronous helper used by accessors that need a quick message→room
+  // lookup without going through the async repo API (which would force
+  // every caller to be async). Memory-mode only.
+  findRoomIdByMessageIdSync(messageId: string): string | undefined {
+    for (const [roomId, list] of Object.entries(this.data)) {
+      if (list.some((m) => m.id === messageId)) return roomId;
+    }
+    return undefined;
   }
 
   async listByRoom(roomId: string): Promise<ChatMessage[]> {
@@ -974,6 +990,185 @@ function relativeTime(iso: string): string {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
 }
 
+interface DecisionRow {
+  id: string;
+  projectId: string;
+  title: string;
+  content: string;
+  decidedById: string;
+  decisionDate: string;
+  sourceMessageId?: string;
+  sourceRoomId?: string;
+  createdAt: string;
+  updatedAt: string;
+  isDeleted: boolean;
+}
+
+class MemoryDecisionRepository implements DecisionRepository {
+  private readonly rows: DecisionRow[] = [];
+  // userId → set of decisionIds the user has confirmed, with timestamps.
+  // Mirrors NoticeRepository's pattern.
+  private readonly confirmedByUser = new Map<string, Map<string, string>>();
+  private getActiveUsers: () => User[] = () => [];
+  // Closures so decoration can look up author / source message info
+  // without cross-cutting repo coupling.
+  private getUserById: (id: string) => User | undefined = () => undefined;
+  private getMessageRoomId: (messageId: string) => string | undefined = () => undefined;
+
+  setAccessors(opts: {
+    getActiveUsers: () => User[];
+    getUserById: (id: string) => User | undefined;
+    getMessageRoomId: (id: string) => string | undefined;
+  }): void {
+    this.getActiveUsers = opts.getActiveUsers;
+    this.getUserById = opts.getUserById;
+    this.getMessageRoomId = opts.getMessageRoomId;
+  }
+
+  private decorate(row: DecisionRow, userId?: string): Decision {
+    const decidedBy = this.getUserById(row.decidedById);
+    const role =
+      decidedBy?.position && decidedBy?.departmentName
+        ? `${decidedBy.position} · ${decidedBy.departmentName}`
+        : decidedBy?.position;
+    const total = this.getActiveUsers().filter((u) => u.isActive !== false).length;
+    const confirmed = this.countConfirmed(row.id);
+    const isDeleted = row.isDeleted;
+    return {
+      id: row.id,
+      projectId: row.projectId,
+      title: isDeleted ? "삭제된 결정사항입니다" : row.title,
+      content: isDeleted ? "삭제된 결정사항입니다" : row.content,
+      decidedById: row.decidedById,
+      decidedByName: decidedBy?.name ?? "",
+      decidedByRole: role,
+      decisionDate: row.decisionDate,
+      sourceMessageId: row.sourceMessageId,
+      sourceRoomId: row.sourceRoomId,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      totalRecipients: total,
+      confirmedCount: confirmed,
+      myConfirmed: userId
+        ? this.confirmedByUser.get(userId)?.has(row.id) ?? false
+        : false,
+      isDeleted: isDeleted || undefined
+    };
+  }
+
+  private countConfirmed(decisionId: string): number {
+    let n = 0;
+    for (const userMap of this.confirmedByUser.values()) {
+      if (userMap.has(decisionId)) n++;
+    }
+    return n;
+  }
+
+  async listByProject(projectId: string, userId?: string): Promise<Decision[]> {
+    return this.rows
+      .filter((r) => r.projectId === projectId)
+      .sort((a, b) => b.decisionDate.localeCompare(a.decisionDate))
+      .map((r) => this.decorate(r, userId));
+  }
+
+  async findById(id: string, userId?: string): Promise<Decision | undefined> {
+    const row = this.rows.find((r) => r.id === id);
+    return row ? this.decorate(row, userId) : undefined;
+  }
+
+  async create(
+    projectId: string,
+    input: CreateDecisionInput,
+    decidedBy: { id: string }
+  ): Promise<Decision> {
+    const now = new Date().toISOString();
+    const sourceMessageId = input.sourceMessageId;
+    const sourceRoomId = sourceMessageId
+      ? this.getMessageRoomId(sourceMessageId)
+      : undefined;
+    const row: DecisionRow = {
+      id: newId("dec"),
+      projectId,
+      title: input.title,
+      content: input.content,
+      decidedById: decidedBy.id,
+      decisionDate: input.decisionDate ?? now.slice(0, 10),
+      sourceMessageId,
+      sourceRoomId,
+      createdAt: now,
+      updatedAt: now,
+      isDeleted: false
+    };
+    this.rows.unshift(row);
+    return this.decorate(row, decidedBy.id);
+  }
+
+  async update(id: string, input: UpdateDecisionInput): Promise<Decision | undefined> {
+    const idx = this.rows.findIndex((r) => r.id === id);
+    if (idx < 0) return undefined;
+    const current = this.rows[idx];
+    if (current.isDeleted) return this.decorate(current);
+    const next: DecisionRow = {
+      ...current,
+      title: input.title ?? current.title,
+      content: input.content ?? current.content,
+      decisionDate: input.decisionDate ?? current.decisionDate,
+      updatedAt: new Date().toISOString()
+    };
+    this.rows[idx] = next;
+    return this.decorate(next);
+  }
+
+  async softDelete(id: string): Promise<boolean> {
+    const idx = this.rows.findIndex((r) => r.id === id);
+    if (idx < 0 || this.rows[idx].isDeleted) return idx >= 0;
+    this.rows[idx] = {
+      ...this.rows[idx],
+      isDeleted: true,
+      updatedAt: new Date().toISOString()
+    };
+    return true;
+  }
+
+  async markConfirmed(id: string, userId: string): Promise<Decision | undefined> {
+    const row = this.rows.find((r) => r.id === id);
+    if (!row || row.isDeleted) return undefined;
+    let userMap = this.confirmedByUser.get(userId);
+    if (!userMap) {
+      userMap = new Map<string, string>();
+      this.confirmedByUser.set(userId, userMap);
+    }
+    if (!userMap.has(id)) {
+      userMap.set(id, new Date().toISOString());
+    }
+    return this.decorate(row, userId);
+  }
+
+  async getReadStatus(id: string): Promise<DecisionReadStatus | undefined> {
+    const row = this.rows.find((r) => r.id === id);
+    if (!row) return undefined;
+    const active = this.getActiveUsers().filter((u) => u.isActive !== false);
+    const confirmed: DecisionReadStatusEntry[] = [];
+    const unconfirmed: DecisionReadStatusEntry[] = [];
+    for (const u of active) {
+      const at = this.confirmedByUser.get(u.id)?.get(id);
+      const base = {
+        userId: u.id,
+        name: u.name,
+        departmentName: u.departmentName
+      };
+      if (at) confirmed.push({ ...base, confirmedAt: at });
+      else unconfirmed.push(base);
+    }
+    return {
+      decisionId: id,
+      totalRecipients: active.length,
+      confirmed,
+      unconfirmed
+    };
+  }
+}
+
 interface RefreshRow {
   id: string;
   userId: string;
@@ -1047,6 +1242,16 @@ export function createMemoryRepositories(): Repositories {
   // Rooms decorate themselves with per-user unread + pinned message id from
   // the message repo; wire that here.
   rooms.setMessageAccessor(messages);
+  const decisions = new MemoryDecisionRepository();
+  // Decisions need user lookups (for decidedBy author info + recipient
+  // counts) and a way to resolve a sourceMessageId back to its roomId so
+  // the listing can deep-link "출처 메시지". Closures avoid coupling repos
+  // directly.
+  decisions.setAccessors({
+    getActiveUsers: () => users._data,
+    getUserById: (id) => users._data.find((u) => u.id === id),
+    getMessageRoomId: (mid) => messages.findRoomIdByMessageIdSync(mid)
+  });
   return {
     users,
     departments,
@@ -1057,6 +1262,7 @@ export function createMemoryRepositories(): Repositories {
     products: new MemoryProductRepository(),
     files: new MemoryFileRepository(),
     notices,
+    decisions,
     audit: new MemoryAuditRepository(),
     refreshTokens: new MemoryRefreshTokenRepository()
   };

@@ -22,6 +22,7 @@ import type {
   AuditEntry,
   ChatMessage,
   CreateAuditInput,
+  CreateDecisionInput,
   CreateDepartmentInput,
   CreateFileInput,
   CreateNoticeInput,
@@ -29,6 +30,9 @@ import type {
   CreateProjectInput,
   CreateTaskInput,
   CreateUserInput,
+  Decision,
+  DecisionReadStatus,
+  DecisionReadStatusEntry,
   Department,
   FileEntry,
   FileFolder,
@@ -45,6 +49,7 @@ import type {
   TaskItem,
   TaskPriority,
   TaskStatus,
+  UpdateDecisionInput,
   UpdateDepartmentInput,
   UpdateProductInput,
   UpdateProjectInput,
@@ -55,6 +60,7 @@ import type {
 } from "@hanmir/shared";
 import type {
   AuditRepository,
+  DecisionRepository,
   DepartmentRepository,
   FileRepository,
   IssuedRefreshToken,
@@ -1664,6 +1670,216 @@ function relativeTimePg(d: Date): string {
   return `${dt.getFullYear()}.${String(dt.getMonth() + 1).padStart(2, "0")}.${String(dt.getDate()).padStart(2, "0")}`;
 }
 
+// ---------------------------------------------------------------------------
+// Decisions (Phase 3 F-1)
+// ---------------------------------------------------------------------------
+
+interface DecisionRow {
+  id: string;
+  project_id: string;
+  title: string;
+  content: string;
+  decided_by: string;
+  decision_date: Date | string;
+  related_message_id: string | null;
+  related_room_id: string | null;
+  created_at: Date;
+  updated_at: Date;
+  is_deleted: boolean;
+  decided_by_name: string | null;
+  decided_by_position: string | null;
+  decided_by_department: string | null;
+  total_recipients: string | number | null;
+  confirmed_count: string | number | null;
+  my_confirmed: boolean | null;
+}
+
+function rowToDecision(row: DecisionRow): Decision {
+  const deleted = Boolean(row.is_deleted);
+  const role =
+    row.decided_by_position && row.decided_by_department
+      ? `${row.decided_by_position} · ${row.decided_by_department}`
+      : row.decided_by_position ?? undefined;
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    title: deleted ? "삭제된 결정사항입니다" : row.title,
+    content: deleted ? "삭제된 결정사항입니다" : row.content,
+    decidedById: row.decided_by,
+    decidedByName: row.decided_by_name ?? "",
+    decidedByRole: role,
+    decisionDate: formatDate(row.decision_date),
+    sourceMessageId: row.related_message_id ?? undefined,
+    sourceRoomId: row.related_room_id ?? undefined,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+    updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
+    totalRecipients: Number(row.total_recipients) || 0,
+    confirmedCount: Number(row.confirmed_count) || 0,
+    myConfirmed: Boolean(row.my_confirmed),
+    isDeleted: deleted || undefined
+  };
+}
+
+// $1 is the caller's user_id (nullable) and is reused for my_confirmed.
+const DECISION_SELECT = `
+  SELECT
+    d.id, d.project_id, d.title, d.content, d.decided_by, d.decision_date,
+    d.related_message_id, d.created_at, d.updated_at, d.is_deleted,
+    u.name AS decided_by_name,
+    u.position AS decided_by_position,
+    dep.name AS decided_by_department,
+    -- The source message lives in some room; surface it so the UI can deep
+    -- link without an extra round trip.
+    (SELECT m.room_id FROM messages m WHERE m.id = d.related_message_id) AS related_room_id,
+    COALESCE((SELECT COUNT(*) FROM users uu WHERE uu.is_active), 0) AS total_recipients,
+    COALESCE((SELECT COUNT(*) FROM decision_reads dr WHERE dr.decision_id = d.id), 0)
+      AS confirmed_count,
+    EXISTS (
+      SELECT 1 FROM decision_reads dr
+      WHERE dr.decision_id = d.id AND dr.user_id = $1::uuid
+    ) AS my_confirmed
+  FROM decisions d
+  LEFT JOIN users u ON u.id = d.decided_by
+  LEFT JOIN departments dep ON dep.id = u.department_id
+`;
+
+class PgDecisionRepository implements DecisionRepository {
+  constructor(private readonly pool: Pool) {}
+
+  async listByProject(projectId: string, userId?: string): Promise<Decision[]> {
+    const { rows } = await this.pool.query<DecisionRow>(
+      `${DECISION_SELECT}
+       WHERE d.project_id = $2
+       ORDER BY d.decision_date DESC, d.created_at DESC`,
+      [userId ?? null, projectId]
+    );
+    return rows.map(rowToDecision);
+  }
+
+  async findById(id: string, userId?: string): Promise<Decision | undefined> {
+    const { rows } = await this.pool.query<DecisionRow>(
+      `${DECISION_SELECT} WHERE d.id = $2`,
+      [userId ?? null, id]
+    );
+    return rows[0] ? rowToDecision(rows[0]) : undefined;
+  }
+
+  async create(
+    projectId: string,
+    input: CreateDecisionInput,
+    decidedBy: { id: string }
+  ): Promise<Decision> {
+    const today = new Date().toISOString().slice(0, 10);
+    const { rows } = await this.pool.query<{ id: string }>(
+      `INSERT INTO decisions
+         (project_id, title, content, decided_by, decision_date, related_message_id)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id`,
+      [
+        projectId,
+        input.title,
+        input.content,
+        decidedBy.id,
+        input.decisionDate ?? today,
+        input.sourceMessageId ?? null
+      ]
+    );
+    const created = await this.findById(rows[0].id, decidedBy.id);
+    if (!created) throw new Error("[postgres] failed to read back created decision");
+    return created;
+  }
+
+  async update(id: string, input: UpdateDecisionInput): Promise<Decision | undefined> {
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    const add = (col: string, val: unknown) => {
+      params.push(val);
+      sets.push(`${col} = $${params.length}`);
+    };
+    if (input.title !== undefined) add("title", input.title);
+    if (input.content !== undefined) add("content", input.content);
+    if (input.decisionDate !== undefined) add("decision_date", input.decisionDate);
+    if (sets.length === 0) return this.findById(id);
+    sets.push("updated_at = NOW()");
+    params.push(id);
+    const { rowCount } = await this.pool.query(
+      `UPDATE decisions SET ${sets.join(", ")}
+        WHERE id = $${params.length} AND NOT is_deleted`,
+      params
+    );
+    if (!rowCount) return undefined;
+    return this.findById(id);
+  }
+
+  async softDelete(id: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      `UPDATE decisions SET is_deleted = true, updated_at = NOW()
+        WHERE id = $1 AND NOT is_deleted`,
+      [id]
+    );
+    return (rowCount ?? 0) > 0;
+  }
+
+  async markConfirmed(id: string, userId: string): Promise<Decision | undefined> {
+    const exists = await this.pool.query<{ id: string }>(
+      `SELECT id FROM decisions WHERE id = $1 AND NOT is_deleted`,
+      [id]
+    );
+    if (exists.rows.length === 0) return undefined;
+    await this.pool.query(
+      `INSERT INTO decision_reads (decision_id, user_id)
+       VALUES ($1, $2)
+       ON CONFLICT (decision_id, user_id) DO NOTHING`,
+      [id, userId]
+    );
+    return this.findById(id, userId);
+  }
+
+  async getReadStatus(id: string): Promise<DecisionReadStatus | undefined> {
+    const exists = await this.pool.query<{ id: string }>(
+      `SELECT id FROM decisions WHERE id = $1`,
+      [id]
+    );
+    if (exists.rows.length === 0) return undefined;
+    const { rows } = await this.pool.query<{
+      user_id: string;
+      name: string;
+      department_name: string | null;
+      confirmed_at: Date | null;
+    }>(
+      `SELECT u.id AS user_id, u.name, d.name AS department_name,
+              dr.confirmed_at
+         FROM users u
+         LEFT JOIN departments d ON d.id = u.department_id
+         LEFT JOIN decision_reads dr
+           ON dr.decision_id = $1 AND dr.user_id = u.id
+        WHERE u.is_active IS NOT FALSE
+        ORDER BY u.name`,
+      [id]
+    );
+    const confirmed: DecisionReadStatusEntry[] = [];
+    const unconfirmed: DecisionReadStatusEntry[] = [];
+    for (const r of rows) {
+      const base = {
+        userId: r.user_id,
+        name: r.name,
+        departmentName: r.department_name ?? ""
+      };
+      if (r.confirmed_at) {
+        confirmed.push({ ...base, confirmedAt: r.confirmed_at.toISOString() });
+      } else {
+        unconfirmed.push(base);
+      }
+    }
+    return {
+      decisionId: id,
+      totalRecipients: rows.length,
+      confirmed,
+      unconfirmed
+    };
+  }
+}
+
 class PgRefreshTokenRepository implements RefreshTokenRepository {
   constructor(private readonly pool: Pool) {}
 
@@ -1733,6 +1949,7 @@ export function createPostgresRepositories(pool: Pool): Repositories {
     products: new PgProductRepository(pool),
     files: new PgFileRepository(pool),
     notices: new PgNoticeRepository(pool),
+    decisions: new PgDecisionRepository(pool),
     audit: new PgAuditRepository(pool),
     refreshTokens: new PgRefreshTokenRepository(pool)
   };

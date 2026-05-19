@@ -114,6 +114,11 @@ export default async function ChatRoomPage({ params }: Props) {
               canPin
               currentUserId={me.id}
               isAdmin={me.role === "admin" || me.role === "super_admin"}
+              canCreateDecision={
+                !!room.projectId &&
+                ["admin", "super_admin", "manager", "project_owner"].includes(me.role)
+              }
+              projectId={room.projectId}
             />
           ))}
         </div>

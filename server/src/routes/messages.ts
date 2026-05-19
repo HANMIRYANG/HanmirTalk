@@ -1,5 +1,7 @@
 import { Router, type Request, type Response } from "express";
+import type { CreateDecisionInput } from "@hanmir/shared";
 import type { Repositories } from "../repositories/types";
+import { requireRole } from "../auth/middleware";
 import { realtime } from "../realtime";
 import { auditLog } from "../audit";
 
@@ -148,6 +150,72 @@ export function createMessagesRouter(repos: Repositories): Router {
     }
     res.json({ ok: true });
   });
+
+  // POST /messages/:messageId/create-decision — convert a chat message
+  // into a project decision. The source message's roomId must belong to a
+  // project (rooms.projectId set); writer role required.
+  router.post(
+    "/:messageId/create-decision",
+    requireRole("admin", "super_admin", "manager", "project_owner"),
+    async (req, res) => {
+      const access = await loadAccessibleMessage(repos, req, res, req.params.messageId);
+      if (!access.allowed) return;
+      if (access.message.isDeleted) {
+        res.status(409).json({ error: "source_deleted" });
+        return;
+      }
+      const room = await repos.rooms.findById(access.message.roomId, req.currentUser!.id);
+      if (!room?.projectId) {
+        res.status(400).json({ error: "source_room_not_project_bound" });
+        return;
+      }
+      // Caller must also be a member of that project (or admin) — the
+      // /projects/:id/decisions endpoint enforces this; mirror here.
+      const project = await repos.projects.findById(room.projectId);
+      if (!project) {
+        res.status(404).json({ error: "project_not_found" });
+        return;
+      }
+      const me = req.currentUser!;
+      const isAdmin = me.role === "admin" || me.role === "super_admin";
+      if (!isAdmin && !project.memberIds.includes(me.id)) {
+        res.status(403).json({ error: "not_a_project_member" });
+        return;
+      }
+      const body = req.body as
+        | { title?: unknown; content?: unknown; decisionDate?: unknown }
+        | undefined;
+      const title = typeof body?.title === "string" && body.title.trim()
+        ? body.title.trim()
+        : access.message.body.split("\n")[0]?.slice(0, 80) || "(제목 없음)";
+      const content = typeof body?.content === "string" && body.content.trim()
+        ? body.content.trim()
+        : access.message.body;
+      const decisionDate = typeof body?.decisionDate === "string"
+        ? body.decisionDate.trim() || undefined
+        : undefined;
+      const input: CreateDecisionInput = {
+        title,
+        content,
+        decisionDate,
+        sourceMessageId: access.message.id
+      };
+      const created = await repos.decisions.create(room.projectId, input, { id: me.id });
+      await auditLog(repos, req, {
+        action: "decision.create.from_message",
+        targetType: "decision",
+        targetId: created.id,
+        targetLabel: created.title,
+        meta: {
+          projectId: room.projectId,
+          sourceMessageId: access.message.id,
+          sourceRoomId: room.id
+        }
+      });
+      realtime.emitDecisionNew(room.projectId, created);
+      res.status(201).json(created);
+    }
+  );
 
   return router;
 }

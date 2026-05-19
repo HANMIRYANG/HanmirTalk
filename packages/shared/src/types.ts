@@ -529,3 +529,67 @@ export interface AdminKpi {
   highlight?: "danger" | "warn";
   progress?: number;
 }
+
+// Phase 3 F-1 — project decisions (결정사항). Source of truth lives in the
+// `decisions` table (001_initial.sql) plus 012_decisions.sql for is_deleted
+// and decision_reads. The DTO renames `related_message_id` → `sourceMessageId`
+// to match the roadmap vocabulary; the column stays for backward compat.
+export interface Decision {
+  id: string;
+  projectId: string;
+  title: string;
+  content: string;
+  // Who recorded the decision. Not necessarily the same as the author of
+  // any source message — they could record someone else's verbal call.
+  decidedById: string;
+  decidedByName: string;
+  decidedByRole?: string;
+  // Date the decision was made (not created_at). The user enters this when
+  // making the decision row; defaults to today.
+  decisionDate: string;
+  // Optional pointer back to the chat message that triggered the decision.
+  // When set, the UI surfaces a "출처 메시지 보기" link that deep-links into
+  // the room.
+  sourceMessageId?: string;
+  sourceRoomId?: string;
+  createdAt: string;
+  updatedAt: string;
+  // Phase 3 read-status (roadmap §Q decision 4). Populated by the server
+  // from decision_reads when the caller is authenticated.
+  totalRecipients: number;
+  confirmedCount: number;
+  myConfirmed: boolean;
+  // Soft delete tombstone; the API masks `content` like it does for
+  // messages so deleted decisions show up greyed-out in the timeline.
+  isDeleted?: boolean;
+}
+
+export interface CreateDecisionInput {
+  title: string;
+  content: string;
+  // Defaults to today if omitted.
+  decisionDate?: string;
+  // When created from a message via /messages/:id/create-decision the route
+  // fills these in. Direct creation via /projects/:id/decisions may omit.
+  sourceMessageId?: string;
+}
+
+export interface UpdateDecisionInput {
+  title?: string;
+  content?: string;
+  decisionDate?: string;
+}
+
+export interface DecisionReadStatusEntry {
+  userId: string;
+  name: string;
+  departmentName: string;
+  confirmedAt?: string;
+}
+
+export interface DecisionReadStatus {
+  decisionId: string;
+  totalRecipients: number;
+  confirmed: DecisionReadStatusEntry[];
+  unconfirmed: DecisionReadStatusEntry[];
+}
