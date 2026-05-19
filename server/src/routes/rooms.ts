@@ -12,6 +12,7 @@ import type { Repositories } from "../repositories/types";
 import { requireAuth } from "../auth/middleware";
 import { realtime } from "../realtime";
 import { auditLog } from "../audit";
+import { notifyMessageNew } from "../notify";
 
 const VALID_ROOM_TYPE: RoomType[] = ["direct", "group", "department", "announcement", "project"];
 
@@ -240,6 +241,8 @@ export function createRoomsRouter(repos: Repositories): Router {
       attachmentId
     });
     realtime.emitMessageNew(req.params.roomId, saved);
+    // Phase 6 I-2 — 알림은 응답을 막지 않도록 fire-and-forget.
+    void notifyMessageNew(repos, req.params.roomId, saved);
     res.status(201).json(saved);
   });
 

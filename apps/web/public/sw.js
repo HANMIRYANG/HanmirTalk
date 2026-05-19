@@ -87,3 +87,46 @@ self.addEventListener("fetch", (event) => {
     );
   }
 });
+
+// Phase 6 I-5 — Web Push. 서버가 web-push 라이브러리로 보낸 payload는
+// JSON 문자열. event.data가 비어있는 경우(브라우저별로 발생 가능)도
+// 안전하게 처리.
+self.addEventListener("push", (event) => {
+  let payload = { title: "한미르톡 알림", body: "", link: "/", tag: undefined };
+  if (event.data) {
+    try {
+      payload = { ...payload, ...event.data.json() };
+    } catch {
+      payload.body = event.data.text() || "";
+    }
+  }
+  event.waitUntil(
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      tag: payload.tag,
+      data: { link: payload.link },
+      icon: "/assets/hanmir-logo.png",
+      badge: "/assets/hanmir-logo.png"
+    })
+  );
+});
+
+// 알림 클릭 시 해당 link로 이동. 이미 그 URL에 열린 탭이 있으면
+// focus, 없으면 새로 open.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const link = event.notification.data?.link || "/";
+  event.waitUntil(
+    (async () => {
+      const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      for (const client of all) {
+        if (client.url.includes(link) && "focus" in client) {
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(link);
+      }
+    })()
+  );
+});

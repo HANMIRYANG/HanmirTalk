@@ -1,6 +1,13 @@
 import type { Server as HttpServer } from "http";
 import { Server as SocketServer, type Socket } from "socket.io";
-import type { ChatMessage, Decision, Notice, PinnedMessageRef, Room } from "@hanmir/shared";
+import type {
+  ChatMessage,
+  Decision,
+  Notice,
+  Notification,
+  PinnedMessageRef,
+  Room
+} from "@hanmir/shared";
 import { sessionStore } from "./auth/session";
 import { SESSION_COOKIE } from "./auth/token";
 import { config } from "./config";
@@ -200,6 +207,13 @@ class Realtime {
 
   emitDecisionDeleted(projectId: string, decision: Decision): void {
     this.io?.to(`project:${projectId}`).emit("decision:deleted", decision);
+  }
+
+  // Phase 6 I-2 — per-user notification. 사용자 본인의 user:<id> 채널로만
+  // emit (다른 누구도 못 받음). Topbar 종 아이콘이 이 이벤트로 unread
+  // 배지 실시간 갱신.
+  emitNotificationNew(notification: Notification): void {
+    this.io?.to(`user:${notification.userId}`).emit("notification:new", notification);
   }
 }
 

@@ -35,5 +35,12 @@ export const config = {
   // daily output token spend; defaults to 0 = no cap (dev convenience).
   anthropicApiKey: process.env.ANTHROPIC_API_KEY?.trim() || undefined,
   anthropicModel: process.env.ANTHROPIC_MODEL?.trim() || "claude-sonnet-4-6",
-  aiDailyTokenLimit: Number(process.env.AI_DAILY_TOKEN_LIMIT ?? 0)
+  aiDailyTokenLimit: Number(process.env.AI_DAILY_TOKEN_LIMIT ?? 0),
+
+  // Phase 6 I-5 — Web Push (PWA). VAPID 키 없으면 push 자체 disabled.
+  // 키 생성: npx tsx server/scripts/generate-vapid.ts
+  vapidPublicKey: process.env.VAPID_PUBLIC_KEY?.trim() || undefined,
+  vapidPrivateKey: process.env.VAPID_PRIVATE_KEY?.trim() || undefined,
+  vapidSubject:
+    process.env.VAPID_SUBJECT?.trim() || "mailto:admin@hanmir-talk.local"
 };

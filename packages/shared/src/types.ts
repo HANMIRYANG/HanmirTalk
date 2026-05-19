@@ -665,3 +665,45 @@ export interface DecisionReadStatus {
   confirmed: DecisionReadStatusEntry[];
   unconfirmed: DecisionReadStatusEntry[];
 }
+
+// Phase 6 I-1 — per-user notification inbox.
+// kind은 카테고리. UI에서 아이콘/그룹화에 사용. server 측 enum 강제는
+// 안 함 (백엔드 hook 추가가 자유로워야 함).
+//   message:new          — 같은 방의 새 메시지
+//   mention              — 본인을 @멘션하는 메시지
+//   notice:new           — 새 공지
+//   task:assigned        — 본인이 새 assignee로 추가됨
+//   project:updated      — 프로젝트 상태 변경
+//   decision:new         — 새 결정사항 (해당 프로젝트 멤버)
+export interface Notification {
+  id: string;
+  userId: string;
+  kind: string;
+  title: string;
+  body?: string;
+  // 클릭 시 이동할 라우트 (예: /chat/r-xxx, /notices, /projects/p-xxx)
+  link?: string;
+  // 도메인별 부가 데이터 (예: { roomId, messageId } 또는 { projectId, taskId })
+  payload?: Record<string, unknown>;
+  // null/undefined ⇒ 미확인. read_at 타임스탬프 들어가면 확인 완료.
+  readAt?: string;
+  createdAt: string;
+}
+
+export interface NotificationSettings {
+  userId: string;
+  allEnabled: boolean;
+  // { "<roomId>": false } 형식. 명시 안 된 room id는 default on.
+  perRoom: Record<string, boolean>;
+  perProject: Record<string, boolean>;
+  webPushEnabled: boolean;
+  browserEnabled: boolean;
+}
+
+export interface UpdateNotificationSettingsInput {
+  allEnabled?: boolean;
+  perRoom?: Record<string, boolean>;
+  perProject?: Record<string, boolean>;
+  webPushEnabled?: boolean;
+  browserEnabled?: boolean;
+}

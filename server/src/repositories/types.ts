@@ -19,12 +19,15 @@ import type {
   ListFilesFilter,
   Notice,
   NoticeReadStatus,
+  Notification,
+  NotificationSettings,
   PinnedMessageRef,
   Product,
   Project,
   Room,
   TaskItem,
   UpdateDecisionInput,
+  UpdateNotificationSettingsInput,
   UpdateDepartmentInput,
   UpdateProductInput,
   UpdateProjectInput,
@@ -235,6 +238,73 @@ export interface DecisionRepository {
   getReadStatus(id: string): Promise<DecisionReadStatus | undefined>;
 }
 
+// Phase 6 I-1 — per-user notification inbox + settings.
+//
+// create(): server-side hooks (메시지 append, 공지 생성 등)에서 호출.
+//   settings를 존중해 skip할지는 hook 레이어 책임 — repo는 그냥 저장.
+// listForUser(): inbox UI용. unread + 전체 limit.
+// markRead / markAllRead: 클릭 또는 [모두 읽음]에서 호출.
+// unreadCount: Topbar 종 아이콘 배지용 (전용 endpoint로 light fetch).
+// getSettings: 첫 호출 시 default(NotificationSettings) 자동 생성.
+// updateSettings: partial update.
+export interface CreateNotificationInput {
+  userId: string;
+  kind: string;
+  title: string;
+  body?: string;
+  link?: string;
+  payload?: Record<string, unknown>;
+}
+
+// Phase 6 I-5 — Web Push subscription. user_id + endpoint UNIQUE.
+// p256dh/auth는 PushSubscription.keys 그대로 (base64url 문자열).
+export interface PushSubscriptionRecord {
+  id: string;
+  userId: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  userAgent?: string;
+  createdAt: string;
+}
+
+export interface CreatePushSubscriptionInput {
+  userId: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  userAgent?: string;
+}
+
+export interface PushSubscriptionRepository {
+  upsert(input: CreatePushSubscriptionInput): Promise<PushSubscriptionRecord>;
+  listForUser(userId: string): Promise<PushSubscriptionRecord[]>;
+  delete(id: string): Promise<boolean>;
+  deleteByEndpoint(userId: string, endpoint: string): Promise<boolean>;
+}
+
+export interface NotificationRepository {
+  create(input: CreateNotificationInput): Promise<Notification>;
+  // 여러 유저에게 같은 알림 동시 발송 (메시지 append 시 N명 멤버 등).
+  // 반환값은 생성된 알림들. 빈 배열도 가능.
+  createMany(
+    userIds: string[],
+    input: Omit<CreateNotificationInput, "userId">
+  ): Promise<Notification[]>;
+  listForUser(
+    userId: string,
+    opts?: { unreadOnly?: boolean; limit?: number }
+  ): Promise<Notification[]>;
+  unreadCount(userId: string): Promise<number>;
+  markRead(id: string, userId: string): Promise<Notification | undefined>;
+  markAllRead(userId: string): Promise<{ count: number }>;
+  getSettings(userId: string): Promise<NotificationSettings>;
+  updateSettings(
+    userId: string,
+    input: UpdateNotificationSettingsInput
+  ): Promise<NotificationSettings>;
+}
+
 export interface Repositories {
   users: UserRepository;
   departments: DepartmentRepository;
@@ -246,6 +316,8 @@ export interface Repositories {
   files: FileRepository;
   notices: NoticeRepository;
   decisions: DecisionRepository;
+  notifications: NotificationRepository;
+  pushSubscriptions: PushSubscriptionRepository;
   audit: AuditRepository;
   refreshTokens: RefreshTokenRepository;
 }

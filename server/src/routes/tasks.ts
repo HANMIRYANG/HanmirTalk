@@ -7,6 +7,7 @@ import type {
 import type { Repositories } from "../repositories/types";
 import { requireRole } from "../auth/middleware";
 import { auditLog } from "../audit";
+import { notifyTaskAssigned } from "../notify";
 
 const VALID_TASK_STATUS: TaskStatus[] = [
   "todo",
@@ -145,6 +146,10 @@ export function createTasksRouter(repos: Repositories): Router {
       res.status(400).json({ error: parsed.error });
       return;
     }
+    // Capture pre-update assignees so we can diff after the update and
+    // notify only newly added members.
+    const before = await repos.tasks.findById(req.params.id);
+    const oldAssignees = new Set(before?.assigneeIds ?? []);
     const updated = await repos.tasks.update(req.params.id, parsed);
     if (!updated) {
       res.status(404).json({ error: "not_found" });
@@ -157,6 +162,11 @@ export function createTasksRouter(repos: Repositories): Router {
       targetLabel: `${updated.code} ${updated.title}`,
       meta: { projectId: access.projectId, changes: parsed }
     });
+    // Phase 6 I-2 — 새 assignee로 추가된 사용자에게만 알림
+    if (parsed.assigneeIds) {
+      const added = updated.assigneeIds.filter((id) => !oldAssignees.has(id));
+      if (added.length > 0) void notifyTaskAssigned(repos, updated, added, req.currentUser!.id);
+    }
     res.json(updated);
   });
 

@@ -15,6 +15,11 @@ import { createMessagesRouter } from "./routes/messages";
 import { createMentionsRouter } from "./routes/mentions";
 import { createDecisionsRouter, createProjectDecisionsRouter } from "./routes/decisions";
 import { createAiRouter } from "./routes/ai";
+import {
+  createNotificationsRouter,
+  createNotificationSettingsRouter
+} from "./routes/notifications";
+import { createPushSubscriptionsRouter } from "./routes/push-subscriptions";
 import { createProjectsRouter } from "./routes/projects";
 import { createTasksRouter } from "./routes/tasks";
 import { createProductsRouter } from "./routes/products";
@@ -66,6 +71,17 @@ export function createApp(deps: AppDeps = { repos: createMemoryRepositories() })
   app.use(`${config.apiPrefix}/files`, requireAuth, createFilesRouter(deps.repos));
   app.use(`${config.apiPrefix}/notices`, requireAuth, createNoticesRouter(deps.repos));
   app.use(`${config.apiPrefix}/dashboard`, requireAuth, createDashboardRouter(deps.repos));
+  app.use(`${config.apiPrefix}/notifications`, requireAuth, createNotificationsRouter(deps.repos));
+  app.use(
+    `${config.apiPrefix}/notification-settings`,
+    requireAuth,
+    createNotificationSettingsRouter(deps.repos)
+  );
+  app.use(
+    `${config.apiPrefix}/push-subscriptions`,
+    requireAuth,
+    createPushSubscriptionsRouter(deps.repos)
+  );
 
   app.use((_req, res) => {
     res.status(404).json({ error: "not_found" });

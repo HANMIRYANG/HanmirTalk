@@ -42,6 +42,8 @@ import type {
   Notice,
   NoticeReadStatus,
   NoticeReadStatusEntry,
+  Notification,
+  NotificationSettings,
   PinnedMessageRef,
   Product,
   Project,
@@ -54,6 +56,7 @@ import type {
   TaskStatus,
   UpdateDecisionInput,
   UpdateDepartmentInput,
+  UpdateNotificationSettingsInput,
   UpdateProductInput,
   UpdateProjectInput,
   UpdateRoomInput,
@@ -64,14 +67,19 @@ import type {
 } from "@hanmir/shared";
 import type {
   AuditRepository,
+  CreateNotificationInput,
+  CreatePushSubscriptionInput,
   DecisionRepository,
   DepartmentRepository,
   FileRepository,
   IssuedRefreshToken,
   MessageRepository,
   NoticeRepository,
+  NotificationRepository,
   ProductRepository,
   ProjectRepository,
+  PushSubscriptionRecord,
+  PushSubscriptionRepository,
   RefreshTokenRepository,
   Repositories,
   ResolvedRefreshToken,
@@ -2087,6 +2095,290 @@ class PgDecisionRepository implements DecisionRepository {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Notifications (Phase 6 I-1)
+// ---------------------------------------------------------------------------
+
+interface NotificationRow {
+  id: string;
+  user_id: string;
+  kind: string;
+  title: string;
+  body: string | null;
+  link: string | null;
+  payload: unknown;
+  read_at: Date | null;
+  created_at: Date;
+}
+
+function rowToNotification(row: NotificationRow): Notification {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    kind: row.kind,
+    title: row.title,
+    body: row.body ?? undefined,
+    link: row.link ?? undefined,
+    payload:
+      row.payload && typeof row.payload === "object"
+        ? (row.payload as Record<string, unknown>)
+        : undefined,
+    readAt: row.read_at instanceof Date ? row.read_at.toISOString() : undefined,
+    createdAt:
+      row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at)
+  };
+}
+
+interface SettingsRow {
+  user_id: string;
+  all_enabled: boolean;
+  per_room: unknown;
+  per_project: unknown;
+  web_push_enabled: boolean;
+  browser_enabled: boolean;
+}
+
+function rowToSettings(row: SettingsRow): NotificationSettings {
+  return {
+    userId: row.user_id,
+    allEnabled: row.all_enabled,
+    perRoom:
+      row.per_room && typeof row.per_room === "object"
+        ? (row.per_room as Record<string, boolean>)
+        : {},
+    perProject:
+      row.per_project && typeof row.per_project === "object"
+        ? (row.per_project as Record<string, boolean>)
+        : {},
+    webPushEnabled: row.web_push_enabled,
+    browserEnabled: row.browser_enabled
+  };
+}
+
+class PgNotificationRepository implements NotificationRepository {
+  constructor(private readonly pool: Pool) {}
+
+  async create(input: CreateNotificationInput): Promise<Notification> {
+    const { rows } = await this.pool.query<NotificationRow>(
+      `INSERT INTO user_notifications
+         (user_id, kind, title, body, link, payload)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+       RETURNING id, user_id, kind, title, body, link, payload, read_at, created_at`,
+      [
+        input.userId,
+        input.kind,
+        input.title,
+        input.body ?? null,
+        input.link ?? null,
+        input.payload ? JSON.stringify(input.payload) : null
+      ]
+    );
+    return rowToNotification(rows[0]);
+  }
+
+  async createMany(
+    userIds: string[],
+    input: Omit<CreateNotificationInput, "userId">
+  ): Promise<Notification[]> {
+    if (userIds.length === 0) return [];
+    // Single VALUES batch insert. Build placeholders dynamically because
+    // we don't know N at compile time.
+    const params: unknown[] = [
+      input.kind,
+      input.title,
+      input.body ?? null,
+      input.link ?? null,
+      input.payload ? JSON.stringify(input.payload) : null
+    ];
+    const values = userIds
+      .map((uid) => {
+        params.push(uid);
+        return `($${params.length}, $1, $2, $3, $4, $5::jsonb)`;
+      })
+      .join(", ");
+    const { rows } = await this.pool.query<NotificationRow>(
+      `INSERT INTO user_notifications
+         (user_id, kind, title, body, link, payload)
+       VALUES ${values}
+       RETURNING id, user_id, kind, title, body, link, payload, read_at, created_at`,
+      params
+    );
+    return rows.map(rowToNotification);
+  }
+
+  async listForUser(
+    userId: string,
+    opts?: { unreadOnly?: boolean; limit?: number }
+  ): Promise<Notification[]> {
+    const limit = Math.min(opts?.limit ?? 20, 100);
+    const filter = opts?.unreadOnly ? "AND read_at IS NULL" : "";
+    const { rows } = await this.pool.query<NotificationRow>(
+      `SELECT id, user_id, kind, title, body, link, payload, read_at, created_at
+         FROM user_notifications
+        WHERE user_id = $1 ${filter}
+        ORDER BY created_at DESC
+        LIMIT $2`,
+      [userId, limit]
+    );
+    return rows.map(rowToNotification);
+  }
+
+  async unreadCount(userId: string): Promise<number> {
+    const { rows } = await this.pool.query<{ c: string }>(
+      `SELECT COUNT(*)::text AS c
+         FROM user_notifications
+        WHERE user_id = $1 AND read_at IS NULL`,
+      [userId]
+    );
+    return Number(rows[0]?.c ?? 0);
+  }
+
+  async markRead(id: string, userId: string): Promise<Notification | undefined> {
+    const { rows } = await this.pool.query<NotificationRow>(
+      `UPDATE user_notifications
+          SET read_at = COALESCE(read_at, NOW())
+        WHERE id = $1 AND user_id = $2
+        RETURNING id, user_id, kind, title, body, link, payload, read_at, created_at`,
+      [id, userId]
+    );
+    return rows[0] ? rowToNotification(rows[0]) : undefined;
+  }
+
+  async markAllRead(userId: string): Promise<{ count: number }> {
+    const { rowCount } = await this.pool.query(
+      `UPDATE user_notifications
+          SET read_at = NOW()
+        WHERE user_id = $1 AND read_at IS NULL`,
+      [userId]
+    );
+    return { count: rowCount ?? 0 };
+  }
+
+  async getSettings(userId: string): Promise<NotificationSettings> {
+    // Lazy create on first access.
+    await this.pool.query(
+      `INSERT INTO user_notification_settings (user_id)
+       VALUES ($1)
+       ON CONFLICT (user_id) DO NOTHING`,
+      [userId]
+    );
+    const { rows } = await this.pool.query<SettingsRow>(
+      `SELECT user_id, all_enabled, per_room, per_project,
+              web_push_enabled, browser_enabled
+         FROM user_notification_settings
+        WHERE user_id = $1`,
+      [userId]
+    );
+    return rowToSettings(rows[0]);
+  }
+
+  async updateSettings(
+    userId: string,
+    input: UpdateNotificationSettingsInput
+  ): Promise<NotificationSettings> {
+    // Ensure the row exists.
+    await this.getSettings(userId);
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    const add = (col: string, val: unknown) => {
+      params.push(val);
+      sets.push(`${col} = $${params.length}`);
+    };
+    if (input.allEnabled !== undefined) add("all_enabled", input.allEnabled);
+    if (input.perRoom !== undefined) add("per_room", JSON.stringify(input.perRoom));
+    if (input.perProject !== undefined) add("per_project", JSON.stringify(input.perProject));
+    if (input.webPushEnabled !== undefined) add("web_push_enabled", input.webPushEnabled);
+    if (input.browserEnabled !== undefined) add("browser_enabled", input.browserEnabled);
+    if (sets.length === 0) return this.getSettings(userId);
+    sets.push("updated_at = NOW()");
+    params.push(userId);
+    await this.pool.query(
+      `UPDATE user_notification_settings SET ${sets.join(", ")} WHERE user_id = $${params.length}`,
+      params
+    );
+    return this.getSettings(userId);
+  }
+}
+
+// Phase 6 I-5 — push_subscriptions.
+class PgPushSubscriptionRepository implements PushSubscriptionRepository {
+  constructor(private readonly pool: Pool) {}
+
+  async upsert(input: CreatePushSubscriptionInput): Promise<PushSubscriptionRecord> {
+    const { rows } = await this.pool.query<{
+      id: string;
+      user_id: string;
+      endpoint: string;
+      p256dh: string;
+      auth: string;
+      user_agent: string | null;
+      created_at: Date;
+    }>(
+      `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, user_agent)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (user_id, endpoint)
+       DO UPDATE SET p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth,
+                     user_agent = EXCLUDED.user_agent
+       RETURNING id, user_id, endpoint, p256dh, auth, user_agent, created_at`,
+      [input.userId, input.endpoint, input.p256dh, input.auth, input.userAgent ?? null]
+    );
+    const r = rows[0];
+    return {
+      id: r.id,
+      userId: r.user_id,
+      endpoint: r.endpoint,
+      p256dh: r.p256dh,
+      auth: r.auth,
+      userAgent: r.user_agent ?? undefined,
+      createdAt:
+        r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at)
+    };
+  }
+
+  async listForUser(userId: string): Promise<PushSubscriptionRecord[]> {
+    const { rows } = await this.pool.query<{
+      id: string;
+      user_id: string;
+      endpoint: string;
+      p256dh: string;
+      auth: string;
+      user_agent: string | null;
+      created_at: Date;
+    }>(
+      `SELECT id, user_id, endpoint, p256dh, auth, user_agent, created_at
+         FROM push_subscriptions
+        WHERE user_id = $1
+        ORDER BY created_at DESC`,
+      [userId]
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      userId: r.user_id,
+      endpoint: r.endpoint,
+      p256dh: r.p256dh,
+      auth: r.auth,
+      userAgent: r.user_agent ?? undefined,
+      createdAt: r.created_at.toISOString()
+    }));
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      `DELETE FROM push_subscriptions WHERE id = $1`,
+      [id]
+    );
+    return (rowCount ?? 0) > 0;
+  }
+
+  async deleteByEndpoint(userId: string, endpoint: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      `DELETE FROM push_subscriptions WHERE user_id = $1 AND endpoint = $2`,
+      [userId, endpoint]
+    );
+    return (rowCount ?? 0) > 0;
+  }
+}
+
 class PgRefreshTokenRepository implements RefreshTokenRepository {
   constructor(private readonly pool: Pool) {}
 
@@ -2157,6 +2449,8 @@ export function createPostgresRepositories(pool: Pool): Repositories {
     files: new PgFileRepository(pool),
     notices: new PgNoticeRepository(pool),
     decisions: new PgDecisionRepository(pool),
+    notifications: new PgNotificationRepository(pool),
+    pushSubscriptions: new PgPushSubscriptionRepository(pool),
     audit: new PgAuditRepository(pool),
     refreshTokens: new PgRefreshTokenRepository(pool)
   };

@@ -4,6 +4,7 @@ import type { Repositories } from "../repositories/types";
 import { requireAuth, requireRole } from "../auth/middleware";
 import { realtime } from "../realtime";
 import { auditLog } from "../audit";
+import { notifyNoticeNew } from "../notify";
 
 function isString(value: unknown): value is string {
   return typeof value === "string";
@@ -53,6 +54,7 @@ export function createNoticesRouter(repos: Repositories): Router {
       meta: { isMandatory: created.isMandatory }
     });
     realtime.emitNoticeNew(created);
+    void notifyNoticeNew(repos, user.id, created);
     res.status(201).json(created);
   });
 

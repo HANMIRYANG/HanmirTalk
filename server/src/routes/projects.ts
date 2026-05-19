@@ -11,6 +11,7 @@ import type {
 import type { Repositories } from "../repositories/types";
 import { requireRole } from "../auth/middleware";
 import { auditLog } from "../audit";
+import { notifyProjectUpdated, notifyTaskAssigned } from "../notify";
 
 const VALID_PROJECT_STATUS: ProjectStatus[] = [
   "ready",
@@ -274,6 +275,7 @@ export function createProjectsRouter(repos: Repositories): Router {
       res.status(400).json({ error: parsed.error });
       return;
     }
+    const before = await repos.projects.findById(req.params.id);
     const updated = await repos.projects.update(req.params.id, parsed);
     if (!updated) {
       res.status(404).json({ error: "not_found" });
@@ -288,6 +290,15 @@ export function createProjectsRouter(repos: Repositories): Router {
       // are noisy and `meta` is rendered in the audit log UI.
       meta: parsed
     });
+    // Phase 6 I-2 — 상태가 바뀐 경우에만 알림 (이름 / 설명 등은 noise).
+    if (parsed.status && before && before.status !== updated.status) {
+      void notifyProjectUpdated(
+        repos,
+        updated,
+        req.currentUser!.id,
+        `상태가 '${before.status}' → '${updated.status}'로 변경되었습니다`
+      );
+    }
     res.json(updated);
   });
 
@@ -388,6 +399,10 @@ export function createProjectsRouter(repos: Repositories): Router {
       targetLabel: `${task.code} ${task.title}`,
       meta: { projectId: req.params.projectId, status: task.status, priority: task.priority }
     });
+    // Phase 6 I-2 — 생성된 task의 assignee가 있으면 알림
+    if (task.assigneeIds.length > 0) {
+      void notifyTaskAssigned(repos, task, task.assigneeIds, req.currentUser!.id);
+    }
     res.status(201).json(task);
   });
 

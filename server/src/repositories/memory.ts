@@ -24,12 +24,15 @@ import type {
   Notice,
   NoticeReadStatus,
   NoticeReadStatusEntry,
+  Notification,
+  NotificationSettings,
   Product,
   Project,
   Room,
   TaskItem,
   UpdateDecisionInput,
   UpdateDepartmentInput,
+  UpdateNotificationSettingsInput,
   UpdateProductInput,
   UpdateProjectInput,
   UpdateRoomInput,
@@ -49,14 +52,19 @@ import { seedFiles, seedFolders } from "../seed/files";
 import { seedNotices } from "../seed/notices";
 import type {
   AuditRepository,
+  CreateNotificationInput,
+  CreatePushSubscriptionInput,
   DecisionRepository,
   DepartmentRepository,
   FileRepository,
   IssuedRefreshToken,
   MessageRepository,
   NoticeRepository,
+  NotificationRepository,
   ProductRepository,
   ProjectRepository,
+  PushSubscriptionRecord,
+  PushSubscriptionRepository,
   RefreshTokenRepository,
   Repositories,
   ResolvedRefreshToken,
@@ -1310,6 +1318,161 @@ class MemoryDecisionRepository implements DecisionRepository {
   }
 }
 
+// Phase 6 I-1 — in-memory notification store.
+class MemoryNotificationRepository implements NotificationRepository {
+  // Insertion order = chronological. We unshift so the newest is at index 0,
+  // which makes listForUser slice cheap.
+  private readonly rows: Notification[] = [];
+  // userId → settings. Lazily created on first access via getSettings.
+  private readonly settings = new Map<string, NotificationSettings>();
+
+  async create(input: CreateNotificationInput): Promise<Notification> {
+    const n: Notification = {
+      id: newId("notif"),
+      userId: input.userId,
+      kind: input.kind,
+      title: input.title,
+      body: input.body,
+      link: input.link,
+      payload: input.payload,
+      readAt: undefined,
+      createdAt: new Date().toISOString()
+    };
+    this.rows.unshift(n);
+    return clone(n);
+  }
+
+  async createMany(
+    userIds: string[],
+    input: Omit<CreateNotificationInput, "userId">
+  ): Promise<Notification[]> {
+    if (userIds.length === 0) return [];
+    const out: Notification[] = [];
+    for (const userId of userIds) {
+      const n = await this.create({ ...input, userId });
+      out.push(n);
+    }
+    return out;
+  }
+
+  async listForUser(
+    userId: string,
+    opts?: { unreadOnly?: boolean; limit?: number }
+  ): Promise<Notification[]> {
+    const limit = opts?.limit ?? 20;
+    let list = this.rows.filter((n) => n.userId === userId);
+    if (opts?.unreadOnly) list = list.filter((n) => !n.readAt);
+    return list.slice(0, limit).map((n) => clone(n));
+  }
+
+  async unreadCount(userId: string): Promise<number> {
+    return this.rows.reduce(
+      (acc, n) => (n.userId === userId && !n.readAt ? acc + 1 : acc),
+      0
+    );
+  }
+
+  async markRead(id: string, userId: string): Promise<Notification | undefined> {
+    const idx = this.rows.findIndex((n) => n.id === id && n.userId === userId);
+    if (idx < 0) return undefined;
+    if (this.rows[idx].readAt) return clone(this.rows[idx]);
+    this.rows[idx] = { ...this.rows[idx], readAt: new Date().toISOString() };
+    return clone(this.rows[idx]);
+  }
+
+  async markAllRead(userId: string): Promise<{ count: number }> {
+    let count = 0;
+    const now = new Date().toISOString();
+    for (let i = 0; i < this.rows.length; i++) {
+      if (this.rows[i].userId === userId && !this.rows[i].readAt) {
+        this.rows[i] = { ...this.rows[i], readAt: now };
+        count++;
+      }
+    }
+    return { count };
+  }
+
+  async getSettings(userId: string): Promise<NotificationSettings> {
+    let s = this.settings.get(userId);
+    if (!s) {
+      s = {
+        userId,
+        allEnabled: true,
+        perRoom: {},
+        perProject: {},
+        webPushEnabled: false,
+        browserEnabled: true
+      };
+      this.settings.set(userId, s);
+    }
+    return clone(s);
+  }
+
+  async updateSettings(
+    userId: string,
+    input: UpdateNotificationSettingsInput
+  ): Promise<NotificationSettings> {
+    const current = await this.getSettings(userId);
+    const next: NotificationSettings = {
+      ...current,
+      ...(input.allEnabled !== undefined && { allEnabled: input.allEnabled }),
+      ...(input.perRoom !== undefined && { perRoom: input.perRoom }),
+      ...(input.perProject !== undefined && { perProject: input.perProject }),
+      ...(input.webPushEnabled !== undefined && { webPushEnabled: input.webPushEnabled }),
+      ...(input.browserEnabled !== undefined && { browserEnabled: input.browserEnabled })
+    };
+    this.settings.set(userId, next);
+    return clone(next);
+  }
+}
+
+// Phase 6 I-5 — in-memory push subscription store.
+class MemoryPushSubscriptionRepository implements PushSubscriptionRepository {
+  private readonly rows: PushSubscriptionRecord[] = [];
+
+  async upsert(input: CreatePushSubscriptionInput): Promise<PushSubscriptionRecord> {
+    const existing = this.rows.find(
+      (r) => r.userId === input.userId && r.endpoint === input.endpoint
+    );
+    if (existing) {
+      // Update keys in case they rotated.
+      existing.p256dh = input.p256dh;
+      existing.auth = input.auth;
+      existing.userAgent = input.userAgent;
+      return clone(existing);
+    }
+    const rec: PushSubscriptionRecord = {
+      id: newId("psub"),
+      userId: input.userId,
+      endpoint: input.endpoint,
+      p256dh: input.p256dh,
+      auth: input.auth,
+      userAgent: input.userAgent,
+      createdAt: new Date().toISOString()
+    };
+    this.rows.push(rec);
+    return clone(rec);
+  }
+
+  async listForUser(userId: string): Promise<PushSubscriptionRecord[]> {
+    return this.rows.filter((r) => r.userId === userId).map((r) => clone(r));
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const idx = this.rows.findIndex((r) => r.id === id);
+    if (idx < 0) return false;
+    this.rows.splice(idx, 1);
+    return true;
+  }
+
+  async deleteByEndpoint(userId: string, endpoint: string): Promise<boolean> {
+    const idx = this.rows.findIndex((r) => r.userId === userId && r.endpoint === endpoint);
+    if (idx < 0) return false;
+    this.rows.splice(idx, 1);
+    return true;
+  }
+}
+
 interface RefreshRow {
   id: string;
   userId: string;
@@ -1404,6 +1567,8 @@ export function createMemoryRepositories(): Repositories {
     files: new MemoryFileRepository(),
     notices,
     decisions,
+    notifications: new MemoryNotificationRepository(),
+    pushSubscriptions: new MemoryPushSubscriptionRepository(),
     audit: new MemoryAuditRepository(),
     refreshTokens: new MemoryRefreshTokenRepository()
   };

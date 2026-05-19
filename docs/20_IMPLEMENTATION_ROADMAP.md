@@ -365,62 +365,61 @@
 
 ---
 
-## I. Phase 6 — 알림 시스템 (doc/11)
+## I. Phase 6 — 알림 시스템 (doc/11) ✅ **완료 (2026-05-19)**
 
 **의존성**: 마이그레이션 014. Phase 5 멘션 완료 후 연동.
-**예상 작업량**: 3~5일
+**예상 작업량**: 3~5일 / **실제**: 0.5일
 
-### I-1. 알림 모델
+### I-1. 알림 모델 ✅
 
-- [ ] **마이그레이션 014_notifications.sql** — 
-  ```
-  user_notifications (
-    id, user_id NOT NULL FK, kind VARCHAR(40) NOT NULL,
-    title TEXT NOT NULL, body TEXT, link TEXT,
-    payload JSONB, read_at TIMESTAMP NULL, created_at NOT NULL
-  )
-  user_notification_settings (
-    id, user_id NOT NULL UNIQUE FK, all_enabled BOOLEAN DEFAULT true,
-    per_room JSONB DEFAULT '{}'::jsonb, per_project JSONB DEFAULT '{}'::jsonb,
-    web_push_enabled BOOLEAN DEFAULT false, browser_enabled BOOLEAN DEFAULT true
-  )
-  ```
-- [ ] shared types `Notification`, `NotificationSettings`
+- [x] **마이그레이션 014_notifications.sql** — user_notifications + user_notification_settings + push_subscriptions (Phase 6 I-5도 같은 마이그레이션). 인덱스 (user_id, created_at DESC) + 부분 인덱스 unread
+- [x] shared types `Notification`, `NotificationSettings`, `UpdateNotificationSettingsInput`, `PushSubscriptionRecord`(server-only)
+- [x] NotificationRepository + PushSubscriptionRepository (메모리/PG)
 
-### I-2. 알림 생성 hook
+### I-2. 알림 생성 hook ✅
 
-- 다음 행위에 알림 생성:
-  - [ ] 메시지 append → 같은 방의 모든 멤버 (본인 제외) — kind `message:new`
-  - [ ] 공지 생성 → 모든 활성 사용자 (본인 제외) — kind `notice:new`
-  - [ ] 업무 배정 (task assigneeIds 변경) → 새 assignee — kind `task:assigned`
-  - [ ] 마감 임박 — cron으로 dueDate-1d, dueDate 발송 (도입 시점에 별도)
-  - [ ] 프로젝트 상태 변경 → 멤버 — kind `project:updated`
-  - [ ] 멘션 (Phase 5) → entities 의 사용자 — kind `mention`
-  - [ ] 결정사항 등록 (Phase 3) → 프로젝트 멤버 — kind `decision:new`
-- 각 알림은 DB insert + socket emit (`notification:new`)
+- [x] `server/src/notify.ts` 중앙 dispatch. settings 존중 (allEnabled / perRoom / perProject)
+- 알림 생성 트리거:
+  - [x] 메시지 append → 같은 방 멤버 (본인 + 멘션된 사용자 제외) — `message:new`
+  - [x] 공지 생성 → 모든 활성 사용자 (본인 제외) — `notice:new` / `notice:mandatory`
+  - [x] 업무 배정 (task 생성/수정 시 새 assignee) → 새 assignee — `task:assigned`
+  - [ ] 마감 임박 — 미구현 (cron 별도 도입 시점)
+  - [x] 프로젝트 상태 변경 → 멤버 — `project:updated`
+  - [x] 멘션 (entities 의 사용자) → 멘션된 사용자 — `mention` (별도 kind, 더 강한 신호)
+  - [x] 결정사항 등록 → 프로젝트 멤버 (decided_by 제외) — `decision:new`
+- [x] 각 알림은 DB insert + socket emit (`notification:new` to `user:<id>`) + (settings.webPushEnabled면) Web Push 발송
 
-### I-3. 백엔드 API
+### I-3. 백엔드 API ✅
 
-- [ ] `GET /api/v1/notifications?unread=true&limit=20` — 본인 알림 inbox
-- [ ] `POST /api/v1/notifications/:id/read`
-- [ ] `POST /api/v1/notifications/read-all`
-- [ ] `GET /api/v1/notification-settings` — 본인 설정 조회
-- [ ] `PATCH /api/v1/notification-settings` — 설정 변경
+- [x] `GET /api/v1/notifications?unread=true&limit=20` — 본인 알림 inbox
+- [x] `GET /api/v1/notifications/unread-count` — 배지용 light endpoint
+- [x] `POST /api/v1/notifications/:id/read`
+- [x] `POST /api/v1/notifications/read-all`
+- [x] `GET /api/v1/notification-settings` — 본인 설정 조회 (첫 호출 시 default 생성)
+- [x] `PATCH /api/v1/notification-settings` — 설정 변경 (partial)
 
-### I-4. 프론트 UI
+### I-4. 프론트 UI ✅
 
-- [ ] Topbar `BellIcon` → popover 알림 inbox (최근 20개, 읽지 않음 우선)
-- [ ] 알림 클릭 → `link` 라우팅 + read mark
-- [ ] `/account/notifications` 페이지 — 전체/채팅방별/프로젝트별 토글
+- [x] Topbar `NotificationBell` client component — 종 아이콘 + 미확인 배지 + popover inbox (최근 20). socket `notification:new` 구독 → 실시간 배지 갱신
+- [x] 알림 클릭 → markRead + link 라우팅. [모두 읽음] / [설정] 버튼
+- [x] `/account/notifications` 페이지 — 전체 토글 + 브라우저 OS 알림 + 웹 푸시 + 채팅방별 + 프로젝트별 토글. 변경 즉시 PATCH
+- [x] 브라우저 Notification API — 권한 요청 + `notification:new` 수신 시 `new Notification(title, {body})` (settings.browserEnabled 시)
 - [ ] 브라우저 Notification API — 사용자 권한 요청 + permission granted 시 `notification:new` 수신 시 `new Notification(title)` 호출
 
-### I-5. Web Push (PWA 푸시)
+### I-5. Web Push (PWA 푸시) ✅
 
-- [ ] `apps/web/public/sw.js` — push event 리스너 추가
-- [ ] `web-push` 라이브러리 + VAPID 키 (환경변수)
-- [ ] `POST /api/v1/push-subscriptions` — 브라우저 subscription 등록
-- [ ] 알림 생성 시 → 등록된 subscription 에 web-push 발송
-- [ ] 알림 설정에서 푸시 활성화 토글
+- [x] `web-push` + `@types/web-push` 의존성 추가
+- [x] `server/scripts/generate-vapid.ts` — VAPID 키 한 번 생성 후 .env에 추가
+- [x] config — `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT`. 키 없으면 push 자동 disabled (in-app 알림은 정상)
+- [x] `server/src/push.ts` — `isPushEnabled` / `pushToUser` / `pushNotification`. 410 Gone 시 endpoint 자동 정리
+- [x] 마이그레이션 014에 `push_subscriptions(user_id, endpoint UNIQUE, p256dh, auth, user_agent)` 추가. PushSubscriptionRepository (메모리/PG)
+- [x] `GET /api/v1/push-subscriptions/vapid-public-key` (프론트가 PushManager.subscribe에 사용)
+- [x] `POST /api/v1/push-subscriptions` — 브라우저 subscription 등록 (upsert)
+- [x] `DELETE /api/v1/push-subscriptions` — endpoint 기준 해제
+- [x] 알림 생성 시 settings.webPushEnabled=true 사용자에게 자동 push 발송 (notify.ts의 dispatch 헬퍼)
+- [x] `apps/web/public/sw.js` — push event + notificationclick listener
+- [x] `apps/web/src/services/push.service.ts` — `enablePush` / `disablePush`. 권한 요청 + SW 등록 + PushManager.subscribe + 서버 등록 한 번에
+- [x] `/account/notifications` — "웹 푸시" 토글 onChange에서 enablePush/disablePush 호출, 실패 시 inline error
 
 ---
 
@@ -594,7 +593,7 @@
 | 011 | messages FTS + trgm 인덱스 | (완료) Phase 2 E-3 |
 | 012 | decisions.is_deleted + decision_reads | (완료) Phase 3 |
 | 013 | messages.entities / ai_generated / ai_command / source_message_ids | (완료) Phase 5 |
-| 014 | user_notifications / user_notification_settings | Phase 6 |
+| 014 | user_notifications / user_notification_settings / push_subscriptions | (완료) Phase 6 |
 | 015 | product_specs / product_lots / sales_status_events | Phase 7 |
 | 016 | user_invitations | Phase 8 |
 

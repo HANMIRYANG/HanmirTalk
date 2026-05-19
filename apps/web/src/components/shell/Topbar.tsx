@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { BellIcon, SearchIcon } from "@/components/ui/icons";
+import { SearchIcon } from "@/components/ui/icons";
 import { Avatar } from "@/components/ui/Avatar";
 import { authService } from "@/services/auth.service";
-import { noticeService } from "@/services/notice.service";
+import { notificationService } from "@/services/notification.service";
 import { getServerToken } from "@/lib/server-auth";
+import { NotificationBell } from "./NotificationBell";
 import styles from "./Topbar.module.css";
 
 interface TopbarProps {
@@ -15,16 +16,16 @@ function initialsOf(name: string): string {
   return name.slice(0, 2);
 }
 
-// Server component: pulls the current user + unread mandatory notice count
-// every render so the avatar / name / bell dot reflect reality. Falls back
-// silently to placeholders when called outside an authenticated context.
+// Server component: pulls the current user + initial unread notification
+// count every render. The NotificationBell client component then keeps
+// the count in sync via socket events (notification:new) without needing
+// to re-render the whole Topbar.
 export async function Topbar({ title, sub }: TopbarProps) {
   const token = getServerToken();
   const me = await authService.tryGetMe(token);
-  const notices = me
-    ? await noticeService.listNotices({ token }).catch(() => [])
-    : [];
-  const unreadCount = notices.filter((n) => n.isMandatory && !n.myConfirmed).length;
+  const unreadCount = me
+    ? await notificationService.unreadCount({ token }).catch(() => 0)
+    : 0;
 
   return (
     <header className={styles.topbar}>
@@ -40,15 +41,7 @@ export async function Topbar({ title, sub }: TopbarProps) {
           aria-label="검색"
         />
       </form>
-      <Link
-        href="/notices"
-        className={styles.iconBtn}
-        aria-label={unreadCount > 0 ? `확인 필요한 공지 ${unreadCount}건` : "공지"}
-        title={unreadCount > 0 ? `확인 필요한 공지 ${unreadCount}건` : "공지"}
-      >
-        <BellIcon size={18} />
-        {unreadCount > 0 ? <span className={styles.notifyDot} /> : null}
-      </Link>
+      {me ? <NotificationBell initialUnreadCount={unreadCount} /> : null}
       <Link href="/dashboard" className={styles.userBlock} aria-label="대시보드 이동">
         <Avatar
           initials={me?.initials ?? initialsOf(me?.name ?? "?")}

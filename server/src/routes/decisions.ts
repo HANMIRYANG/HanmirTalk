@@ -4,6 +4,7 @@ import type { Repositories } from "../repositories/types";
 import { requireRole } from "../auth/middleware";
 import { realtime } from "../realtime";
 import { auditLog } from "../audit";
+import { notifyDecisionNew } from "../notify";
 
 // Phase 3 F-1 — decisions endpoints. Mounted at /api/v1/decisions for
 // per-id operations and /api/v1/projects/:projectId/decisions for list +
@@ -258,6 +259,7 @@ export function createProjectDecisionsRouter(repos: Repositories): Router {
       }
     });
     realtime.emitDecisionNew(projectId, created);
+    void notifyDecisionNew(repos, created);
     res.status(201).json(created);
   });
 
