@@ -44,6 +44,10 @@
   min-height: 48px;
   background: transparent;
   color: var(--text-1);
+  /* Phase 5 H-2 — mention popover wrapping을 위해 .inputWrap에 감싼
+     이후 textarea가 기본 cols(약 20자) 너비로 줄어든 회귀를 차단. */
+  width: 100%;
+  box-sizing: border-box;
 }
 .error {
   margin: 0 12px 4px;
@@ -105,6 +109,7 @@
 /* Phase 5 H-2 — mention picker popover positioned above the textarea */
 .inputWrap {
   position: relative;
+  width: 100%;
 }
 .mentionPopover {
   position: absolute;
