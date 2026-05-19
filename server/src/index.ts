@@ -25,7 +25,7 @@ const app = createApp({ repos });
 
 // Plain http server so socket.io can attach alongside Express.
 const httpServer = createServer(app);
-realtime.attach(httpServer);
+realtime.attach(httpServer, repos);
 
 httpServer.listen(config.port, () => {
   // eslint-disable-next-line no-console

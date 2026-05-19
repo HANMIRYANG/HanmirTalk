@@ -961,14 +961,17 @@ class PgMessageRepository implements MessageRepository {
   }
 
   async markRead(roomId: string, userId: string, lastMessageId: string): Promise<void> {
-    // Use the existing room_members row; insert one if absent so the user's
-    // read marker survives even without a prior join. role="member" is the
-    // schema default so we satisfy the NOT NULL.
+    // Phase 1 D-8 — UPDATE-only (no INSERT). The previous INSERT ON CONFLICT
+    // implicitly granted membership to anyone who hit this endpoint, which
+    // turned the read-marker into a privilege-escalation primitive. The HTTP
+    // route now enforces membership via ensureRoomAccess before reaching
+    // here, so non-members can no longer call this — but defense in depth:
+    // even if the gate is bypassed, this query simply no-ops for non-members
+    // since no row matches.
     await this.pool.query(
-      `INSERT INTO room_members (room_id, user_id, role, last_read_message_id)
-       VALUES ($1, $2, 'member', $3)
-       ON CONFLICT (room_id, user_id)
-       DO UPDATE SET last_read_message_id = EXCLUDED.last_read_message_id`,
+      `UPDATE room_members
+          SET last_read_message_id = $3
+        WHERE room_id = $1 AND user_id = $2`,
       [roomId, userId, lastMessageId]
     );
   }

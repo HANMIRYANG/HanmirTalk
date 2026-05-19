@@ -87,7 +87,10 @@
 
 **의존성**: 다른 phase와 독립적. 단, Phase 2/3/5/6/7 보다 먼저 끝내는 게 권장.
 **예상 작업량**: 4~6일 (SMTP 포함)
-**진행 상황 (2026-05-18 기준)**: D-1, D-2, D-4, D-5, D-6, D-7(SMTP) ✅ — **D-3 (httpOnly+refresh)만 남음**
+**진행 상황 (2026-05-19 기준)**: D-1, D-2, D-4(부분), D-5, D-6, D-7(SMTP) ✅
+**남은 작업 (실행 순서)**: **D-8 (rooms 멤버십 권한, 긴급) → D-3 (httpOnly+refresh) → D-4 sweep (확장 10건) → D-9 (문서 drift 정리)**
+
+> **2026-05-19 추가 결정**: codex 추가 검수에서 발견된 채팅방 권한 결함이 D-3보다 먼저 차단되어야 함이 확인됨. 또한 D-4 audit hook이 사용자/부서 외에도 task/product/notice/file 등에 누락되어 sweep 범위가 확장됨. D-9는 SMTP 도입 후 발견된 .env/docker-compose 문서 drift 정리.
 
 ### D-1. 비밀번호 해시 (doc/10, 14) ✅
 
@@ -126,9 +129,22 @@
 - [x] 사용자 CRUD: create / update / deactivate 모두 hook
 - [x] 부서 CUD: create / update / delete hook
 - [x] 프로젝트 CUD: create / cancel hook (member add/remove는 추후)
-- [ ] 공지 / 결정사항 / 파일 삭제 / 관리자 로그인 hook은 후속 sweep에서 추가
+- [ ] **후속 sweep으로 일괄 처리 → 별도 항목 D-4 sweep 참고**
 - [x] `GET /api/v1/dashboard/audit` 라우트 — seed → audit_logs.list 교체, admin only
 - [x] `/admin` 페이지의 감사 로그 카드는 같은 endpoint를 그대로 사용 (UI 변경 없음, 데이터 소스만 교체)
+
+#### D-4 sweep (확장 범위, 후속 작업)
+
+원래 로드맵에서는 "공지 / 결정사항 / 파일 삭제 / 관리자 로그인"만 명시했으나, 2026-05-19 검수에서 다음 항목들도 audit hook이 없음을 확인:
+
+- [ ] `project.update` (`server/src/routes/projects.ts:269`)
+- [ ] `project.member.add / remove`
+- [ ] `task.create / update / delete` (routes/tasks.ts에 audit import 자체 없음)
+- [ ] `product.create / update / delete` (routes/products.ts에 audit import 자체 없음)
+- [ ] `notice.create` (routes/notices.ts에 audit import 자체 없음)
+- [ ] `file.delete` + `file.upload` (선택)
+- [ ] `auth.login.success / failure` (관리자 로그인 한정)
+- [ ] `auth.password.change` (본인이 비밀번호 변경 시)
 
 ### D-5. per-project ownership 검사 (doc/04) ✅
 
@@ -157,6 +173,25 @@
 - [x] `.env.example`에 SMTP 블록 + mailhog 사용법 안내
 - [x] 부트 smoke: `[hanmir-server] mailer: SMTP ready at localhost:1025` 확인
 - [ ] 실제 `sendMail` 호출은 Phase 8 초대 흐름에서 처음 활성화
+
+### D-8. 채팅방 멤버십 권한 검사 (긴급, 2026-05-19 추가) ✅
+
+> **0순위 — D-3보다 먼저.** 인증된 사용자가 roomId만 알면 비멤버 방에서도 메시지 전송/조회/고정/읽음 표시가 가능한 인가(authorization) 결함. 시범 사용자 확대 전 필수 차단.
+
+**근본 원인**: `routes/rooms.ts`의 read/pin/unpin/messages POST/read marker가 멤버십 검증 없이 `repos.rooms.findById(req.params.roomId)`만 사용. PG `ROOM_SELECT` (postgres.ts:778)에도 `room_members` 필터 없음. 특히 `markRead`의 `INSERT ... ON CONFLICT DO UPDATE` (postgres.ts:963)는 호출만으로 호출자를 그 방 멤버로 만들 수 있어 권한 상승 가능.
+
+- [x] `server/src/routes/rooms.ts` — `ensureRoomAccess(repos, req, res, roomId)` 헬퍼 추가 (admin/super_admin 패스, 그 외 `room.members`에 본인 포함 확인, 비멤버는 404로 위장)
+- [x] 적용 라우트: `GET /:id`, `GET /:roomId/messages`, `GET /:roomId/pinned`, `POST /:roomId/read`, `POST /:roomId/pin`, `DELETE /:roomId/pin`, `POST /:roomId/messages`
+- [x] `GET /rooms` (목록) — admin 외에는 본인이 멤버인 방만 반환 (라우트 레이어에서 필터)
+- [x] `PgMessageRepository.markRead` — `INSERT ... ON CONFLICT` 대신 `UPDATE room_members ... WHERE` 로 변경. 비멤버에게 멤버십 부여 차단
+- [x] socket.io `room:join` 이벤트 (`realtime.ts`) — `canAccessRoom()` 멤버십 검증 추가, 비멤버는 silent join 거부 (`realtime.attach()`에 `repos` 주입)
+
+### D-9. 문서 drift 정리 (2026-05-19 추가) ❌
+
+- [ ] `.env.example` `UPLOAD_MAX_BYTES` 주석 "25 MB" → "50 MB" (D-6에서 코드만 갱신됨)
+- [ ] `.env.example` `DEFAULT_PASSWORD` "bcrypt 도입 전까지의 임시 값" 문구 제거 (D-1 완료)
+- [ ] `docker-compose.yml` 마이그레이션 안내 "001 → 002 → 003" → "001~009 (alphabetical 순서)"
+- [ ] `docs/16_CLAUDE_CODE_INSTRUCTIONS.md` NestJS 권장 → Express 실태에 맞춰 갱신 (선택)
 
 ---
 
@@ -519,10 +554,10 @@
 | 번호 | 내용 | Phase |
 | --- | --- | --- |
 | 005 | rooms.pinned_message_id | (완료) |
-| 006 | users password_hash 시드 bcrypt | Phase 1 |
-| 007 | users.must_change_password | Phase 1 |
-| 008 | refresh_tokens | Phase 1 |
-| 009 | audit_logs | Phase 1 |
+| 006 | users password_hash 시드 bcrypt | (완료) Phase 1 D-1 |
+| 007 | users.must_change_password | (완료) Phase 1 D-2 |
+| 008 | refresh_tokens | (예약) Phase 1 D-3 — **미적용 슬롯** |
+| 009 | audit_logs | (완료) Phase 1 D-4 |
 | 010 | messages.edited_at | Phase 2 |
 | 011 | messages FTS index | Phase 2 |
 | 012 | decisions | Phase 3 |
