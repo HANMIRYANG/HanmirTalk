@@ -138,6 +138,7 @@ export default async function ChatRoomPage({ params }: Props) {
         files={visibleFiles}
         uploaders={uploaders}
         currentUserId={me.id}
+        isAdmin={me.role === "admin" || me.role === "super_admin"}
       />
     </div>
   );

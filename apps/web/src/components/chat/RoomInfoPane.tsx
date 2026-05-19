@@ -5,6 +5,7 @@ import { ProgressBar } from "@/components/ui/ProgressBar";
 import { IconButton } from "@/components/ui/IconButton";
 import { CloseIcon } from "@/components/ui/icons";
 import { cn } from "@/lib/classNames";
+import { MemberRemoveButton } from "./MemberRemoveButton";
 import styles from "./RoomInfoPane.module.css";
 
 interface RoomInfoPaneProps {
@@ -14,6 +15,10 @@ interface RoomInfoPaneProps {
   files: FileEntry[];
   uploaders: Record<string, User | undefined>;
   currentUserId?: string;
+  // Phase 4 G-2b — admin/super_admin 권한자에게 멤버 옆에 [추방] 버튼
+  // 노출. 본인 추방은 별도 ([더보기] → 방 나가기). direct 방은 서버가
+  // 거부하므로 여기서도 막음.
+  isAdmin?: boolean;
 }
 
 const fileColor: Record<string, string> = {
@@ -39,11 +44,15 @@ export function RoomInfoPane({
   members,
   files,
   uploaders,
-  currentUserId
+  currentUserId,
+  isAdmin = false
 }: RoomInfoPaneProps) {
   const memberById = new Map(members.map((u) => [u.id, u] as const));
-  const visibleMembers = room.members.slice(0, 4);
-  const remaining = Math.max(0, room.members.length - visibleMembers.length);
+  // Phase 4 G-2b — 전체 멤버 노출 (이전엔 slice(0,4)로 일부만 보여서
+  // 5인 이상 방에서 추방 대상이 안 보이는 문제가 있었음). 멤버 수가
+  // 매우 많은 방은 스크롤로 처리.
+  const visibleMembers = room.members;
+  const canRemove = isAdmin && room.type !== "direct";
 
   return (
     <aside className={styles.pane}>
@@ -93,31 +102,30 @@ export function RoomInfoPane({
         {visibleMembers.map((m) => {
           const user = memberById.get(m.userId);
           if (!user) return null;
+          const isSelf = !!currentUserId && user.id === currentUserId;
           return (
             <div key={m.userId} className={styles.member}>
               <Avatar initials={user.initials} tone={user.avatarTone ?? "default"} />
-              <div>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <div className={styles.memberName}>
                   {user.name}
-                  {currentUserId && user.id === currentUserId ? " (나)" : ""}
+                  {isSelf ? " (나)" : ""}
                 </div>
                 <div className={styles.memberRole}>
                   {user.position} · {user.departmentName}
                 </div>
               </div>
               {m.isOwner ? <span className={styles.memberOwner}>OWNER</span> : null}
+              {canRemove && !isSelf ? (
+                <MemberRemoveButton
+                  roomId={room.id}
+                  userId={user.id}
+                  userName={user.name}
+                />
+              ) : null}
             </div>
           );
         })}
-        {remaining > 0 ? (
-          <div className={styles.member}>
-            <Avatar initials={`+${remaining}`} tone="gray" />
-            <div>
-              <div className={styles.memberName}>외 {remaining}명</div>
-              <div className={styles.memberRole}>영업본부 · 자재팀 · 외주</div>
-            </div>
-          </div>
-        ) : null}
       </div>
 
       <div className={styles.section}>
