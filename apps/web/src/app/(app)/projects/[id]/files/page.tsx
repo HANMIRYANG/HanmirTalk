@@ -4,7 +4,7 @@ import { ProjectHeader } from "@/components/project/ProjectHeader";
 import { projectService } from "@/services/project.service";
 import { fileService } from "@/services/file.service";
 import { userService } from "@/services/user.service";
-import { getServerToken } from "@/lib/server-auth";
+import { requireServerMe } from "@/lib/server-auth";
 import { ProjectFilesPanel } from "./ProjectFilesPanel";
 import styles from "./files.module.css";
 
@@ -13,7 +13,7 @@ interface Props {
 }
 
 export default async function ProjectFilesPage({ params }: Props) {
-  const token = getServerToken();
+  const { token } = await requireServerMe();
   const project = await projectService.getProject(params.id, { token });
   if (!project) notFound();
 

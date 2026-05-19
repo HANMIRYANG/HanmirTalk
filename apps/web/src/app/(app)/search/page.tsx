@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Topbar } from "@/components/shell/Topbar";
 import { Avatar } from "@/components/ui/Avatar";
 import { chatService } from "@/services/chat.service";
-import { getServerToken } from "@/lib/server-auth";
+import { requireServerMe } from "@/lib/server-auth";
 import styles from "./search.module.css";
 
 interface SearchPageProps {
@@ -13,7 +13,7 @@ interface SearchPageProps {
 // the URL is shareable and reload-stable. Results are scoped server-side
 // to rooms the caller can read (D-8 + E-3 route filter).
 export default async function SearchPage({ searchParams }: SearchPageProps) {
-  const token = getServerToken();
+  const { token } = await requireServerMe();
   const rawQuery = (searchParams.q ?? "").trim();
   const roomId = searchParams.roomId?.trim() || undefined;
 

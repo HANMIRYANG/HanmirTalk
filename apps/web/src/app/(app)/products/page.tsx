@@ -2,8 +2,7 @@ import Link from "next/link";
 import { Topbar } from "@/components/shell/Topbar";
 import { Tag } from "@/components/ui/Tag";
 import { productService } from "@/services/product.service";
-import { authService } from "@/services/auth.service";
-import { getServerToken } from "@/lib/server-auth";
+import { requireServerMe } from "@/lib/server-auth";
 import { salesStatusLabel } from "@hanmir/shared";
 import { ProductCreateButton } from "./ProductCreateButton";
 import styles from "./products.module.css";
@@ -19,11 +18,8 @@ const SALES_TONE = {
 };
 
 export default async function ProductListPage() {
-  const token = getServerToken();
-  const [products, me] = await Promise.all([
-    productService.listProducts({ token }),
-    authService.getMe(token)
-  ]);
+  const { me, token } = await requireServerMe();
+  const products = await productService.listProducts({ token });
   const canManage = WRITER_ROLES.has(me.role);
 
   return (

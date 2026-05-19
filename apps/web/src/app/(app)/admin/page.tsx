@@ -6,8 +6,7 @@ import { ChatIcon } from "@/components/ui/icons";
 import { userService } from "@/services/user.service";
 import { departmentService } from "@/services/department.service";
 import { dashboardService } from "@/services/dashboard.service";
-import { authService } from "@/services/auth.service";
-import { getServerToken } from "@/lib/server-auth";
+import { requireServerMe } from "@/lib/server-auth";
 import { cn } from "@/lib/classNames";
 import { UsersAdminCard } from "./UsersAdminCard";
 import { DepartmentsAdminCard } from "./DepartmentsAdminCard";
@@ -16,8 +15,7 @@ import styles from "./admin.module.css";
 const ADMIN_ROLES = new Set(["admin", "super_admin"]);
 
 export default async function AdminPage() {
-  const token = getServerToken();
-  const me = await authService.getMe(token);
+  const { me, token } = await requireServerMe();
   if (!ADMIN_ROLES.has(me.role)) redirect("/dashboard");
 
   const [users, departments, kpis, audit, deptStats] = await Promise.all([

@@ -4,8 +4,7 @@ import { ProjectHeader } from "@/components/project/ProjectHeader";
 import { projectService } from "@/services/project.service";
 import { taskService } from "@/services/task.service";
 import { userService } from "@/services/user.service";
-import { authService } from "@/services/auth.service";
-import { getServerToken } from "@/lib/server-auth";
+import { requireServerMe } from "@/lib/server-auth";
 import { TaskCreateButton } from "./TaskCreateButton";
 import { TasksWorkspace } from "./TasksWorkspace";
 
@@ -14,14 +13,13 @@ interface Props {
 }
 
 export default async function ProjectTasksPage({ params }: Props) {
-  const token = getServerToken();
+  const { me, token } = await requireServerMe();
   const project = await projectService.getProject(params.id, { token });
   if (!project) notFound();
 
-  const [tasks, users, me] = await Promise.all([
+  const [tasks, users] = await Promise.all([
     taskService.listByProject(params.id, { token }),
-    userService.listUsers({ token }),
-    authService.getMe(token)
+    userService.listUsers({ token })
   ]);
 
   return (

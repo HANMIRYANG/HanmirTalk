@@ -2,13 +2,12 @@ import Link from "next/link";
 import { Topbar } from "@/components/shell/Topbar";
 import { Tag } from "@/components/ui/Tag";
 import { ProgressBar } from "@/components/ui/ProgressBar";
-import { authService } from "@/services/auth.service";
 import { projectService } from "@/services/project.service";
 import { noticeService } from "@/services/notice.service";
 import { chatService } from "@/services/chat.service";
 import { dashboardService } from "@/services/dashboard.service";
 import { taskService } from "@/services/task.service";
-import { getServerToken } from "@/lib/server-auth";
+import { requireServerMe } from "@/lib/server-auth";
 import { projectStatusLabel } from "@hanmir/shared";
 import styles from "./dashboard.module.css";
 
@@ -24,8 +23,11 @@ const PROJECT_TONE = {
 };
 
 export default async function DashboardPage() {
-  const token = getServerToken();
-  const me = await authService.getMe(token);
+  // Phase 3 후속: layout과 동일하게 401 시 redirect로 깔끔 처리.
+  // 이전엔 getMe(token)이 throw → console에 ApiError 출력 + 결국 layout이
+  // 별도로 redirect하던 노이즈. requireServerMe는 토큰 없거나 만료면
+  // 즉시 redirect("/login") 하므로 page의 다른 API 호출은 시작도 안 함.
+  const { me, token } = await requireServerMe();
   const isAdmin = ADMIN_ROLES.has(me.role);
 
   const [projects, rooms, notices, activities, adminKpis] = await Promise.all([

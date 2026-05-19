@@ -1,12 +1,10 @@
 import { Topbar } from "@/components/shell/Topbar";
-import { authService } from "@/services/auth.service";
-import { getServerToken } from "@/lib/server-auth";
+import { requireServerMe } from "@/lib/server-auth";
 import { ChangePasswordForm } from "./ChangePasswordForm";
 import styles from "./password.module.css";
 
 export default async function ChangePasswordPage() {
-  const token = getServerToken();
-  const me = await authService.getMe(token);
+  const { me } = await requireServerMe();
 
   return (
     <>

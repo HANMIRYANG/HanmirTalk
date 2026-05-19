@@ -2,11 +2,10 @@ import { Topbar } from "@/components/shell/Topbar";
 import { Tag } from "@/components/ui/Tag";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { noticeService } from "@/services/notice.service";
-import { authService } from "@/services/auth.service";
 import { NoticeConfirmButton } from "./NoticeConfirmButton";
 import { NoticeCreateButton } from "./NoticeCreateButton";
 import { NoticeReadStatusButton } from "./NoticeReadStatusButton";
-import { getServerToken } from "@/lib/server-auth";
+import { requireServerMe } from "@/lib/server-auth";
 import { cn } from "@/lib/classNames";
 import styles from "./notices.module.css";
 
@@ -19,11 +18,8 @@ const TONE_BY: Record<string, "red" | "amber" | "green"> = {
 };
 
 export default async function NoticesPage() {
-  const token = getServerToken();
-  const [notices, me] = await Promise.all([
-    noticeService.listNotices({ token }),
-    authService.getMe(token)
-  ]);
+  const { me, token } = await requireServerMe();
+  const notices = await noticeService.listNotices({ token });
   const canManage = MANAGE_ROLES.has(me.role);
 
   const mandatoryUnread = notices.filter((n) => n.isMandatory && !n.myConfirmed);

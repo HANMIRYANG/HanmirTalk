@@ -7,8 +7,7 @@ import { ProgressBar } from "@/components/ui/ProgressBar";
 import { productService } from "@/services/product.service";
 import { userService } from "@/services/user.service";
 import { projectService } from "@/services/project.service";
-import { authService } from "@/services/auth.service";
-import { getServerToken } from "@/lib/server-auth";
+import { requireServerMe } from "@/lib/server-auth";
 import { salesStatusLabel } from "@hanmir/shared";
 import { cn } from "@/lib/classNames";
 import { ProductActions } from "./ProductActions";
@@ -43,16 +42,15 @@ const VERDICT_LABEL: Record<string, string> = {
 };
 
 export default async function ProductDetailPage({ params }: Props) {
-  const token = getServerToken();
+  const { me, token } = await requireServerMe();
   const product = await productService.getProduct(params.id, { token });
   if (!product) notFound();
 
-  const [owner, relatedProjects, me] = await Promise.all([
+  const [owner, relatedProjects] = await Promise.all([
     product.ownerId ? userService.getUser(product.ownerId, { token }) : Promise.resolve(undefined),
     Promise.all(
       product.relatedProjectIds.map((id) => projectService.getProject(id, { token }))
-    ).then((items) => items.filter((p): p is NonNullable<typeof p> => Boolean(p))),
-    authService.getMe(token)
+    ).then((items) => items.filter((p): p is NonNullable<typeof p> => Boolean(p)))
   ]);
   const canManage = WRITER_ROLES.has(me.role);
 

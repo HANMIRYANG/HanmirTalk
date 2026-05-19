@@ -11,8 +11,7 @@ import { chatService } from "@/services/chat.service";
 import { projectService } from "@/services/project.service";
 import { userService } from "@/services/user.service";
 import { fileService } from "@/services/file.service";
-import { authService } from "@/services/auth.service";
-import { getServerToken } from "@/lib/server-auth";
+import { requireServerMe } from "@/lib/server-auth";
 import styles from "./room.module.css";
 
 interface Props {
@@ -21,8 +20,7 @@ interface Props {
 
 // Auth guard is enforced in apps/web/src/app/(app)/layout.tsx.
 export default async function ChatRoomPage({ params }: Props) {
-  const token = getServerToken();
-  const me = await authService.getMe(token);
+  const { me, token } = await requireServerMe();
 
   const room = await chatService.getRoom(params.roomId, { token });
   if (!room) notFound();

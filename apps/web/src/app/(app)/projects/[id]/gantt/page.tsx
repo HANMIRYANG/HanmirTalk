@@ -4,7 +4,7 @@ import { ProjectHeader } from "@/components/project/ProjectHeader";
 import { GanttTimeline, type GanttRow } from "@/components/project/GanttTimeline";
 import { projectService } from "@/services/project.service";
 import { userService } from "@/services/user.service";
-import { getServerToken } from "@/lib/server-auth";
+import { requireServerMe } from "@/lib/server-auth";
 import { TaskCreateButton } from "@/app/(app)/projects/[id]/tasks/TaskCreateButton";
 import { GanttToolbar, GanttPdfButton } from "./GanttToolbar";
 import styles from "./gantt.module.css";
@@ -126,7 +126,7 @@ const ROWS: GanttRow[] = [
 ];
 
 export default async function ProjectGanttPage({ params }: Props) {
-  const token = getServerToken();
+  const { token } = await requireServerMe();
   const project = await projectService.getProject(params.id, { token });
   if (!project) notFound();
 

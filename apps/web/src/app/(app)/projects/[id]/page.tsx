@@ -9,7 +9,7 @@ import { IconButton } from "@/components/ui/IconButton";
 import { projectService } from "@/services/project.service";
 import { userService } from "@/services/user.service";
 import { dashboardService } from "@/services/dashboard.service";
-import { getServerToken } from "@/lib/server-auth";
+import { requireServerMe } from "@/lib/server-auth";
 import { cn } from "@/lib/classNames";
 import { ProjectActions } from "./ProjectActions";
 import { ProjectMembersCard } from "./ProjectMembersCard";
@@ -34,7 +34,7 @@ const milestoneLabel: Record<string, string> = {
 };
 
 export default async function ProjectDetailPage({ params }: Props) {
-  const token = getServerToken();
+  const { token } = await requireServerMe();
   const project = await projectService.getProject(params.id, { token });
   if (!project) notFound();
 

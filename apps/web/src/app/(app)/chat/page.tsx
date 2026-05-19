@@ -5,19 +5,17 @@ import { Tag } from "@/components/ui/Tag";
 import { Avatar } from "@/components/ui/Avatar";
 import { chatService } from "@/services/chat.service";
 import { dashboardService } from "@/services/dashboard.service";
-import { authService } from "@/services/auth.service";
 import { noticeService } from "@/services/notice.service";
 import { projectService } from "@/services/project.service";
 import { taskService } from "@/services/task.service";
-import { getServerToken } from "@/lib/server-auth";
+import { requireServerMe } from "@/lib/server-auth";
 import styles from "./chat.module.css";
 
 // Auth guard is enforced in apps/web/src/app/(app)/layout.tsx.
 // Here we just need the token for downstream API calls.
 export default async function ChatHomePage() {
-  const token = getServerToken();
-  const [me, rooms, activities, notices, projects] = await Promise.all([
-    authService.getMe(token),
+  const { me, token } = await requireServerMe();
+  const [rooms, activities, notices, projects] = await Promise.all([
     chatService.listRooms({ token }),
     dashboardService.listDashboardActivities({ token }),
     noticeService.listNotices({ token }),

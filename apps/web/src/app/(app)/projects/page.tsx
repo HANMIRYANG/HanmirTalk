@@ -3,7 +3,7 @@ import { Topbar } from "@/components/shell/Topbar";
 import { Tag } from "@/components/ui/Tag";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { projectService } from "@/services/project.service";
-import { getServerToken } from "@/lib/server-auth";
+import { requireServerMe } from "@/lib/server-auth";
 import { projectStatusLabel, salesStatusLabel } from "@hanmir/shared";
 import { ProjectCreateButton } from "./ProjectCreateButton";
 import styles from "./projects.module.css";
@@ -18,7 +18,7 @@ const TONE_BY_STATUS = {
 };
 
 export default async function ProjectListPage() {
-  const token = getServerToken();
+  const { token } = await requireServerMe();
   const projects = await projectService.listProjects({ token });
 
   return (

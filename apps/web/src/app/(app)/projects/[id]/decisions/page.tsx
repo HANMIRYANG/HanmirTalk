@@ -4,8 +4,7 @@ import { Topbar } from "@/components/shell/Topbar";
 import { ProjectHeader } from "@/components/project/ProjectHeader";
 import { projectService } from "@/services/project.service";
 import { decisionService } from "@/services/decision.service";
-import { authService } from "@/services/auth.service";
-import { getServerToken } from "@/lib/server-auth";
+import { requireServerMe } from "@/lib/server-auth";
 import { DecisionsWorkspace } from "./DecisionsWorkspace";
 
 interface Props {
@@ -16,14 +15,11 @@ interface Props {
 // current user role; client component (DecisionsWorkspace) handles create
 // / edit / delete / confirm + socket subscription.
 export default async function ProjectDecisionsPage({ params }: Props) {
-  const token = getServerToken();
+  const { me, token } = await requireServerMe();
   const project = await projectService.getProject(params.id, { token });
   if (!project) notFound();
 
-  const [decisions, me] = await Promise.all([
-    decisionService.listByProject(params.id, { token }),
-    authService.getMe(token)
-  ]);
+  const decisions = await decisionService.listByProject(params.id, { token });
 
   const isWriter = ["admin", "super_admin", "manager", "project_owner"].includes(me.role);
   const isAdmin = me.role === "admin" || me.role === "super_admin";
