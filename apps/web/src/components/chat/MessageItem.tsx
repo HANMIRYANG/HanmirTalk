@@ -271,7 +271,12 @@ export function MessageItem({
           </div>
         ) : (
           <div className={styles.body}>
-            {renderBodyWithMentions(message.body, message.mentions)}
+            {message.aiGenerated && !message.isDeleted ? (
+              <span className={styles.aiBadge} title="AI 명령으로 생성된 메시지">
+                AI 초안
+              </span>
+            ) : null}
+            {renderBodyWithMentions(message.body, message.entities, message.mentions)}
           </div>
         )}
 
@@ -459,7 +464,33 @@ function CreateDecisionFromMessageModal({
   );
 }
 
-function renderBodyWithMentions(body: string, mentions?: string[]) {
+function renderBodyWithMentions(
+  body: string,
+  entities?: ChatMessage["entities"],
+  mentions?: string[]
+) {
+  // Phase 5 H-2b — entities 우선. 엄밀한 offset/length 기반이라 한국어
+  // CJK도 정확. entities가 없으면 legacy mentions 배열로 fallback.
+  if (entities && entities.length > 0) {
+    // Sort by offset just in case the server didn't.
+    const sorted = [...entities].sort((a, b) => a.offset - b.offset);
+    const parts: (string | JSX.Element)[] = [];
+    let cursor = 0;
+    sorted.forEach((e, i) => {
+      if (e.offset < cursor) return; // overlap → skip
+      if (e.offset > cursor) parts.push(body.slice(cursor, e.offset));
+      const tokenText = body.slice(e.offset, e.offset + e.length);
+      const cls = e.type === "mention" ? styles.mention : styles.entityRef;
+      parts.push(
+        <span key={`ent-${i}`} className={cls} title={e.label}>
+          {tokenText}
+        </span>
+      );
+      cursor = e.offset + e.length;
+    });
+    if (cursor < body.length) parts.push(body.slice(cursor));
+    return parts;
+  }
   if (!mentions || mentions.length === 0) return body;
   const parts: (string | JSX.Element)[] = [];
   let remaining = body;

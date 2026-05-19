@@ -317,48 +317,51 @@
 
 ---
 
-## H. Phase 5 — 멘션 + AI 명령 (doc/03, 05, 09)
+## H. Phase 5 — 멘션 + AI 명령 (doc/03, 05, 09) ✅ **완료 (2026-05-19)**
 
 **의존성**: 마이그레이션 013 (messages.entities·ai_generated). 외부 LLM 키 (`ANTHROPIC_API_KEY`).
 **예상 작업량**: 4~6일
 
-### H-1. 메시지 entities (멘션 토큰)
+### H-1. 메시지 entities (멘션 토큰) ✅
 
-- [ ] **마이그레이션 013_messages_entities.sql** — `messages.entities JSONB NOT NULL DEFAULT '[]'::jsonb`, `messages.ai_generated BOOLEAN NOT NULL DEFAULT false`, `messages.ai_command VARCHAR(40) NULL`, `messages.source_message_ids UUID[] NULL`
-- [ ] shared types `MessageEntity = { type: "mention" | "project_ref" | "task_ref" | "file_ref"; id: string; label: string; offset: number; length: number }`
-- [ ] `POST /api/v1/rooms/:id/messages` — body 에 `entities[]` 받아 저장
-- [ ] `GET /api/v1/mentions/search?q=&scope=` — 사용자/부서/프로젝트/업무/파일 검색. 권한 필터링 (caller 가 접근 가능한 것만)
+- [x] **마이그레이션 013_messages_entities.sql** — `entities JSONB DEFAULT '[]'::jsonb`, `ai_generated BOOLEAN`, `ai_command VARCHAR(40)`, `source_message_ids UUID[]` + GIN 인덱스
+- [x] shared types `MessageEntity` (type/id/label/offset/length) + ChatMessage 확장 (entities/aiGenerated/aiCommand/sourceMessageIds)
+- [x] `POST /api/v1/rooms/:id/messages` — entities[] 받아 sanitize (range check) 후 저장. PG INSERT에 jsonb로 직렬화
+- [x] `GET /api/v1/mentions/search?q=&scope=&limit=` — 사용자/부서/프로젝트/업무/파일 통합 검색. project/task/file은 caller membership 필터, user/department는 전체 활성. scope 콤마 구분, limit 기본 20
 
-### H-2. 멘션 UI
+### H-2. 멘션 UI ✅
 
-- [ ] `MessageComposer.tsx` — `@` 입력 시 popover 열기. 검색 결과 클릭 → `entities` 배열에 추가, 본문 텍스트엔 `@한미준` 형태
-- [ ] `MessageItem.tsx` — entities 의 mention 토큰을 `MentionPill` 로 렌더 + 클릭 시 사용자 프로필 (간단한 popover)
+- [x] `MessageComposer.tsx` — `@` 입력 감지 popover (mentions/search 80ms 디바운스). ↑↓ 키 + Enter 선택 + Esc 닫기. 선택 시 entities 배열에 추가 + 본문에 `@이름` 삽입 + 캐럿 위치 복원
+- [x] entities reconcile — 본문 편집으로 토큰 텍스트가 깨지면 자동 drop
+- [x] `MessageItem.tsx` — `renderBodyWithMentions`가 entities offset/length 기반 정확한 토큰 렌더 (CJK 안전). mention은 파란 pill, project/task/file은 다른 톤. legacy `mentions: string[]`도 fallback 유지
 
-### H-3. 멘션 알림 (Phase 6 와 연동)
+### H-3. 멘션 알림 (Phase 6 와 연동) ⏳
 
-- [ ] 메시지 append 시 entities 에 사용자 mention 있으면 `notifications` 테이블에 row 추가 + socket emit
+- [x] entities에 user mention 들어가는 부분까지 완료 (H-1)
+- [ ] 메시지 append 시 entities를 보고 user_notifications에 row 추가 + socket emit — Phase 6 014 마이그레이션 후 연결
 
-### H-4. AI 명령 — 백엔드 LLM 어댑터 (doc/09)
+### H-4. AI 명령 — 백엔드 LLM 어댑터 (doc/09) ✅
 
-- [ ] `server` 의존성 추가 — `@anthropic-ai/sdk`
-- [ ] 환경변수 — `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` (default `claude-sonnet-4-6`)
-- [ ] `server/src/ai/anthropic.ts` — `summarize / extractTasks / extractDecisions / draftNotice / minutes` 5개 함수. 모든 함수는 caller 가 접근 가능한 context (메시지 목록) 만 받음
-- [ ] Routes:
-  - [ ] `POST /api/v1/ai/chat-summary` — `{roomId, scope: "recent20" | "today" | "thread" | "messageIds"}`
-  - [ ] `POST /api/v1/ai/extract-tasks` — 동일 scope. **자동 insert 금지** — preview 만 반환
-  - [ ] `POST /api/v1/ai/extract-decisions`
-  - [ ] `POST /api/v1/ai/draft-notice`
-  - [ ] `POST /api/v1/ai/minutes`
-- [ ] rate limit (사용자당 분당 5건, 일당 30건). 비용 한도 환경변수 — `AI_DAILY_TOKEN_LIMIT`
-- [ ] 모든 AI 호출 audit log 기록
+- [x] `@anthropic-ai/sdk` 0.96.0 설치
+- [x] config: `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` (default `claude-sonnet-4-6`) / `AI_DAILY_TOKEN_LIMIT` (default 0=무제한)
+- [x] `server/src/ai/anthropic.ts` — `summarize / extractTasks / extractDecisions / draftNotice / minutes` 5개 함수. transcript 형식으로 ChatMessage[] → 모델. 한국어 응답 system prompt. extract-* 는 JSON 강제
+- [x] Routes (`server/src/routes/ai.ts`):
+  - [x] `POST /api/v1/ai/chat-summary` — `{roomId, scope: "recent20" | "today" | "thread" | "messageIds", messageIds?}`
+  - [x] `POST /api/v1/ai/extract-tasks` (preview only — DB insert 안 함)
+  - [x] `POST /api/v1/ai/extract-decisions` (preview only)
+  - [x] `POST /api/v1/ai/draft-notice`
+  - [x] `POST /api/v1/ai/minutes`
+- [x] rate limit — in-memory token bucket per user (분당 5건 + 일당 30건 + AI_DAILY_TOKEN_LIMIT). 429 응답
+- [x] 키 없으면 503 `ai_disabled` (UI에서 안내 메시지)
+- [x] caller 멤버십 + 메시지 접근 권한 검증 (admin 패스). 모든 호출 audit (`ai.summarize` 등)
 
-### H-5. /명령 UI
+### H-5. /명령 UI ✅
 
-- [ ] `MessageComposer.tsx` — `/` 입력 시 popover 명령 리스트 (`/요약`, `/업무추출`, `/결정사항`, `/공지초안`, `/회의록`)
-- [ ] 명령 선택 → scope 선택 모달 → AI 호출 → 미리보기 모달 (편집 가능)
-- [ ] 미리보기에서 `삽입` 또는 `전송` 클릭 시 메시지 append (`ai_generated=true`, `ai_command=...`)
-- [ ] 메시지 UI에 "AI 생성 초안" 뱃지 (ai_generated)
-- [ ] **자동 전송 금지** — 명시 확정 클릭 필수
+- [x] `MessageComposer.tsx` — `/` 입력 시 line-start regex로 감지 → popover (5종 명령). ↑↓ 키 + Enter 선택 + Esc 닫기. @-popover와 mutually exclusive
+- [x] 선택 → 입력 텍스트의 `/명령` 토큰 제거 + `AiCommandModal` 띄움
+- [x] `AiCommandModal` — 범위 선택 (recent20 / today) + [생성] → AI 호출 → textarea 미리보기 (편집 가능) + [복사] / [채팅에 삽입] / [취소]. **자동 전송 없음** — 사용자가 [채팅에 삽입] 클릭해야만 전송
+- [x] `MessageItem` body 앞에 "AI 초안" 뱃지 (gradient purple→blue, aiGenerated 시)
+- [ ] (후속) 삽입 시 aiGenerated=true / aiCommand / sourceMessageIds도 메시지 row에 같이 영속화 — 현재는 일반 메시지로 전송. chatService.sendMessage 시그니처 확장 필요
 
 ---
 
@@ -590,7 +593,7 @@
 | 010 | messages.edited_at | (완료) Phase 2 E-1 |
 | 011 | messages FTS + trgm 인덱스 | (완료) Phase 2 E-3 |
 | 012 | decisions.is_deleted + decision_reads | (완료) Phase 3 |
-| 013 | messages.entities / ai_generated / ai_command / source_message_ids | Phase 5 |
+| 013 | messages.entities / ai_generated / ai_command / source_message_ids | (완료) Phase 5 |
 | 014 | user_notifications / user_notification_settings | Phase 6 |
 | 015 | product_specs / product_lots / sales_status_events | Phase 7 |
 | 016 | user_invitations | Phase 8 |

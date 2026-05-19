@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import type {
   ChatMessage,
   CreateRoomInput,
+  MessageEntity,
   Room,
   RoomType,
   UpdateRoomInput
@@ -190,6 +191,12 @@ export function createRoomsRouter(repos: Repositories): Router {
       typeof req.body?.attachmentId === "string" && req.body.attachmentId
         ? req.body.attachmentId
         : undefined;
+    // Phase 5 H-1 — entities[]는 메시지 본문에 박힌 mention/ref 토큰.
+    // 클라이언트가 보낸 것 그대로 신뢰하지 않고 형태 검증한다 (label/id/
+    // offset/length가 본문 범위 안에 있어야 함). 본문에 박힌 텍스트와
+    // entity label이 일치하는지까지 강제하면 UI 마찰이 크니 위치 범위만.
+    const rawEntities = Array.isArray(req.body?.entities) ? req.body.entities : [];
+    const entities = sanitizeEntities(rawEntities, body);
     // Allow attachment-only messages (empty body) so users can share a file
     // without writing text.
     if (!body.trim() && !attachmentId) {
@@ -226,7 +233,8 @@ export function createRoomsRouter(repos: Repositories): Router {
       body,
       createdAt: new Date().toISOString(),
       isMine: true,
-      attachment
+      attachment,
+      entities: entities.length > 0 ? entities : undefined
     };
     const saved = await repos.messages.append(req.params.roomId, message, {
       attachmentId
@@ -489,4 +497,43 @@ async function findExistingDirect(
       r.members.some((m) => m.userId === userIdA) &&
       r.members.some((m) => m.userId === userIdB)
   );
+}
+
+// Phase 5 H-1 — entity[]가 message body 범위 안의 정상 형태인지 검증.
+// 형태 안 맞는 항목은 silent drop (전체 거부보다 UX 친화적). 본문 텍스트
+// 와 label 일치는 강제하지 않음 — 클라이언트가 자유롭게 토큰 형식을
+// 정할 수 있게.
+const VALID_ENTITY_TYPES: MessageEntity["type"][] = [
+  "mention",
+  "project_ref",
+  "task_ref",
+  "file_ref"
+];
+
+function sanitizeEntities(raw: unknown[], body: string): MessageEntity[] {
+  const len = body.length;
+  const out: MessageEntity[] = [];
+  for (const e of raw) {
+    if (!e || typeof e !== "object") continue;
+    const o = e as Record<string, unknown>;
+    if (typeof o.type !== "string" || !VALID_ENTITY_TYPES.includes(o.type as MessageEntity["type"])) {
+      continue;
+    }
+    if (typeof o.id !== "string" || !o.id.trim()) continue;
+    if (typeof o.label !== "string") continue;
+    if (typeof o.offset !== "number" || !Number.isInteger(o.offset)) continue;
+    if (typeof o.length !== "number" || !Number.isInteger(o.length)) continue;
+    if (o.offset < 0 || o.length <= 0) continue;
+    if (o.offset + o.length > len) continue;
+    out.push({
+      type: o.type as MessageEntity["type"],
+      id: o.id.trim(),
+      label: o.label,
+      offset: o.offset,
+      length: o.length
+    });
+  }
+  // Sort by offset for renderer convenience.
+  out.sort((a, b) => a.offset - b.offset);
+  return out;
 }

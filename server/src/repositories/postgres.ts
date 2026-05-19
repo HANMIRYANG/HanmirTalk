@@ -38,6 +38,7 @@ import type {
   FileEntry,
   FileFolder,
   ListFilesFilter,
+  MessageEntity,
   Notice,
   NoticeReadStatus,
   NoticeReadStatusEntry,
@@ -1051,6 +1052,11 @@ interface MessageRow {
   created_at: Date;
   edited_at: Date | null;
   is_deleted: boolean;
+  // Phase 5 H-1 — entity / AI provenance columns from migration 013.
+  entities: unknown;
+  ai_generated: boolean;
+  ai_command: string | null;
+  source_message_ids: string[] | null;
   attachment_id: string | null;
   attachment_name: string | null;
   attachment_size: string | number | null;
@@ -1067,6 +1073,20 @@ function rowToMessage(row: MessageRow): ChatMessage {
   // renders the body verbatim.
   const isDeleted = Boolean(row.is_deleted);
   const body = isDeleted ? "삭제된 메시지입니다" : row.content ?? "";
+  // Phase 5 H-1 — entities is a JSONB column; pg returns it as a parsed
+  // JS value (array of objects). Filter to expected shape just in case.
+  const rawEntities = Array.isArray(row.entities) ? row.entities : [];
+  const entities: MessageEntity[] | undefined = isDeleted
+    ? undefined
+    : (rawEntities as Record<string, unknown>[])
+        .filter((e) => e && typeof e === "object" && typeof e.type === "string")
+        .map((e) => ({
+          type: e.type as MessageEntity["type"],
+          id: String(e.id ?? ""),
+          label: String(e.label ?? ""),
+          offset: Number(e.offset ?? 0),
+          length: Number(e.length ?? 0)
+        }));
   const message: ChatMessage = {
     id: row.id,
     roomId: row.room_id,
@@ -1083,7 +1103,11 @@ function rowToMessage(row: MessageRow): ChatMessage {
         ? row.edited_at.toISOString()
         : String(row.edited_at)
       : undefined,
-    isDeleted: isDeleted || undefined
+    isDeleted: isDeleted || undefined,
+    entities: entities && entities.length > 0 ? entities : undefined,
+    aiGenerated: row.ai_generated || undefined,
+    aiCommand: row.ai_command ?? undefined,
+    sourceMessageIds: row.source_message_ids ?? undefined
   };
   if (!isDeleted && row.attachment_id && row.attachment_name) {
     message.attachment = {
@@ -1099,7 +1123,8 @@ function rowToMessage(row: MessageRow): ChatMessage {
 const MESSAGE_SELECT = `
   SELECT
     m.id, m.room_id, m.user_id, m.content, m.message_type, m.created_at,
-    m.edited_at, m.is_deleted,
+    m.edited_at, m.is_deleted, m.entities, m.ai_generated, m.ai_command,
+    m.source_message_ids,
     u.name AS author_name, u.position AS author_position,
     u.avatar_tone AS author_avatar_tone, u.initials AS author_initials,
     d.name AS author_department,
@@ -1197,10 +1222,21 @@ class PgMessageRepository implements MessageRepository {
     opts?: { attachmentId?: string }
   ): Promise<ChatMessage> {
     const { rows } = await this.pool.query<{ id: string }>(
-      `INSERT INTO messages (room_id, user_id, content, message_type)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO messages
+         (room_id, user_id, content, message_type, entities, ai_generated,
+          ai_command, source_message_ids)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)
        RETURNING id`,
-      [roomId, message.authorId, message.body, message.isSystem ? "system" : "text"]
+      [
+        roomId,
+        message.authorId,
+        message.body,
+        message.isSystem ? "system" : "text",
+        JSON.stringify(message.entities ?? []),
+        message.aiGenerated ?? false,
+        message.aiCommand ?? null,
+        message.sourceMessageIds ?? null
+      ]
     );
     const newId = rows[0].id;
     // Link the previously-uploaded attachment to this message. Restrict the

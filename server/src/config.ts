@@ -25,5 +25,15 @@ export const config = {
   smtpPass: process.env.SMTP_PASS?.trim() || undefined,
   smtpSecure: process.env.SMTP_SECURE === "true",
   smtpFrom: process.env.SMTP_FROM?.trim() || "한미르톡 <no-reply@hanmir-talk.local>",
-  smtpEnabled: process.env.SMTP_ENABLED !== "false"
+  smtpEnabled: process.env.SMTP_ENABLED !== "false",
+
+  // Phase 5 H-4 — Anthropic Claude integration for the /ai/* command
+  // suite. ANTHROPIC_API_KEY missing ⇒ the routes return 503 "ai_disabled"
+  // so the UI can show "관리자에게 키 설정을 요청하세요" hint without
+  // crashing. ANTHROPIC_MODEL is the model id; pick the cheapest one
+  // that handles Korean reliably. AI_DAILY_TOKEN_LIMIT caps the per-user
+  // daily output token spend; defaults to 0 = no cap (dev convenience).
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY?.trim() || undefined,
+  anthropicModel: process.env.ANTHROPIC_MODEL?.trim() || "claude-sonnet-4-6",
+  aiDailyTokenLimit: Number(process.env.AI_DAILY_TOKEN_LIMIT ?? 0)
 };

@@ -183,6 +183,25 @@ export interface MessageReaction {
   count: number;
 }
 
+// Phase 5 H-1 — structured entity reference inside a message body.
+// Tracks @mentions, project/task/file pointers, etc. The body is plain
+// text; entities tell the renderer which substring to wrap.
+//
+//   type:   what kind of reference this is.
+//   id:     the referenced entity's id (user id for "mention" etc).
+//   label:  display label embedded in the body at [offset, offset+length).
+//           E.g. for an @mention of 김민준 the label is "김민준" and the
+//           body contains "@김민준" with offset pointing at the "@".
+//   offset/length: character offsets into `body` (UTF-16 code units, the
+//                  way JS String indexing works).
+export interface MessageEntity {
+  type: "mention" | "project_ref" | "task_ref" | "file_ref";
+  id: string;
+  label: string;
+  offset: number;
+  length: number;
+}
+
 export interface ChatMessage {
   id: string;
   roomId: string;
@@ -202,7 +221,19 @@ export interface ChatMessage {
   isMine?: boolean;
   isSystem?: boolean;
   pinned?: boolean;
+  // DEPRECATED Phase 5 — legacy string-array mentions ("김민준"). Replaced
+  // by `entities` of type=="mention" which carries id + offset/length so
+  // rendering is unambiguous. Kept for backward-compat with seed data;
+  // new code paths should write `entities` instead.
   mentions?: string[];
+  // Phase 5 H-1 — structured references embedded in the body. Empty
+  // array when none. See MessageEntity above.
+  entities?: MessageEntity[];
+  // Phase 5 H-4 — AI provenance. Set by /ai/* endpoints that insert
+  // their preview as an actual message after the user confirms.
+  aiGenerated?: boolean;
+  aiCommand?: string;
+  sourceMessageIds?: string[];
   // Phase 2 E-1 — set by PATCH /messages/:id. Frontend renders "(수정됨)"
   // hint next to the timestamp when present. Distinct from any internal
   // updated_at: only body edits touch this field.
@@ -211,6 +242,27 @@ export interface ChatMessage {
   // with a placeholder ("삭제된 메시지입니다") and strips `attachment`
   // before returning. UI shows a muted tombstone row.
   isDeleted?: boolean;
+}
+
+// Phase 5 H-1 — payload type for /mentions/search results.
+export type MentionSearchScope =
+  | "user"
+  | "department"
+  | "project"
+  | "task"
+  | "file";
+
+export interface MentionSearchResult {
+  type: MentionSearchScope;
+  id: string;
+  label: string;
+  // Sub-label rendered under the main label. e.g. department + position
+  // for users, project code for tasks.
+  sublabel?: string;
+  // Optional avatar / icon hint. For users this is initials + tone; for
+  // other types the client picks an icon based on `type`.
+  initials?: string;
+  avatarTone?: User["avatarTone"];
 }
 
 export interface Milestone {

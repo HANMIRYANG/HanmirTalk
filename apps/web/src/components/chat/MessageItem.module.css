@@ -283,3 +283,26 @@
   justify-content: flex-end;
   margin-top: 4px;
 }
+
+/* Phase 5 H-2b — non-mention reference tokens (project/task/file) */
+.entityRef {
+  color: var(--brand-blue);
+  font-weight: 600;
+  background: var(--surface-muted);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
+/* Phase 5 H-4 — AI 초안 badge appended before the body text */
+.aiBadge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  color: white;
+  background: linear-gradient(135deg, #7C3AED, #4F46E5);
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  margin-right: 6px;
+  vertical-align: middle;
+  letter-spacing: 0.3px;
+}

@@ -1,6 +1,9 @@
 import type {
   ChatMessage,
   CreateRoomInput,
+  MentionSearchResult,
+  MentionSearchScope,
+  MessageEntity,
   PinnedMessageRef,
   Room,
   UpdateRoomInput
@@ -26,16 +29,35 @@ export const chatService = {
   async sendMessage(
     roomId: string,
     body: string,
-    opts: AuthOptions & { attachmentId?: string } = {}
+    opts: AuthOptions & { attachmentId?: string; entities?: MessageEntity[] } = {}
   ): Promise<ChatMessage> {
-    const { token, attachmentId } = opts;
-    const payload: { body: string; attachmentId?: string } = { body };
+    const { token, attachmentId, entities } = opts;
+    const payload: { body: string; attachmentId?: string; entities?: MessageEntity[] } = { body };
     if (attachmentId) payload.attachmentId = attachmentId;
+    if (entities && entities.length > 0) payload.entities = entities;
     return apiRequest<ChatMessage>(`/rooms/${encodeURIComponent(roomId)}/messages`, {
       method: "POST",
       body: payload,
       token
     });
+  },
+
+  // Phase 5 H-1 — @mention popover의 검색 호출. scope는 콤마 구분.
+  // 기본 user만. limit 기본 20.
+  async searchMentions(
+    q: string,
+    opts: AuthOptions & { scope?: MentionSearchScope[]; limit?: number } = {}
+  ): Promise<MentionSearchResult[]> {
+    const query: Record<string, string | number> = { q };
+    if (opts.scope && opts.scope.length > 0) {
+      query.scope = opts.scope.join(",");
+    }
+    if (opts.limit) query.limit = opts.limit;
+    const response = await apiRequest<{ results: MentionSearchResult[] }>(
+      "/mentions/search",
+      { query, token: opts.token }
+    );
+    return response.results;
   },
   async getPinnedMessage(
     roomId: string,
