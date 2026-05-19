@@ -7,9 +7,11 @@
 #
 # The first time the volume is created the SQL files under
 # `server/src/db/migrations/` are mounted into Postgres' init dir and run in
-# alphabetical order (001 → 002 → 003). Subsequent boots skip them.
+# alphabetical order. Currently 001~009 (Phase 1 완료 시점).
+# Subsequent boots skip them — fresh schema only rebuilds on `db:reset`.
 #
-# To re-apply migrations against an existing volume, use `npm run db:migrate`.
+# To re-apply migrations against an existing volume (e.g. after pulling new
+# migration files), use `npm run db:migrate`.
 # To wipe everything and start over, run `npm run db:reset`
 # (== `docker compose down -v && docker compose up -d`).
 #

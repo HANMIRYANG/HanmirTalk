@@ -3,6 +3,7 @@ import type { CreateNoticeInput } from "@hanmir/shared";
 import type { Repositories } from "../repositories/types";
 import { requireAuth, requireRole } from "../auth/middleware";
 import { realtime } from "../realtime";
+import { auditLog } from "../audit";
 
 function isString(value: unknown): value is string {
   return typeof value === "string";
@@ -43,6 +44,13 @@ export function createNoticesRouter(repos: Repositories): Router {
     const created = await repos.notices.create(parsed, {
       id: user.id,
       departmentName: user.departmentName
+    });
+    await auditLog(repos, req, {
+      action: "notice.create",
+      targetType: "notice",
+      targetId: created.id,
+      targetLabel: created.title,
+      meta: { isMandatory: created.isMandatory }
     });
     realtime.emitNoticeNew(created);
     res.status(201).json(created);

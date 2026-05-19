@@ -8,6 +8,7 @@ import {
   extractToken,
   setAuthCookies
 } from "../auth/token";
+import { auditLog } from "../audit";
 
 // Phase 1 D-3 — httpOnly cookie auth with refresh rotation.
 // Access cookie: 15 min, in-memory sessionStore (lost on server restart;
@@ -66,10 +67,34 @@ export function createAuthRouter(repos: Repositories): Router {
     }
     const valid = await repos.users.verifyPassword(user.id, password);
     if (!valid) {
+      // Audit only privileged-account failures — regular users hitting the
+      // wrong password is high-volume noise. For admins it's a meaningful
+      // signal worth surfacing in the audit log.
+      if (user.role === "admin" || user.role === "super_admin") {
+        // We synthesize a req-like object so auditLog records the *targeted*
+        // account as the actor (since req.currentUser is still empty here).
+        const targeted = { ...req, currentUser: user } as Request;
+        await auditLog(repos, targeted, {
+          action: "auth.login.failure",
+          targetType: "user",
+          targetId: user.id,
+          targetLabel: user.email,
+          level: "warn"
+        });
+      }
       res.status(401).json({ error: "invalid_credentials" });
       return;
     }
     const { accessToken } = await issueSessionFor(repos, res, user.id, clientContext(req));
+    if (user.role === "admin" || user.role === "super_admin") {
+      const ctx = { ...req, currentUser: user } as Request;
+      await auditLog(repos, ctx, {
+        action: "auth.login.success",
+        targetType: "user",
+        targetId: user.id,
+        targetLabel: user.email
+      });
+    }
     // Keep `token` in the response body for the transition period — older
     // frontend code paths still read it, and Authorization-header API
     // consumers (scripts, tests) rely on it. New frontend code should
@@ -149,6 +174,12 @@ export function createAuthRouter(repos: Repositories): Router {
     // Defense: invalidate every other session for this user so an attacker
     // who already stole a refresh token loses access immediately.
     await repos.refreshTokens.revokeAllForUser(me.id);
+    await auditLog(repos, req, {
+      action: "auth.password.change",
+      targetType: "user",
+      targetId: me.id,
+      targetLabel: me.email
+    });
     res.json({ ok: true });
   });
 

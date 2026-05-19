@@ -6,6 +6,7 @@ import type {
 } from "@hanmir/shared";
 import type { Repositories } from "../repositories/types";
 import { requireRole } from "../auth/middleware";
+import { auditLog } from "../audit";
 
 const VALID_SALES_STATUS: SalesStatus[] = [
   "unavailable",
@@ -127,6 +128,13 @@ export function createProductsRouter(repos: Repositories): Router {
       return;
     }
     const product = await repos.products.create(parsed);
+    await auditLog(repos, req, {
+      action: "product.create",
+      targetType: "product",
+      targetId: product.id,
+      targetLabel: product.name,
+      meta: { category: product.category, salesStatus: product.salesStatus }
+    });
     res.status(201).json(product);
   });
 
@@ -141,15 +149,31 @@ export function createProductsRouter(repos: Repositories): Router {
       res.status(404).json({ error: "not_found" });
       return;
     }
+    await auditLog(repos, req, {
+      action: "product.update",
+      targetType: "product",
+      targetId: updated.id,
+      targetLabel: updated.name,
+      meta: parsed
+    });
     res.json(updated);
   });
 
   router.delete("/:id", writers, async (req, res) => {
+    // Capture label before delete for the audit row.
+    const before = await repos.products.findById(req.params.id);
     const ok = await repos.products.delete(req.params.id);
     if (!ok) {
       res.status(404).json({ error: "not_found" });
       return;
     }
+    await auditLog(repos, req, {
+      action: "product.delete",
+      targetType: "product",
+      targetId: req.params.id,
+      targetLabel: before?.name ?? req.params.id,
+      level: "warn"
+    });
     res.json({ ok: true });
   });
 

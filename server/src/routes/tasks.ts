@@ -6,6 +6,7 @@ import type {
 } from "@hanmir/shared";
 import type { Repositories } from "../repositories/types";
 import { requireRole } from "../auth/middleware";
+import { auditLog } from "../audit";
 
 const VALID_TASK_STATUS: TaskStatus[] = [
   "todo",
@@ -149,17 +150,35 @@ export function createTasksRouter(repos: Repositories): Router {
       res.status(404).json({ error: "not_found" });
       return;
     }
+    await auditLog(repos, req, {
+      action: "task.update",
+      targetType: "task",
+      targetId: updated.id,
+      targetLabel: `${updated.code} ${updated.title}`,
+      meta: { projectId: access.projectId, changes: parsed }
+    });
     res.json(updated);
   });
 
   router.delete("/:id", writers, async (req, res) => {
     const access = await ensureTaskProjectAccess(repos, req, res, req.params.id);
     if (!access.allowed) return;
+    // Capture label before delete so audit row carries something meaningful
+    // even after the task row is gone.
+    const before = await repos.tasks.findById(req.params.id);
     const ok = await repos.tasks.delete(req.params.id);
     if (!ok) {
       res.status(404).json({ error: "not_found" });
       return;
     }
+    await auditLog(repos, req, {
+      action: "task.delete",
+      targetType: "task",
+      targetId: req.params.id,
+      targetLabel: before ? `${before.code} ${before.title}` : req.params.id,
+      level: "warn",
+      meta: { projectId: access.projectId }
+    });
     res.json({ ok: true });
   });
 

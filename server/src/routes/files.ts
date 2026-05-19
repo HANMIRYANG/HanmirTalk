@@ -6,6 +6,7 @@ import multer from "multer";
 import type { CreateFileInput, ListFilesFilter } from "@hanmir/shared";
 import type { Repositories } from "../repositories/types";
 import { requireAuth } from "../auth/middleware";
+import { auditLog } from "../audit";
 import { config } from "../config";
 
 // Phase 1 D-6 — file upload security (docs/12).
@@ -219,6 +220,13 @@ export function createFilesRouter(repos: Repositories): Router {
         await fs.unlink(abs).catch(() => undefined);
       }
     }
+    await auditLog(repos, req, {
+      action: "file.delete",
+      targetType: "file",
+      targetId: req.params.id,
+      targetLabel: storage?.fileName,
+      level: "warn"
+    });
     res.json({ ok: true });
   });
 

@@ -87,8 +87,8 @@
 
 **의존성**: 다른 phase와 독립적. 단, Phase 2/3/5/6/7 보다 먼저 끝내는 게 권장.
 **예상 작업량**: 4~6일 (SMTP 포함)
-**진행 상황 (2026-05-19 기준)**: D-1, D-2, D-3, D-4(부분), D-5, D-6, D-7(SMTP), D-8 ✅
-**남은 작업 (실행 순서)**: **D-4 sweep (확장 10건) → D-9 (문서 drift 정리)**
+**진행 상황 (2026-05-19 기준)**: **D-1 ~ D-9 모두 ✅ — Phase 1 완전 종결**
+**다음 단계**: Phase 2 (메시지 수정/삭제/검색) 진입
 
 > **2026-05-19 추가 결정**: codex 추가 검수에서 발견된 채팅방 권한 결함이 D-3보다 먼저 차단되어야 함이 확인됨. 또한 D-4 audit hook이 사용자/부서 외에도 task/product/notice/file 등에 누락되어 sweep 범위가 확장됨. D-9는 SMTP 도입 후 발견된 .env/docker-compose 문서 drift 정리.
 
@@ -138,18 +138,19 @@
 - [x] `GET /api/v1/dashboard/audit` 라우트 — seed → audit_logs.list 교체, admin only
 - [x] `/admin` 페이지의 감사 로그 카드는 같은 endpoint를 그대로 사용 (UI 변경 없음, 데이터 소스만 교체)
 
-#### D-4 sweep (확장 범위, 후속 작업)
+#### D-4 sweep (확장 범위, 2026-05-19 일괄 처리) ✅
 
-원래 로드맵에서는 "공지 / 결정사항 / 파일 삭제 / 관리자 로그인"만 명시했으나, 2026-05-19 검수에서 다음 항목들도 audit hook이 없음을 확인:
+원래 로드맵에서는 "공지 / 결정사항 / 파일 삭제 / 관리자 로그인"만 명시했으나, 2026-05-19 검수에서 다음 항목들도 audit hook이 없음을 확인 → 일괄 추가:
 
-- [ ] `project.update` (`server/src/routes/projects.ts:269`)
-- [ ] `project.member.add / remove`
-- [ ] `task.create / update / delete` (routes/tasks.ts에 audit import 자체 없음)
-- [ ] `product.create / update / delete` (routes/products.ts에 audit import 자체 없음)
-- [ ] `notice.create` (routes/notices.ts에 audit import 자체 없음)
-- [ ] `file.delete` + `file.upload` (선택)
-- [ ] `auth.login.success / failure` (관리자 로그인 한정)
-- [ ] `auth.password.change` (본인이 비밀번호 변경 시)
+- [x] `project.update` (`server/src/routes/projects.ts`) — 변경 키만 meta로 기록
+- [x] `project.member.add` / `project.member.remove` — 추가/제거된 사용자 id+name 기록, 제거는 warn
+- [x] `task.create` (projects.ts의 nested route) / `task.update` / `task.delete` (tasks.ts에 audit import 추가)
+- [x] `product.create` / `product.update` / `product.delete` (products.ts에 audit import 추가)
+- [x] `notice.create` (notices.ts에 audit import 추가)
+- [x] `file.delete` — warn level (file.upload은 일반 사용자 액션이라 제외)
+- [x] `auth.login.success / failure` — admin / super_admin 한정. invalid_credentials 시 targeted user를 actor로 기록
+- [x] `auth.password.change` — 본인 비밀번호 변경 성공 시
+- [ ] (Phase 3) `decision.*` 결정사항 hook — Phase 3 구현 시 함께 추가
 
 ### D-5. per-project ownership 검사 (doc/04) ✅
 
@@ -191,12 +192,12 @@
 - [x] `PgMessageRepository.markRead` — `INSERT ... ON CONFLICT` 대신 `UPDATE room_members ... WHERE` 로 변경. 비멤버에게 멤버십 부여 차단
 - [x] socket.io `room:join` 이벤트 (`realtime.ts`) — `canAccessRoom()` 멤버십 검증 추가, 비멤버는 silent join 거부 (`realtime.attach()`에 `repos` 주입)
 
-### D-9. 문서 drift 정리 (2026-05-19 추가) ❌
+### D-9. 문서 drift 정리 (2026-05-19) ✅
 
-- [ ] `.env.example` `UPLOAD_MAX_BYTES` 주석 "25 MB" → "50 MB" (D-6에서 코드만 갱신됨)
-- [ ] `.env.example` `DEFAULT_PASSWORD` "bcrypt 도입 전까지의 임시 값" 문구 제거 (D-1 완료)
-- [ ] `docker-compose.yml` 마이그레이션 안내 "001 → 002 → 003" → "001~009 (alphabetical 순서)"
-- [ ] `docs/16_CLAUDE_CODE_INSTRUCTIONS.md` NestJS 권장 → Express 실태에 맞춰 갱신 (선택)
+- [x] `.env.example` `UPLOAD_MAX_BYTES` 주석 "25 MB" → "50 MB" + 화이트리스트 안내 추가 (D-6 코드 일치)
+- [x] `.env.example` `DEFAULT_PASSWORD` "bcrypt 도입 전까지의 임시 값" 문구 제거 → bcrypt+must_change_password 실제 동작 안내로 교체 (D-1, D-2 완료 반영)
+- [x] `docker-compose.yml` 마이그레이션 안내 "001 → 002 → 003" → "001~009 (alphabetical 순서)"
+- [ ] `docs/16_CLAUDE_CODE_INSTRUCTIONS.md` NestJS 권장 → Express 실태에 맞춰 갱신 (선택, 후속)
 
 ---
 

@@ -279,6 +279,15 @@ export function createProjectsRouter(repos: Repositories): Router {
       res.status(404).json({ error: "not_found" });
       return;
     }
+    await auditLog(repos, req, {
+      action: "project.update",
+      targetType: "project",
+      targetId: updated.id,
+      targetLabel: `${updated.code} ${updated.name}`,
+      // Record only the keys that actually changed — full project objects
+      // are noisy and `meta` is rendered in the audit log UI.
+      meta: parsed
+    });
     res.json(updated);
   });
 
@@ -321,17 +330,35 @@ export function createProjectsRouter(repos: Repositories): Router {
       res.status(404).json({ error: "not_found" });
       return;
     }
+    await auditLog(repos, req, {
+      action: "project.member.add",
+      targetType: "project",
+      targetId: updated.id,
+      targetLabel: `${updated.code} ${updated.name}`,
+      meta: { addedUserId: userId, addedUserName: user.name }
+    });
     res.status(201).json(updated);
   });
 
   router.delete("/:id/members/:userId", writers, async (req, res) => {
     const access = await ensureProjectAccess(repos, req, res, req.params.id);
     if (!access.allowed) return;
+    // Look up the user up-front for the audit label; null is fine if the
+    // user was already deleted — we still record the id.
+    const removedUser = await repos.users.findById(req.params.userId);
     const updated = await repos.projects.removeMember(req.params.id, req.params.userId);
     if (!updated) {
       res.status(404).json({ error: "not_found" });
       return;
     }
+    await auditLog(repos, req, {
+      action: "project.member.remove",
+      targetType: "project",
+      targetId: updated.id,
+      targetLabel: `${updated.code} ${updated.name}`,
+      level: "warn",
+      meta: { removedUserId: req.params.userId, removedUserName: removedUser?.name }
+    });
     res.json(updated);
   });
 
@@ -354,6 +381,13 @@ export function createProjectsRouter(repos: Repositories): Router {
       return;
     }
     const task = await repos.tasks.create(req.params.projectId, parsed);
+    await auditLog(repos, req, {
+      action: "task.create",
+      targetType: "task",
+      targetId: task.id,
+      targetLabel: `${task.code} ${task.title}`,
+      meta: { projectId: req.params.projectId, status: task.status, priority: task.priority }
+    });
     res.status(201).json(task);
   });
 
