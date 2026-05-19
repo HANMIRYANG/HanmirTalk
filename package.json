@@ -8,7 +8,8 @@
     "server"
   ],
   "scripts": {
-    "dev": "npm --workspace apps/web run dev",
+    "dev": "concurrently --names \"web,server\" --prefix-colors \"cyan,magenta\" --kill-others-on-fail \"npm:dev:web\" \"npm:dev:server\"",
+    "dev:web": "npm --workspace apps/web run dev",
     "dev:server": "npm --workspace @hanmir/server run dev",
     "build": "npm --workspace apps/web run build",
     "build:server": "npm --workspace @hanmir/server run build",
@@ -24,5 +25,8 @@
   },
   "engines": {
     "node": ">=18.18.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   }
 }

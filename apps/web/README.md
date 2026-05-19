@@ -8,13 +8,14 @@
 
 ```bash
 npm install
-npm run dev          # apps/web Next.js 개발 서버 (기본 http://localhost:3000)
+npm run dev          # web + server 동시 (concurrently) — 가장 일반적인 워크플로
+npm run dev:web      # 프론트만 (Next.js, http://localhost:3000)
 npm run build        # 프로덕션 빌드
 npm run start        # 빌드 결과 실행
 npm run typecheck    # 모든 워크스페이스 타입 체크
 ```
 
-또는 이 디렉터리에서:
+또는 이 디렉터리에서 (web만):
 
 ```bash
 cd apps/web

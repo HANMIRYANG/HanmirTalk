@@ -47,12 +47,22 @@ Claude Code는 UI를 새로 디자인하지 않습니다. HTML 레퍼런스의 �
 npm install
 ```
 
+### 개발 서버 (web + server 동시 기동)
+
+```bash
+# 권장 — 한 터미널에서 양쪽 동시 실행 (concurrently)
+# [web]    Next.js dev → http://localhost:3000
+# [server] tsx watch  → http://localhost:4000/api/v1
+npm run dev
+
+# 개별 실행이 필요하면
+npm run dev:web      # 프론트만
+npm run dev:server   # 백엔드만
+```
+
 ### 백엔드 (Express + TypeScript, in-memory seed adapter)
 
 ```bash
-# 개발 모드 (tsx watch, 기본 PORT=4000, API prefix /api/v1)
-npm run dev:server
-
 # 빌드 + 프로덕션 실행
 npm run build:server
 npm run start:server
@@ -82,8 +92,8 @@ npm run db:down       # 컨테이너 중지 (볼륨은 보존)
 ### 프론트엔드 (Next.js)
 
 ```bash
-# 개발 모드
-npm run dev
+# 개발 모드 (프론트만 — 백엔드까지 함께 띄우려면 루트의 npm run dev 사용)
+npm run dev:web
 
 # 빌드 + 프로덕션 실행
 npm run build
@@ -262,8 +272,7 @@ repository 인터페이스(`repositories/types.ts`)와 메모리 어댑터(`repo
 ### memory mode (현재 기본)
 
 ```powershell
-npm run dev:server   # 백엔드, http://localhost:4000/api/v1
-npm run dev          # 프론트, http://localhost:3000
+npm run dev          # 백엔드+프론트 동시 — concurrently로 한 터미널에서 양쪽 로그
 ```
 
 ### postgres mode 활성화 절차
@@ -282,7 +291,7 @@ npm run dev          # 프론트, http://localhost:3000
    - `004`: `notices.room_id`를 nullable로 변경 (MVP 공지 작성에 room이 필요 없음). idempotent.
    - `005`: `rooms.pinned_message_id` 컬럼 추가 (room 당 단일 pinned message). idempotent.
 3. `.env` 또는 환경에 `DATABASE_URL=postgres://user:pass@host:5432/hanmir_talk`.
-4. `npm run dev:server` 또는 `npm run build:server && npm run start:server`로 기동. 로그에 `repository adapter: postgres`가 보이면 활성 상태.
+4. `npm run dev` (web+server 동시) 또는 `npm run build:server && npm run start:server`로 기동. 로그에 `repository adapter: postgres`가 보이면 활성 상태.
 
 ### Postgres adapter 구현 범위
 
