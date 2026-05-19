@@ -11,10 +11,15 @@ import {
 import { auditLog } from "../audit";
 
 // Phase 1 D-3 — httpOnly cookie auth with refresh rotation.
-// Access cookie: 15 min, in-memory sessionStore (lost on server restart;
-// refresh recovers).
-// Refresh cookie: 30 days, refresh_tokens table, rotated on every use.
-const ACCESS_MAX_AGE_SEC = 15 * 60;
+// Access cookie: 1 hour. The original 15-min value was tightened from a
+// pure-security standpoint, but every page.tsx runs a server-side
+// /auth/me check on render and SSR has no way to call /auth/refresh
+// (cookie writes need a response context the layout doesn't own). With
+// 15-min access, any idle ≥15 min produced a forced re-login despite a
+// valid 30-day refresh. 1 hour covers normal business-hour navigation
+// while keeping refresh rotation as the primary security boundary.
+// Future: a Next.js middleware refresh would let us drop this back down.
+const ACCESS_MAX_AGE_SEC = 60 * 60;
 const REFRESH_MAX_AGE_SEC = 30 * 24 * 60 * 60;
 
 function clientContext(req: Request): { userAgent?: string; ip?: string } {
