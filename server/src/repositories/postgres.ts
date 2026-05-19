@@ -872,6 +872,8 @@ interface MessageRow {
   content: string | null;
   message_type: string;
   created_at: Date;
+  edited_at: Date | null;
+  is_deleted: boolean;
   attachment_id: string | null;
   attachment_name: string | null;
   attachment_size: string | number | null;
@@ -883,6 +885,11 @@ function rowToMessage(row: MessageRow): ChatMessage {
     row.author_position && row.author_department
       ? `${row.author_position} · ${row.author_department}`
       : row.author_position ?? undefined;
+  // Phase 2 E-1 — mask the body and drop attachments for soft-deleted
+  // rows so the API never leaks the original content. The frontend just
+  // renders the body verbatim.
+  const isDeleted = Boolean(row.is_deleted);
+  const body = isDeleted ? "삭제된 메시지입니다" : row.content ?? "";
   const message: ChatMessage = {
     id: row.id,
     roomId: row.room_id,
@@ -891,11 +898,17 @@ function rowToMessage(row: MessageRow): ChatMessage {
     authorRole: role,
     avatarTone: (row.author_avatar_tone ?? "default") as ChatMessage["avatarTone"],
     initials: row.author_initials ?? "",
-    body: row.content ?? "",
+    body,
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
-    isSystem: row.message_type === "system" || undefined
+    isSystem: row.message_type === "system" || undefined,
+    editedAt: row.edited_at
+      ? row.edited_at instanceof Date
+        ? row.edited_at.toISOString()
+        : String(row.edited_at)
+      : undefined,
+    isDeleted: isDeleted || undefined
   };
-  if (row.attachment_id && row.attachment_name) {
+  if (!isDeleted && row.attachment_id && row.attachment_name) {
     message.attachment = {
       id: row.attachment_id,
       kind: deriveFileKind(row.attachment_name, row.attachment_type),
@@ -909,6 +922,7 @@ function rowToMessage(row: MessageRow): ChatMessage {
 const MESSAGE_SELECT = `
   SELECT
     m.id, m.room_id, m.user_id, m.content, m.message_type, m.created_at,
+    m.edited_at, m.is_deleted,
     u.name AS author_name, u.position AS author_position,
     u.avatar_tone AS author_avatar_tone, u.initials AS author_initials,
     d.name AS author_department,
@@ -930,9 +944,72 @@ class PgMessageRepository implements MessageRepository {
   constructor(private readonly pool: Pool) {}
 
   async listByRoom(roomId: string): Promise<ChatMessage[]> {
+    // Phase 2 E-1 — include soft-deleted rows so the conversation flow
+    // stays intact (tombstone). rowToMessage masks the body.
     const { rows } = await this.pool.query<MessageRow>(
-      `${MESSAGE_SELECT} WHERE m.room_id = $1 AND NOT m.is_deleted ORDER BY m.created_at ASC`,
+      `${MESSAGE_SELECT} WHERE m.room_id = $1 ORDER BY m.created_at ASC`,
       [roomId]
+    );
+    return rows.map(rowToMessage);
+  }
+
+  async findById(messageId: string): Promise<ChatMessage | undefined> {
+    const { rows } = await this.pool.query<MessageRow>(
+      `${MESSAGE_SELECT} WHERE m.id = $1`,
+      [messageId]
+    );
+    return rows[0] ? rowToMessage(rows[0]) : undefined;
+  }
+
+  async updateBody(messageId: string, body: string): Promise<ChatMessage | undefined> {
+    // Refuse to edit an already-deleted row — undoing soft-delete is a
+    // separate operation we don't currently expose.
+    const { rowCount } = await this.pool.query(
+      `UPDATE messages
+          SET content = $1,
+              edited_at = NOW(),
+              updated_at = NOW()
+        WHERE id = $2 AND NOT is_deleted`,
+      [body, messageId]
+    );
+    if (!rowCount) return undefined;
+    return this.findById(messageId);
+  }
+
+  async softDelete(messageId: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      `UPDATE messages
+          SET is_deleted = true,
+              updated_at = NOW()
+        WHERE id = $1 AND NOT is_deleted`,
+      [messageId]
+    );
+    if (!rowCount) return false;
+    // If this was the pinned message, drop the pin — a tombstone in the
+    // pinned banner is worse than no banner.
+    await this.pool.query(
+      `UPDATE rooms SET pinned_message_id = NULL WHERE pinned_message_id = $1`,
+      [messageId]
+    );
+    return true;
+  }
+
+  async search(opts: { q: string; roomIds: string[]; limit?: number }): Promise<ChatMessage[]> {
+    const needle = opts.q.trim();
+    if (!needle || opts.roomIds.length === 0) return [];
+    const limit = Math.min(opts.limit ?? 50, 200);
+    // ILIKE on content with a leading-wildcard pattern. Backed by the
+    // pg_trgm GIN index from migration 011 so it stays sub-linear even
+    // as the messages table grows. tsvector index isn't used yet — see
+    // migration 011 for why we kept it for future use.
+    const { rows } = await this.pool.query<MessageRow>(
+      `${MESSAGE_SELECT}
+       WHERE NOT m.is_deleted
+         AND m.room_id = ANY($1::uuid[])
+         AND m.content ILIKE '%' || $2 || '%'
+       ORDER BY m.created_at DESC
+       LIMIT $3`,
+      [opts.roomIds, needle, limit]
     );
     return rows.map(rowToMessage);
   }

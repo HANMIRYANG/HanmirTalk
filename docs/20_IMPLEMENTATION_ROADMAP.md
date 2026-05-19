@@ -201,31 +201,38 @@
 
 ---
 
-## E. Phase 2 — 메시지 보완 (doc/05, 08)
+## E. Phase 2 — 메시지 보완 (doc/05, 08) ✅ **완료 (2026-05-19)**
 
-**의존성**: 마이그레이션 010 (messages 확장). Phase 1과 병행 가능.
-**예상 작업량**: 2~3일
+**의존성**: 마이그레이션 010, 011. Phase 1과 병행 가능.
+**예상 작업량**: 2~3일 / **실제**: 1일
 
-### E-1. 메시지 수정·삭제 API
+### E-1. 메시지 수정·삭제 API ✅
 
-- [ ] **마이그레이션 010_messages_extension.sql** — 이미 `messages.is_deleted` 컬럼 존재. `messages.edited_at TIMESTAMP NULL` 추가
-- [ ] `PATCH /messages/:id` — 본인이 작성한 메시지만, body 수정, `edited_at = NOW()`
-- [ ] `DELETE /messages/:id` — `is_deleted = true` (soft). 본인 또는 admin
-- [ ] 메시지 list 응답에 `editedAt`, `isDeleted` 필드 추가 — 삭제된 메시지는 body를 "삭제된 메시지입니다"로 마스킹
+- [x] **마이그레이션 010_messages_edited_at.sql** — `messages.edited_at TIMESTAMP NULL` 추가 (is_deleted는 001에 이미 존재). updated_at과 분리해 body 편집 시점만 트래킹
+- [x] `PATCH /messages/:id` — 본인 작성 메시지만, body 변경 시 edited_at=NOW(). 변경 없으면 no-op로 응답
+- [x] `DELETE /messages/:id` — soft delete (is_deleted=true). 본인 또는 admin/super_admin. admin이 타인 메시지 삭제 시 audit log warn 기록
+- [x] listByRoom + findById가 deleted 메시지의 body를 "삭제된 메시지입니다"로 마스킹 + attachment 제거. 메모리/PG 양쪽 동일 동작
+- [x] 핀 된 메시지가 soft delete되면 자동 unpin (PG는 UPDATE rooms, 메모리는 Map 삭제)
+- [x] realtime emit: `message:updated` / `message:deleted` 이벤트 (방 구독자에게)
 
-### E-2. 프론트 UI
+### E-2. 프론트 UI ✅
 
-- [ ] `MessageItem.tsx` 에 hover 메뉴 (`수정`, `삭제`) 추가 — 본인 작성 메시지만
-- [ ] 인라인 편집 UI (textarea 모드) + 저장/취소
-- [ ] 삭제 시 confirm + `chatService.deleteMessage(id)`
+- [x] `MessageItem.tsx` — `"use client"` 전환, `currentUserId` / `isAdmin` props로 권한 판정
+- [x] hover 메뉴 (수정 / 삭제) — 본인 메시지만 수정, 본인 또는 admin이 삭제. opacity 0→1 transition
+- [x] 인라인 편집 textarea — Ctrl+Enter 저장, Esc 취소, 자동 높이 조절, 401 시 세션 만료 처리
+- [x] 삭제 시 confirm 다이얼로그 + `chatService.deleteMessage`
+- [x] `message:updated` / `message:deleted` 이벤트 listener 추가 (`ChatRoomMounter.tsx`) → 다른 탭/사용자도 실시간 반영
+- [x] `editedAt` 표시 "(수정됨)" / `isDeleted` 시 italic + muted color tombstone 스타일
 
-### E-3. 메시지 검색 (doc/05, 08)
+### E-3. 메시지 검색 (doc/05, 08) ✅
 
-- [ ] **마이그레이션 011_messages_fts.sql** — `messages.content_tsv tsvector GENERATED ALWAYS AS (to_tsvector('simple', content)) STORED` + `CREATE INDEX messages_content_tsv_idx ON messages USING GIN (content_tsv)`
-- [ ] (한국어 검색을 위해 simple 사용; pg_trgm fallback 또는 추후 nori 도입)
-- [ ] `GET /messages/search?q=&roomId=` — 사용자가 접근 가능한 방 한정. body LIKE/FTS 매칭
-- [ ] `chatService.searchMessages(q, opts)`
-- [ ] Topbar 검색 form 강화 — `/search?q=` 라우트 신설 (메시지/파일/프로젝트 통합)
+- [x] **마이그레이션 011_messages_fts.sql** — `content_tsv tsvector GENERATED ALWAYS AS (...) STORED` + GIN 인덱스 (미래 nori/pg_trgm 도입 대비). 추가로 `pg_trgm` extension + `content gin_trgm_ops` 인덱스 (ILIKE 가속용)
+- [x] PG search 쿼리는 ILIKE 사용 (한국어 CJK는 simple tsvector로 토큰 분리 안 됨 → trgm 인덱스가 실효). simple tsvector는 향후 영문 풀텍스트용 슬롯
+- [x] `GET /messages/search?q=&roomId=&limit=` — 본인이 접근 가능한 방으로 자동 필터링 (admin은 전체). q는 2자 이상 필수. soft-deleted 제외
+- [x] `MessageRepository.search` 인터페이스 + 메모리/PG 구현. roomIds를 caller가 계산해서 전달 (D-8 멤버십 정책 일관)
+- [x] `chatService.searchMessages(q, { roomId?, limit? })`
+- [x] `/search` 라우트 신설 (`apps/web/src/app/(app)/search/page.tsx`) — searchParams.q로 server component 렌더링. 결과 카드에 방 이름 / 작성자 / 매칭 부분 `<mark>` 하이라이트
+- [x] Topbar form action `/chat` → `/search`, placeholder도 "메시지 검색 (2자 이상)"로 갱신
 
 ---
 
@@ -564,8 +571,8 @@
 | 007 | users.must_change_password | (완료) Phase 1 D-2 |
 | 008 | refresh_tokens | (완료) Phase 1 D-3 |
 | 009 | audit_logs | (완료) Phase 1 D-4 |
-| 010 | messages.edited_at | Phase 2 |
-| 011 | messages FTS index | Phase 2 |
+| 010 | messages.edited_at | (완료) Phase 2 E-1 |
+| 011 | messages FTS + trgm 인덱스 | (완료) Phase 2 E-3 |
 | 012 | decisions | Phase 3 |
 | 013 | messages.entities / ai_generated / ai_command / source_message_ids | Phase 5 |
 | 014 | user_notifications / user_notification_settings | Phase 6 |

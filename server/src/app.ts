@@ -11,6 +11,7 @@ import { attachCurrentUser, requireAuth } from "./auth/middleware";
 import { createAuthRouter } from "./routes/auth";
 import { createUsersRouter } from "./routes/users";
 import { createRoomsRouter } from "./routes/rooms";
+import { createMessagesRouter } from "./routes/messages";
 import { createProjectsRouter } from "./routes/projects";
 import { createTasksRouter } from "./routes/tasks";
 import { createProductsRouter } from "./routes/products";
@@ -45,6 +46,7 @@ export function createApp(deps: AppDeps = { repos: createMemoryRepositories() })
   app.use(`${config.apiPrefix}/users`, requireAuth, createUsersRouter(deps.repos));
   app.use(`${config.apiPrefix}/departments`, requireAuth, createDepartmentsRouter(deps.repos));
   app.use(`${config.apiPrefix}/rooms`, requireAuth, createRoomsRouter(deps.repos));
+  app.use(`${config.apiPrefix}/messages`, requireAuth, createMessagesRouter(deps.repos));
   app.use(`${config.apiPrefix}/projects`, requireAuth, createProjectsRouter(deps.repos));
   app.use(`${config.apiPrefix}/tasks`, requireAuth, createTasksRouter(deps.repos));
   app.use(`${config.apiPrefix}/products`, requireAuth, createProductsRouter(deps.repos));

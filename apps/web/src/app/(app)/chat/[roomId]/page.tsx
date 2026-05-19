@@ -112,6 +112,8 @@ export default async function ChatRoomPage({ params }: Props) {
               roomId={room.id}
               isPinned={m.id === room.pinnedMessageId}
               canPin
+              currentUserId={me.id}
+              isAdmin={me.role === "admin" || me.role === "super_admin"}
             />
           ))}
         </div>

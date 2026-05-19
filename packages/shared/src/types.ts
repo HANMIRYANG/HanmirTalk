@@ -183,6 +183,14 @@ export interface ChatMessage {
   isSystem?: boolean;
   pinned?: boolean;
   mentions?: string[];
+  // Phase 2 E-1 — set by PATCH /messages/:id. Frontend renders "(수정됨)"
+  // hint next to the timestamp when present. Distinct from any internal
+  // updated_at: only body edits touch this field.
+  editedAt?: string;
+  // Phase 2 E-1 — soft delete marker. When true the API replaces `body`
+  // with a placeholder ("삭제된 메시지입니다") and strips `attachment`
+  // before returning. UI shows a muted tombstone row.
+  isDeleted?: boolean;
 }
 
 export interface Milestone {

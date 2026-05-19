@@ -105,6 +105,18 @@ class Realtime {
     this.io?.to(`room:${roomId}`).emit("message:new", message);
   }
 
+  // Phase 2 E-1 — message edited. Payload is the full updated ChatMessage
+  // (post-mask) so clients can patch their local list by id.
+  emitMessageUpdated(roomId: string, message: ChatMessage): void {
+    this.io?.to(`room:${roomId}`).emit("message:updated", message);
+  }
+
+  // Phase 2 E-1 — message soft-deleted. We send the whole masked message
+  // (not just the id) so clients can update body + isDeleted in one shot.
+  emitMessageDeleted(roomId: string, message: ChatMessage): void {
+    this.io?.to(`room:${roomId}`).emit("message:deleted", message);
+  }
+
   emitRoomPinChanged(roomId: string, pinned: PinnedMessageRef | null): void {
     this.io?.to(`room:${roomId}`).emit("room:pin", { roomId, pinned });
   }

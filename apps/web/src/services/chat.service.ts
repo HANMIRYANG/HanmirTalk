@@ -66,5 +66,46 @@ export const chatService = {
       method: "DELETE",
       token: opts.token
     });
+  },
+  // Phase 2 E-1 — edit own message body. Server enforces author check and
+  // returns the updated ChatMessage with `editedAt` set.
+  async updateMessage(
+    messageId: string,
+    body: string,
+    opts: AuthOptions = {}
+  ): Promise<ChatMessage> {
+    return apiRequest<ChatMessage>(`/messages/${encodeURIComponent(messageId)}`, {
+      method: "PATCH",
+      body: { body },
+      token: opts.token
+    });
+  },
+  // Phase 2 E-1 — soft delete. Author or admin. Server masks the body and
+  // emits message:deleted; the response is { ok: true } and the row stays
+  // visible in the room as a tombstone.
+  async deleteMessage(
+    messageId: string,
+    opts: AuthOptions = {}
+  ): Promise<{ ok: boolean }> {
+    return apiRequest<{ ok: boolean }>(`/messages/${encodeURIComponent(messageId)}`, {
+      method: "DELETE",
+      token: opts.token
+    });
+  },
+  // Phase 2 E-3 — full message search. Server filters to rooms the caller
+  // can read. Returns most recent first. q must be ≥ 2 chars or the
+  // server returns empty.
+  async searchMessages(
+    q: string,
+    opts: AuthOptions & { roomId?: string; limit?: number } = {}
+  ): Promise<ChatMessage[]> {
+    const query: Record<string, string | number> = { q };
+    if (opts.roomId) query.roomId = opts.roomId;
+    if (opts.limit) query.limit = opts.limit;
+    const response = await apiRequest<{ results: ChatMessage[] }>(`/messages/search`, {
+      query,
+      token: opts.token
+    });
+    return response.results;
   }
 };

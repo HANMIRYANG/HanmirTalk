@@ -32,11 +32,11 @@ export async function Topbar({ title, sub }: TopbarProps) {
         <h1 className={styles.title}>{title}</h1>
         {sub ? <div className={styles.sub}>{sub}</div> : null}
       </div>
-      <form action="/chat" className={styles.search}>
+      <form action="/search" className={styles.search}>
         <SearchIcon size={14} />
         <input
           name="q"
-          placeholder="채팅, 프로젝트, 파일 검색"
+          placeholder="메시지 검색 (2자 이상)"
           aria-label="검색"
         />
       </form>

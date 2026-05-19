@@ -36,11 +36,21 @@ export function ChatRoomMounter({ roomId, latestMessageId }: ChatRoomMounterProp
     socket.emit("room:join", roomId);
     const onMessage = () => router.refresh();
     const onPin = () => router.refresh();
+    // Phase 2 E-1 — refresh on edit / delete so the SSR-rendered list
+    // picks up the new body or tombstone. (Optimistic UI in MessageItem
+    // already updates the local DOM immediately for the actor; this
+    // covers other tab/users.)
+    const onEdit = () => router.refresh();
+    const onDelete = () => router.refresh();
     socket.on("message:new", onMessage);
+    socket.on("message:updated", onEdit);
+    socket.on("message:deleted", onDelete);
     socket.on("room:pin", onPin);
     return () => {
       socket.emit("room:leave", roomId);
       socket.off("message:new", onMessage);
+      socket.off("message:updated", onEdit);
+      socket.off("message:deleted", onDelete);
       socket.off("room:pin", onPin);
     };
   }, [roomId, router]);

@@ -89,6 +89,10 @@ export interface RoomRepository {
 
 export interface MessageRepository {
   listByRoom(roomId: string): Promise<ChatMessage[]>;
+  // Returns a single message regardless of room. Required by the
+  // /messages/:id PATCH/DELETE routes to perform ownership checks before
+  // mutating. Returns undefined for missing or hard-deleted rows.
+  findById(messageId: string): Promise<ChatMessage | undefined>;
   // `opts.attachmentId` links a previously-uploaded file (via POST
   // /files/upload) to the new message. PG: UPDATE attachments SET
   // message_id = ... after INSERT. Memory: already embedded in `message`.
@@ -97,6 +101,19 @@ export interface MessageRepository {
     message: ChatMessage,
     opts?: { attachmentId?: string }
   ): Promise<ChatMessage>;
+  // Phase 2 E-1 — edit a message body. Returns the updated message or
+  // undefined if missing. Caller (route) is responsible for ownership +
+  // soft-delete guards.
+  updateBody(messageId: string, body: string): Promise<ChatMessage | undefined>;
+  // Phase 2 E-1 — soft delete. Returns whether the row existed; the
+  // route layer is responsible for converting that into a 404. Body is
+  // masked by the API layer when serializing for clients.
+  softDelete(messageId: string): Promise<boolean>;
+  // Phase 2 E-3 — substring search across messages. `roomIds` scopes
+  // results to rooms the caller can read; the route layer is responsible
+  // for computing the right list (admin sees all, others get their own
+  // membership). Soft-deleted rows are excluded. Returns most recent first.
+  search(opts: { q: string; roomIds: string[]; limit?: number }): Promise<ChatMessage[]>;
   // Marks `lastMessageId` as the most recent message this user has seen.
   // Memory: keeps a Map. PG: updates room_members.last_read_message_id.
   // Caller-side responsibility to send the latest visible id from the UI.

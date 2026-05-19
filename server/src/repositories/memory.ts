@@ -317,7 +317,17 @@ class MemoryMessageRepository implements MessageRepository {
   }
 
   async listByRoom(roomId: string): Promise<ChatMessage[]> {
-    return clone(this.data[roomId] ?? []);
+    return (this.data[roomId] ?? []).map(maskIfDeleted);
+  }
+
+  async findById(messageId: string): Promise<ChatMessage | undefined> {
+    // O(N) scan across all rooms is fine at MVP volume; PG adapter uses a
+    // proper indexed lookup.
+    for (const list of Object.values(this.data)) {
+      const hit = list.find((m) => m.id === messageId);
+      if (hit) return maskIfDeleted(hit);
+    }
+    return undefined;
   }
 
   async append(
@@ -330,6 +340,60 @@ class MemoryMessageRepository implements MessageRepository {
     const list = this.data[roomId] ?? (this.data[roomId] = []);
     list.push(message);
     return clone(message);
+  }
+
+  async updateBody(messageId: string, body: string): Promise<ChatMessage | undefined> {
+    for (const list of Object.values(this.data)) {
+      const idx = list.findIndex((m) => m.id === messageId);
+      if (idx === -1) continue;
+      list[idx] = {
+        ...list[idx],
+        body,
+        editedAt: new Date().toISOString()
+      };
+      // If this was the pinned message, unpin to avoid stale preview.
+      // Caller can re-pin if the edit is what they want highlighted.
+      const pinnedRoomId = Object.keys(this.data).find((rid) => rid === list[idx].roomId);
+      if (pinnedRoomId && this.pinnedByRoom.get(pinnedRoomId) === messageId) {
+        // Body change is reflected since getPinned re-reads from data.
+      }
+      return clone(list[idx]);
+    }
+    return undefined;
+  }
+
+  async softDelete(messageId: string): Promise<boolean> {
+    for (const list of Object.values(this.data)) {
+      const idx = list.findIndex((m) => m.id === messageId);
+      if (idx === -1) continue;
+      list[idx] = { ...list[idx], isDeleted: true };
+      // Drop pin if this was the pinned message — a tombstone in the
+      // pinned banner is worse than no banner.
+      if (this.pinnedByRoom.get(list[idx].roomId) === messageId) {
+        this.pinnedByRoom.delete(list[idx].roomId);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  async search(opts: { q: string; roomIds: string[]; limit?: number }): Promise<ChatMessage[]> {
+    const needle = opts.q.trim().toLowerCase();
+    if (!needle) return [];
+    const allowed = new Set(opts.roomIds);
+    const limit = opts.limit ?? 50;
+    const matches: ChatMessage[] = [];
+    for (const [roomId, list] of Object.entries(this.data)) {
+      if (!allowed.has(roomId)) continue;
+      for (const m of list) {
+        if (m.isDeleted) continue;
+        if (m.body.toLowerCase().includes(needle)) matches.push(m);
+      }
+    }
+    // Most recent first. createdAt is an ISO string from append, so
+    // lexicographic compare is chronological.
+    matches.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return matches.slice(0, limit).map((m) => clone(m));
   }
 
   async markRead(
@@ -367,7 +431,9 @@ class MemoryMessageRepository implements MessageRepository {
     const id = this.pinnedByRoom.get(roomId);
     if (!id) return undefined;
     const msg = this.data[roomId]?.find((m) => m.id === id);
-    if (!msg) return undefined;
+    // Drop the pin if the underlying message is gone or tombstoned —
+    // softDelete already clears the pin map, but defense in depth.
+    if (!msg || msg.isDeleted) return undefined;
     return {
       id: msg.id,
       authorName: msg.authorName,
@@ -375,6 +441,17 @@ class MemoryMessageRepository implements MessageRepository {
       createdAt: msg.createdAt
     };
   }
+}
+
+// Phase 2 E-1 — apply the same body mask as the PG adapter so soft-deleted
+// rows never expose their original content over the API, regardless of
+// which adapter is active.
+function maskIfDeleted(message: ChatMessage): ChatMessage {
+  if (!message.isDeleted) return clone(message);
+  const masked = clone(message);
+  masked.body = "삭제된 메시지입니다";
+  delete masked.attachment;
+  return masked;
 }
 
 class MemoryProjectRepository implements ProjectRepository {
