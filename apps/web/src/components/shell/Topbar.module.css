@@ -4,17 +4,26 @@
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   padding: 0 20px;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 14px;
 }
 
-.titleBlock { display: flex; flex-direction: column; }
+.left { justify-self: start; min-width: 0; display: flex; flex-direction: column; }
+.center { justify-self: center; min-width: 0; }
+.right {
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
 .title { font-size: 14.5px; font-weight: 700; margin: 0; color: var(--text-1); }
 .sub { font-size: 11px; color: var(--text-3); margin-top: 1px; }
 
 .search {
-  margin-left: 28px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -22,7 +31,7 @@
   border: 1px solid transparent;
   border-radius: var(--r-pill);
   padding: 6px 12px;
-  width: 320px;
+  width: 360px;
   color: var(--text-3);
 }
 .search svg { color: var(--text-4); }
@@ -33,36 +42,30 @@
   flex: 1;
   font-size: 12.5px;
   color: var(--text-1);
+  min-width: 0;
 }
 .search input::placeholder { color: var(--text-4); }
 
-.iconBtn {
-  margin-left: auto;
-  width: 34px; height: 34px;
-  display: grid; place-items: center;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  color: var(--text-2);
-  position: relative;
+.userBlock {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  color: inherit;
+  text-decoration: none;
 }
-.iconBtn:hover { background: var(--bg-soft); }
-
-.notifyDot {
-  position: absolute;
-  top: 6px; right: 6px;
-  width: 8px; height: 8px;
-  background: var(--brand-orange);
-  border-radius: 50%;
-  border: 2px solid var(--surface);
-}
-
-.userBlock { display: flex; align-items: center; gap: 10px; padding-left: 4px; }
+.userBlock:hover { background: var(--bg-soft); }
 .user { display: flex; flex-direction: column; }
 .userName { font-size: 12.5px; font-weight: 700; color: var(--text-1); }
 .userMeta { font-size: 10.5px; color: var(--text-3); margin-top: 1px; }
 
+@media (max-width: 1100px) {
+  .search { width: 260px; }
+}
+
 @media (max-width: 900px) {
+  .topbar { grid-template-columns: auto 1fr auto; }
   .search { display: none; }
   .userBlock .user { display: none; }
 }

@@ -102,8 +102,19 @@ export const seedProducts: Product[] = [
       }
     ],
     history: [
+      // Phase 7 J-1 — new shape (fromStatus/toStatus/reason/changedAt).
+      // Deprecated UI 필드(title/meta/date/state)는 mock fallback용으로
+      // optional. 새 코드는 toStatus + changedAt + reason만 사용.
       {
         id: "h-1",
+        productId: "pr-sus304",
+        fromStatus: "preparing",
+        toStatus: "available",
+        reason: "시험성적서 v0.2 결재 완료 · 일반 영업 진행 가능",
+        changedById: "u-park-jiyoung",
+        changedByName: "박지영",
+        changedAt: "2026-04-18T09:00:00Z",
+        // legacy mock 호환
         status: "available",
         title: "영업 가능 (정상)",
         meta: "시험성적서 v0.2 결재 완료 · 일반 영업 진행 가능",
@@ -112,19 +123,18 @@ export const seedProducts: Product[] = [
       },
       {
         id: "h-2",
+        productId: "pr-sus304",
+        fromStatus: "available",
+        toStatus: "conditional",
+        reason: "시험성적서 v0.3 의견 반영 중 / 품질보증팀 결재 후 신규 견적 가능 / +5영업일 납기 적용",
+        changedById: "u-lee-suhyun",
+        changedByName: "이수현",
+        changedAt: "2026-05-13T09:00:00Z",
         status: "conditional",
         title: "제한적 영업 가능",
         meta: "시험성적서 v0.3 의견 반영 중 / 품질보증팀 결재 후 신규 견적 가능 / +5영업일 납기 적용",
         date: "2026.05.13",
         state: "current"
-      },
-      {
-        id: "h-3",
-        status: "available",
-        title: "영업 가능 (정상) 복귀 예정",
-        meta: "시험성적서 v1.0 확정 후 자동 전환 — 예정일 2026.05.20",
-        date: "예정",
-        state: "future"
       }
     ],
     relatedProjectIds: ["p-2410", "p-2411"],

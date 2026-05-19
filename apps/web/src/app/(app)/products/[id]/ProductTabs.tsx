@@ -1,0 +1,474 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import type {
+  Product,
+  ProductLot,
+  ProductSpec,
+  Project,
+  SalesStatus,
+  SalesStatusEvent,
+  User
+} from "@hanmir/shared";
+import { salesStatusLabel } from "@hanmir/shared";
+import { Tag } from "@/components/ui/Tag";
+import { ProgressBar } from "@/components/ui/ProgressBar";
+import { ProductSpecsModal } from "./ProductSpecsModal";
+import { ProductLotModal } from "./ProductLotModal";
+import { ProductOwnerChatButton } from "./ProductOwnerChatButton";
+import { cn } from "@/lib/classNames";
+import styles from "./detail.module.css";
+
+type Tab = "overview" | "test_reports" | "lots" | "sales_history" | "related" | "inquiry";
+
+interface Props {
+  product: Product;
+  specs: ProductSpec[];
+  lots: ProductLot[];
+  salesHistory: SalesStatusEvent[];
+  relatedProjects: Project[];
+  owner?: User;
+  meId: string;
+  canManage: boolean;
+}
+
+const VERDICT_TONE: Record<string, "green" | "amber" | "red"> = {
+  pass: "green",
+  hold: "amber",
+  retest: "red"
+};
+const VERDICT_LABEL: Record<string, string> = {
+  pass: "합격",
+  hold: "보류",
+  retest: "재시험"
+};
+
+const SALES_TONE: Record<SalesStatus, "green" | "amber" | "red" | "blue" | "default"> = {
+  unavailable: "red",
+  preparing: "amber",
+  internal: "blue",
+  conditional: "amber",
+  available: "green"
+};
+
+const TABS: { key: Tab; label: string }[] = [
+  { key: "overview", label: "제품 개요" },
+  { key: "test_reports", label: "시험성적서" },
+  { key: "lots", label: "생산 LOT" },
+  { key: "sales_history", label: "영업 상태 이력" },
+  { key: "related", label: "관련 프로젝트" },
+  { key: "inquiry", label: "문의 채팅" }
+];
+
+export function ProductTabs({
+  product,
+  specs: initialSpecs,
+  lots: initialLots,
+  salesHistory,
+  relatedProjects,
+  owner,
+  meId,
+  canManage
+}: Props) {
+  const router = useRouter();
+  const [tab, setTab] = useState<Tab>("overview");
+  const [specsOpen, setSpecsOpen] = useState(false);
+  const [lotModal, setLotModal] = useState<
+    { mode: "create" } | { mode: "edit"; lot: ProductLot } | null
+  >(null);
+
+  // DB 우선 + 비어있으면 product의 mock data로 fallback.
+  const specs = initialSpecs.length > 0
+    ? initialSpecs
+    : product.spec.map((s, i) => ({
+        id: `mock-${i}`,
+        productId: product.id,
+        key: s.key,
+        value: s.value,
+        sortOrder: i
+      }));
+  const lots = initialLots.length > 0 ? initialLots : product.lots;
+  const history = salesHistory.length > 0
+    ? salesHistory
+    : (product.history ?? []).map((h) => ({
+        id: h.id,
+        productId: product.id,
+        toStatus: h.toStatus ?? (h.status as SalesStatus),
+        fromStatus: h.fromStatus,
+        reason: h.reason ?? h.meta,
+        changedById: h.changedById ?? "",
+        changedByName: h.changedByName ?? "",
+        changedAt: h.changedAt ?? h.date ?? ""
+      }));
+
+  const testReports = product.documents.filter((d) =>
+    d.name.includes("시험성적") || d.name.toLowerCase().includes("test")
+  );
+
+  return (
+    <>
+      <nav className={styles.tabs}>
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            className={cn(styles.tab, tab === t.key && styles.tabActive)}
+            onClick={() => setTab(t.key)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+
+      <div className="content no-pad">
+        <div className={styles.body}>
+          <div>
+            {tab === "overview" ? (
+              <>
+                <section className={cn("card", styles.section)}>
+                  <div className="card__head">
+                    <h3>제품 사양</h3>
+                    {canManage ? (
+                      <div className="right">
+                        <button
+                          className="btn btn--ghost btn--sm"
+                          type="button"
+                          onClick={() => setSpecsOpen(true)}
+                        >
+                          수정
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                  {specs.length === 0 ? (
+                    <div className="muted t-sm" style={{ padding: 16 }}>
+                      등록된 사양이 없습니다.
+                    </div>
+                  ) : (
+                    <table className={styles.specTable}>
+                      <tbody>
+                        {specs.map((s) => (
+                          <tr key={s.id}>
+                            <th>{s.key}</th>
+                            <td>{s.value}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </section>
+                {history.length > 0 ? (
+                  <section className={cn("card", styles.section)}>
+                    <div className="card__head">
+                      <h3>최근 영업 상태</h3>
+                      <div className="right">
+                        <button
+                          className="btn btn--ghost btn--sm"
+                          type="button"
+                          onClick={() => setTab("sales_history")}
+                        >
+                          전체 이력 →
+                        </button>
+                      </div>
+                    </div>
+                    <div className={styles.timeline}>
+                      {history.slice(0, 3).map((h, i) => (
+                        <div key={h.id} className={styles.step}>
+                          <div
+                            className={cn(
+                              styles.stepDot,
+                              i === 0 && styles.stepDotCurrent,
+                              i > 0 && styles.stepDotDone
+                            )}
+                          />
+                          <div>
+                            <div className={styles.stepTitle}>
+                              {h.fromStatus ? `${salesStatusLabel[h.fromStatus]} → ` : ""}
+                              {salesStatusLabel[h.toStatus]}
+                              {i === 0 ? (
+                                <Tag tone="amber" className={styles.stepTag}>
+                                  현재 상태
+                                </Tag>
+                              ) : null}
+                            </div>
+                            {h.reason ? <div className={styles.stepMeta}>{h.reason}</div> : null}
+                          </div>
+                          <div className={styles.stepTime}>{formatDate(h.changedAt)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+              </>
+            ) : null}
+
+            {tab === "test_reports" ? (
+              <section className={cn("card", styles.section)}>
+                <div className="card__head">
+                  <h3>시험성적서</h3>
+                  <span className="muted t-xs">{testReports.length}건</span>
+                </div>
+                {testReports.length === 0 ? (
+                  <div className="muted t-sm" style={{ padding: 16 }}>
+                    등록된 시험성적서가 없습니다. 파일함에서 PDF를 업로드한 뒤 제품에 연결하세요.
+                  </div>
+                ) : (
+                  <ul className={styles.docList}>
+                    {testReports.map((d) => (
+                      <li key={d.id} className={styles.docRow}>
+                        <div className={styles.docIc}>PDF</div>
+                        <div className={styles.docMeta}>
+                          <div className={styles.docName}>{d.name}</div>
+                          <div className={styles.docSub}>{d.meta}</div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            ) : null}
+
+            {tab === "lots" ? (
+              <section className={cn("card", styles.section)}>
+                <div className="card__head">
+                  <h3>생산 LOT</h3>
+                  <span className="muted t-xs">{lots.length}건</span>
+                  {canManage ? (
+                    <div className="right">
+                      <button
+                        className="btn btn--primary btn--sm"
+                        type="button"
+                        onClick={() => setLotModal({ mode: "create" })}
+                      >
+                        + LOT 등록
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+                {lots.length === 0 ? (
+                  <div className="muted t-sm" style={{ padding: 16 }}>
+                    등록된 LOT가 없습니다.
+                  </div>
+                ) : (
+                  <table className={styles.lotTable}>
+                    <thead>
+                      <tr>
+                        <th>LOT 번호</th>
+                        <th>생산일</th>
+                        <th>수량</th>
+                        <th>판정</th>
+                        <th>시험일</th>
+                        <th>비고</th>
+                        {canManage ? <th /> : null}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lots.map((lot) => (
+                        <tr key={lot.id}>
+                          <td className={styles.lotNum}>{lot.number}</td>
+                          <td>{lot.producedAt ?? "—"}</td>
+                          <td>{lot.quantity ?? "—"}</td>
+                          <td>
+                            {lot.verdict ? (
+                              <Tag tone={VERDICT_TONE[lot.verdict]}>
+                                {VERDICT_LABEL[lot.verdict]}
+                              </Tag>
+                            ) : (
+                              <span className="muted">미판정</span>
+                            )}
+                          </td>
+                          <td>{lot.testedAt ?? "—"}</td>
+                          <td className="muted">{lot.note ?? ""}</td>
+                          {canManage ? (
+                            <td>
+                              <button
+                                type="button"
+                                className="btn btn--ghost btn--sm"
+                                onClick={() => setLotModal({ mode: "edit", lot })}
+                              >
+                                수정
+                              </button>
+                            </td>
+                          ) : null}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </section>
+            ) : null}
+
+            {tab === "sales_history" ? (
+              <section className={cn("card", styles.section)}>
+                <div className="card__head">
+                  <h3>영업 상태 이력</h3>
+                  <span className="muted t-xs">{history.length}건</span>
+                </div>
+                {history.length === 0 ? (
+                  <div className="muted t-sm" style={{ padding: 16 }}>
+                    상태 변경 이력이 없습니다.
+                  </div>
+                ) : (
+                  <div className={styles.timeline}>
+                    {history.map((h, i) => (
+                      <div key={h.id} className={styles.step}>
+                        <div
+                          className={cn(
+                            styles.stepDot,
+                            i === 0 && styles.stepDotCurrent,
+                            i > 0 && styles.stepDotDone
+                          )}
+                        />
+                        <div>
+                          <div className={styles.stepTitle}>
+                            {h.fromStatus ? `${salesStatusLabel[h.fromStatus]} → ` : ""}
+                            <Tag tone={SALES_TONE[h.toStatus]} dot>
+                              {salesStatusLabel[h.toStatus]}
+                            </Tag>
+                          </div>
+                          {h.reason ? <div className={styles.stepMeta}>{h.reason}</div> : null}
+                          {h.changedByName ? (
+                            <div className={styles.stepMeta}>
+                              변경자: {h.changedByName}
+                            </div>
+                          ) : null}
+                        </div>
+                        <div className={styles.stepTime}>{formatDate(h.changedAt)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            ) : null}
+
+            {tab === "related" ? (
+              <section className={cn("card", styles.section)}>
+                <div className="card__head">
+                  <h3>관련 프로젝트</h3>
+                  <span className="muted t-xs">{relatedProjects.length}건</span>
+                </div>
+                {relatedProjects.length === 0 ? (
+                  <div className="muted t-sm" style={{ padding: 16 }}>
+                    이 제품과 연결된 프로젝트가 없습니다.
+                  </div>
+                ) : (
+                  <ul className={styles.docList}>
+                    {relatedProjects.map((pj) => (
+                      <li key={pj.id}>
+                        <Link href={`/projects/${pj.id}`} className={styles.relItem}>
+                          <div className={styles.relTitle}>
+                            {pj.code} {pj.name}
+                          </div>
+                          <div className={styles.relMeta}>
+                            진행률 {pj.progress}% · 마감 {pj.dueDate || "미정"}
+                          </div>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            ) : null}
+
+            {tab === "inquiry" ? (
+              <section className={cn("card", styles.section)}>
+                <div className="card__head">
+                  <h3>문의 채팅</h3>
+                </div>
+                <div style={{ padding: 16 }}>
+                  {owner ? (
+                    <>
+                      <p className="muted t-sm" style={{ marginBottom: 12 }}>
+                        제품 담당자 <b>{owner.name}</b>님과 1:1 대화를 시작합니다. 이미
+                        DM이 있으면 기존 방으로 이동합니다.
+                      </p>
+                      <ProductOwnerChatButton ownerId={owner.id} isSelf={owner.id === meId} />
+                    </>
+                  ) : (
+                    <p className="muted t-sm">제품 담당자가 지정되어 있지 않습니다.</p>
+                  )}
+                </div>
+              </section>
+            ) : null}
+          </div>
+
+          <aside className={styles.side}>
+            <section className={styles.sideCard}>
+              <h4>이번 분기 판매 현황</h4>
+              <div className={styles.statRow}>
+                <span className={styles.k}>총 판매량</span>
+                <span className={styles.v}>{product.quarter.totalKg || "—"}</span>
+              </div>
+              <div className={styles.statRow}>
+                <span className={styles.k}>매출액</span>
+                <span className={styles.v}>{product.quarter.revenue || "—"}</span>
+              </div>
+              <div className={styles.statRow}>
+                <span className={styles.k}>평균 단가</span>
+                <span className={styles.v}>{product.quarter.avgPrice || "—"}</span>
+              </div>
+              <div className={styles.statRow}>
+                <span className={styles.k}>상위 거래처</span>
+                <span className={styles.v}>{product.quarter.topClient || "—"}</span>
+              </div>
+              <ProgressBar
+                value={product.quarter.targetRatio}
+                className={styles.sideProgress}
+              />
+              <div className="t-xs muted mt-4">분기 목표 대비 {product.quarter.targetRatio}%</div>
+            </section>
+
+            {owner ? (
+              <section className={styles.sideCard}>
+                <h4>제품 담당자</h4>
+                <div className={styles.ownerRow}>
+                  <div>
+                    <div className={styles.ownerName}>
+                      {owner.name} {owner.position}
+                    </div>
+                    <div className={styles.ownerMeta}>{owner.departmentName}</div>
+                  </div>
+                </div>
+                <ProductOwnerChatButton ownerId={owner.id} isSelf={owner.id === meId} />
+              </section>
+            ) : null}
+          </aside>
+        </div>
+      </div>
+
+      {specsOpen ? (
+        <ProductSpecsModal
+          productId={product.id}
+          initial={specs}
+          onClose={() => setSpecsOpen(false)}
+          onSaved={() => {
+            setSpecsOpen(false);
+            router.refresh();
+          }}
+        />
+      ) : null}
+      {lotModal ? (
+        <ProductLotModal
+          productId={product.id}
+          mode={lotModal.mode}
+          initial={lotModal.mode === "edit" ? lotModal.lot : undefined}
+          onClose={() => setLotModal(null)}
+          onSaved={() => {
+            setLotModal(null);
+            router.refresh();
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function formatDate(iso: string): string {
+  if (!iso) return "—";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return iso;
+  const d = new Date(t);
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
+}

@@ -1,12 +1,18 @@
 import { Router } from "express";
 import type {
   CreateProductInput,
+  CreateProductLotInput,
+  CreateProductSpecInput,
   SalesStatus,
-  UpdateProductInput
+  UpdateProductInput,
+  UpdateProductLotInput,
+  UpdateProductSpecInput
 } from "@hanmir/shared";
 import type { Repositories } from "../repositories/types";
 import { requireRole } from "../auth/middleware";
 import { auditLog } from "../audit";
+
+const VALID_VERDICT = ["pass", "hold", "retest"] as const;
 
 const VALID_SALES_STATUS: SalesStatus[] = [
   "unavailable",
@@ -144,6 +150,8 @@ export function createProductsRouter(repos: Repositories): Router {
       res.status(400).json({ error: parsed.error });
       return;
     }
+    // Phase 7 J-1 — salesStatus 변경 감지를 위해 before 값을 미리 보관.
+    const before = await repos.products.findById(req.params.id);
     const updated = await repos.products.update(req.params.id, parsed);
     if (!updated) {
       res.status(404).json({ error: "not_found" });
@@ -156,6 +164,27 @@ export function createProductsRouter(repos: Repositories): Router {
       targetLabel: updated.name,
       meta: parsed
     });
+    // Phase 7 J-1 — salesStatus가 실제로 바뀐 경우 sales_status_events에
+    // append. 이유는 body의 salesNote 또는 별도 reason 필드에서 추출.
+    if (
+      parsed.salesStatus &&
+      before &&
+      before.salesStatus !== updated.salesStatus
+    ) {
+      const reasonInput = (req.body as { salesReason?: unknown })?.salesReason;
+      const reason = typeof reasonInput === "string" && reasonInput.trim()
+        ? reasonInput.trim()
+        : parsed.salesNote || undefined;
+      await repos.products
+        .appendSalesEvent({
+          productId: updated.id,
+          fromStatus: before.salesStatus,
+          toStatus: updated.salesStatus,
+          reason,
+          changedBy: { id: req.currentUser!.id }
+        })
+        .catch(() => undefined);
+    }
     res.json(updated);
   });
 
@@ -177,5 +206,236 @@ export function createProductsRouter(repos: Repositories): Router {
     res.json({ ok: true });
   });
 
+  // ── Phase 7 J-2 — specs / lots / sales-history ──────────────────
+
+  router.get("/:id/specs", async (req, res) => {
+    const product = await repos.products.findById(req.params.id);
+    if (!product) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    const specs = await repos.products.listSpecs(req.params.id);
+    res.json(specs);
+  });
+
+  router.post("/:id/specs", writers, async (req, res) => {
+    const parsed = parseSpec(req.body);
+    if ("error" in parsed) {
+      res.status(400).json({ error: parsed.error });
+      return;
+    }
+    const product = await repos.products.findById(req.params.id);
+    if (!product) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    const spec = await repos.products.createSpec(req.params.id, parsed);
+    await auditLog(repos, req, {
+      action: "product.spec.upsert",
+      targetType: "product",
+      targetId: req.params.id,
+      targetLabel: `${product.name} — ${spec.key}`,
+      meta: { specId: spec.id, key: spec.key }
+    });
+    res.status(201).json(spec);
+  });
+
+  router.patch("/:id/specs/:specId", writers, async (req, res) => {
+    const parsed = parseSpecUpdate(req.body);
+    if ("error" in parsed) {
+      res.status(400).json({ error: parsed.error });
+      return;
+    }
+    const updated = await repos.products.updateSpec(req.params.id, req.params.specId, parsed);
+    if (!updated) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    res.json(updated);
+  });
+
+  router.delete("/:id/specs/:specId", writers, async (req, res) => {
+    const ok = await repos.products.deleteSpec(req.params.id, req.params.specId);
+    if (!ok) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    await auditLog(repos, req, {
+      action: "product.spec.delete",
+      targetType: "product",
+      targetId: req.params.id,
+      targetLabel: req.params.specId,
+      level: "warn"
+    });
+    res.json({ ok: true });
+  });
+
+  router.get("/:id/lots", async (req, res) => {
+    const product = await repos.products.findById(req.params.id);
+    if (!product) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    const lots = await repos.products.listLots(req.params.id);
+    res.json(lots);
+  });
+
+  router.post("/:id/lots", writers, async (req, res) => {
+    const parsed = parseLot(req.body);
+    if ("error" in parsed) {
+      res.status(400).json({ error: parsed.error });
+      return;
+    }
+    const product = await repos.products.findById(req.params.id);
+    if (!product) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    try {
+      const lot = await repos.products.createLot(req.params.id, parsed);
+      await auditLog(repos, req, {
+        action: "product.lot.create",
+        targetType: "product",
+        targetId: req.params.id,
+        targetLabel: `${product.name} LOT ${lot.number}`,
+        meta: { lotId: lot.id, verdict: lot.verdict }
+      });
+      res.status(201).json(lot);
+    } catch (err) {
+      if (err instanceof Error && err.message === "duplicate_lot_number") {
+        res.status(409).json({ error: "duplicate_lot_number" });
+        return;
+      }
+      throw err;
+    }
+  });
+
+  router.patch("/:id/lots/:lotId", writers, async (req, res) => {
+    const parsed = parseLotUpdate(req.body);
+    if ("error" in parsed) {
+      res.status(400).json({ error: parsed.error });
+      return;
+    }
+    const updated = await repos.products.updateLot(req.params.id, req.params.lotId, parsed);
+    if (!updated) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    res.json(updated);
+  });
+
+  router.delete("/:id/lots/:lotId", writers, async (req, res) => {
+    const ok = await repos.products.deleteLot(req.params.id, req.params.lotId);
+    if (!ok) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    await auditLog(repos, req, {
+      action: "product.lot.delete",
+      targetType: "product",
+      targetId: req.params.id,
+      targetLabel: req.params.lotId,
+      level: "warn"
+    });
+    res.json({ ok: true });
+  });
+
+  router.get("/:id/sales-history", async (req, res) => {
+    const product = await repos.products.findById(req.params.id);
+    if (!product) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    const events = await repos.products.listSalesEvents(req.params.id);
+    res.json(events);
+  });
+
   return router;
+}
+
+function parseSpec(body: unknown): CreateProductSpecInput | { error: string } {
+  if (!body || typeof body !== "object") return { error: "invalid_body" };
+  const b = body as Record<string, unknown>;
+  if (!isString(b.key) || !b.key.trim()) return { error: "key_required" };
+  if (!isString(b.value) || !b.value.trim()) return { error: "value_required" };
+  return {
+    key: b.key.trim(),
+    value: b.value.trim(),
+    sortOrder: typeof b.sortOrder === "number" ? b.sortOrder : undefined
+  };
+}
+
+function parseSpecUpdate(body: unknown): UpdateProductSpecInput | { error: string } {
+  if (!body || typeof body !== "object") return { error: "invalid_body" };
+  const b = body as Record<string, unknown>;
+  const out: UpdateProductSpecInput = {};
+  if (b.key !== undefined) {
+    if (!isString(b.key) || !b.key.trim()) return { error: "key_invalid" };
+    out.key = b.key.trim();
+  }
+  if (b.value !== undefined) {
+    if (!isString(b.value) || !b.value.trim()) return { error: "value_invalid" };
+    out.value = b.value.trim();
+  }
+  if (b.sortOrder !== undefined) {
+    if (typeof b.sortOrder !== "number") return { error: "sortOrder_invalid" };
+    out.sortOrder = b.sortOrder;
+  }
+  return out;
+}
+
+function parseLot(body: unknown): CreateProductLotInput | { error: string } {
+  if (!body || typeof body !== "object") return { error: "invalid_body" };
+  const b = body as Record<string, unknown>;
+  if (!isString(b.number) || !b.number.trim()) return { error: "number_required" };
+  if (b.verdict !== undefined) {
+    if (
+      !isString(b.verdict) ||
+      !(VALID_VERDICT as readonly string[]).includes(b.verdict)
+    )
+      return { error: "verdict_invalid" };
+  }
+  return {
+    number: b.number.trim(),
+    producedAt: isString(b.producedAt) ? b.producedAt : undefined,
+    quantity: isString(b.quantity) ? b.quantity : undefined,
+    verdict: isString(b.verdict) ? (b.verdict as CreateProductLotInput["verdict"]) : undefined,
+    testedAt: isString(b.testedAt) ? b.testedAt : undefined,
+    note: isString(b.note) ? b.note : undefined
+  };
+}
+
+function parseLotUpdate(body: unknown): UpdateProductLotInput | { error: string } {
+  if (!body || typeof body !== "object") return { error: "invalid_body" };
+  const b = body as Record<string, unknown>;
+  const out: UpdateProductLotInput = {};
+  if (b.number !== undefined) {
+    if (!isString(b.number) || !b.number.trim()) return { error: "number_invalid" };
+    out.number = b.number.trim();
+  }
+  if (b.producedAt !== undefined) {
+    if (!isString(b.producedAt)) return { error: "producedAt_invalid" };
+    out.producedAt = b.producedAt;
+  }
+  if (b.quantity !== undefined) {
+    if (!isString(b.quantity)) return { error: "quantity_invalid" };
+    out.quantity = b.quantity;
+  }
+  if (b.verdict !== undefined) {
+    if (
+      !isString(b.verdict) ||
+      !(VALID_VERDICT as readonly string[]).includes(b.verdict)
+    )
+      return { error: "verdict_invalid" };
+    out.verdict = b.verdict as UpdateProductLotInput["verdict"];
+  }
+  if (b.testedAt !== undefined) {
+    if (!isString(b.testedAt)) return { error: "testedAt_invalid" };
+    out.testedAt = b.testedAt;
+  }
+  if (b.note !== undefined) {
+    if (!isString(b.note)) return { error: "note_invalid" };
+    out.note = b.note;
+  }
+  return out;
 }

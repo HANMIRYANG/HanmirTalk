@@ -29,32 +29,38 @@ export async function Topbar({ title, sub }: TopbarProps) {
 
   return (
     <header className={styles.topbar}>
-      <div className={styles.titleBlock}>
+      <div className={styles.left}>
         <h1 className={styles.title}>{title}</h1>
         {sub ? <div className={styles.sub}>{sub}</div> : null}
       </div>
-      <form action="/search" className={styles.search}>
-        <SearchIcon size={14} />
-        <input
-          name="q"
-          placeholder="메시지 검색 (2자 이상)"
-          aria-label="검색"
-        />
-      </form>
-      {me ? <NotificationBell initialUnreadCount={unreadCount} /> : null}
-      <Link href="/dashboard" className={styles.userBlock} aria-label="대시보드 이동">
-        <Avatar
-          initials={me?.initials ?? initialsOf(me?.name ?? "?")}
-          tone={me?.avatarTone ?? "default"}
-          size="md"
-        />
-        <div className={styles.user}>
-          <div className={styles.userName}>{me?.name ?? "로그인 필요"}</div>
-          <div className={styles.userMeta}>
-            {me ? `${me.departmentName ?? ""} · ${me.position ?? ""}` : ""}
+
+      <div className={styles.center}>
+        <form action="/search" className={styles.search}>
+          <SearchIcon size={14} />
+          <input
+            name="q"
+            placeholder="메시지 검색 (2자 이상)"
+            aria-label="검색"
+          />
+        </form>
+      </div>
+
+      <div className={styles.right}>
+        {me ? <NotificationBell initialUnreadCount={unreadCount} /> : null}
+        <Link href="/dashboard" className={styles.userBlock} aria-label="대시보드 이동">
+          <Avatar
+            initials={me?.initials ?? initialsOf(me?.name ?? "?")}
+            tone={me?.avatarTone ?? "default"}
+            size="md"
+          />
+          <div className={styles.user}>
+            <div className={styles.userName}>{me?.name ?? "로그인 필요"}</div>
+            <div className={styles.userMeta}>
+              {me ? `${me.departmentName ?? ""} · ${me.position ?? ""}` : ""}
+            </div>
           </div>
-        </div>
-      </Link>
+        </Link>
+      </div>
     </header>
   );
 }

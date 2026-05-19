@@ -46,18 +46,25 @@ import type {
   NotificationSettings,
   PinnedMessageRef,
   Product,
+  ProductLot,
+  ProductSpec,
   Project,
   ProjectStatus,
   Room,
   RoomType,
   SalesStatus,
+  SalesStatusEvent,
   TaskItem,
   TaskPriority,
   TaskStatus,
+  CreateProductLotInput,
+  CreateProductSpecInput,
   UpdateDecisionInput,
   UpdateDepartmentInput,
   UpdateNotificationSettingsInput,
   UpdateProductInput,
+  UpdateProductLotInput,
+  UpdateProductSpecInput,
   UpdateProjectInput,
   UpdateRoomInput,
   UpdateTaskInput,
@@ -1481,6 +1488,284 @@ class PgProductRepository implements ProductRepository {
     );
     return (rowCount ?? 0) > 0;
   }
+
+  // ── Phase 7 J-1 — product_specs ───────────────────────────────────
+
+  async listSpecs(productId: string): Promise<ProductSpec[]> {
+    const { rows } = await this.pool.query<{
+      id: string;
+      product_id: string;
+      key: string;
+      value: string;
+      sort_order: number;
+    }>(
+      `SELECT id, product_id, key, value, sort_order
+         FROM product_specs
+        WHERE product_id = $1
+        ORDER BY sort_order ASC, key ASC`,
+      [productId]
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      productId: r.product_id,
+      key: r.key,
+      value: r.value,
+      sortOrder: r.sort_order
+    }));
+  }
+
+  async createSpec(productId: string, input: CreateProductSpecInput): Promise<ProductSpec> {
+    // (product_id, key) UNIQUE — 동일 key면 value 갱신.
+    const { rows } = await this.pool.query<{
+      id: string;
+      product_id: string;
+      key: string;
+      value: string;
+      sort_order: number;
+    }>(
+      `INSERT INTO product_specs (product_id, key, value, sort_order)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (product_id, key)
+       DO UPDATE SET value = EXCLUDED.value,
+                     sort_order = EXCLUDED.sort_order,
+                     updated_at = NOW()
+       RETURNING id, product_id, key, value, sort_order`,
+      [productId, input.key, input.value, input.sortOrder ?? 0]
+    );
+    const r = rows[0];
+    return { id: r.id, productId: r.product_id, key: r.key, value: r.value, sortOrder: r.sort_order };
+  }
+
+  async updateSpec(
+    productId: string,
+    specId: string,
+    input: UpdateProductSpecInput
+  ): Promise<ProductSpec | undefined> {
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    if (input.key !== undefined) {
+      params.push(input.key);
+      sets.push(`key = $${params.length}`);
+    }
+    if (input.value !== undefined) {
+      params.push(input.value);
+      sets.push(`value = $${params.length}`);
+    }
+    if (input.sortOrder !== undefined) {
+      params.push(input.sortOrder);
+      sets.push(`sort_order = $${params.length}`);
+    }
+    if (sets.length === 0) {
+      const cur = await this.pool.query<{
+        id: string;
+        product_id: string;
+        key: string;
+        value: string;
+        sort_order: number;
+      }>(
+        `SELECT id, product_id, key, value, sort_order FROM product_specs WHERE id = $1 AND product_id = $2`,
+        [specId, productId]
+      );
+      const r = cur.rows[0];
+      return r ? { id: r.id, productId: r.product_id, key: r.key, value: r.value, sortOrder: r.sort_order } : undefined;
+    }
+    sets.push(`updated_at = NOW()`);
+    params.push(specId, productId);
+    const { rows } = await this.pool.query<{
+      id: string;
+      product_id: string;
+      key: string;
+      value: string;
+      sort_order: number;
+    }>(
+      `UPDATE product_specs SET ${sets.join(", ")}
+        WHERE id = $${params.length - 1} AND product_id = $${params.length}
+       RETURNING id, product_id, key, value, sort_order`,
+      params
+    );
+    const r = rows[0];
+    return r ? { id: r.id, productId: r.product_id, key: r.key, value: r.value, sortOrder: r.sort_order } : undefined;
+  }
+
+  async deleteSpec(productId: string, specId: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      `DELETE FROM product_specs WHERE id = $1 AND product_id = $2`,
+      [specId, productId]
+    );
+    return (rowCount ?? 0) > 0;
+  }
+
+  // ── Phase 7 J-1 — product_lots ───────────────────────────────────
+
+  async listLots(productId: string): Promise<ProductLot[]> {
+    const { rows } = await this.pool.query<LotRow>(
+      `${LOT_SELECT} WHERE product_id = $1 ORDER BY produced_at DESC NULLS LAST, created_at DESC`,
+      [productId]
+    );
+    return rows.map(rowToLot);
+  }
+
+  async createLot(productId: string, input: CreateProductLotInput): Promise<ProductLot> {
+    const { rows } = await this.pool.query<LotRow>(
+      `INSERT INTO product_lots
+         (product_id, lot_no, produced_at, quantity_kg, verdict, tested_at, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, product_id, lot_no, produced_at, quantity_kg,
+                 verdict, tested_at, notes, created_at`,
+      [
+        productId,
+        input.number,
+        input.producedAt || null,
+        input.quantity ?? null,
+        input.verdict ?? null,
+        input.testedAt || null,
+        input.note ?? null
+      ]
+    );
+    return rowToLot(rows[0]);
+  }
+
+  async updateLot(
+    productId: string,
+    lotId: string,
+    input: UpdateProductLotInput
+  ): Promise<ProductLot | undefined> {
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    const add = (col: string, val: unknown) => {
+      params.push(val);
+      sets.push(`${col} = $${params.length}`);
+    };
+    if (input.number !== undefined) add("lot_no", input.number);
+    if (input.producedAt !== undefined) add("produced_at", input.producedAt || null);
+    if (input.quantity !== undefined) add("quantity_kg", input.quantity ?? null);
+    if (input.verdict !== undefined) add("verdict", input.verdict ?? null);
+    if (input.testedAt !== undefined) add("tested_at", input.testedAt || null);
+    if (input.note !== undefined) add("notes", input.note ?? null);
+    if (sets.length === 0) {
+      const cur = await this.pool.query<LotRow>(
+        `${LOT_SELECT} WHERE id = $1 AND product_id = $2`,
+        [lotId, productId]
+      );
+      return cur.rows[0] ? rowToLot(cur.rows[0]) : undefined;
+    }
+    sets.push("updated_at = NOW()");
+    params.push(lotId, productId);
+    const { rows } = await this.pool.query<LotRow>(
+      `UPDATE product_lots SET ${sets.join(", ")}
+        WHERE id = $${params.length - 1} AND product_id = $${params.length}
+       RETURNING id, product_id, lot_no, produced_at, quantity_kg,
+                 verdict, tested_at, notes, created_at`,
+      params
+    );
+    return rows[0] ? rowToLot(rows[0]) : undefined;
+  }
+
+  async deleteLot(productId: string, lotId: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      `DELETE FROM product_lots WHERE id = $1 AND product_id = $2`,
+      [lotId, productId]
+    );
+    return (rowCount ?? 0) > 0;
+  }
+
+  // ── Phase 7 J-1 — sales_status_events ─────────────────────────────
+
+  async listSalesEvents(productId: string): Promise<SalesStatusEvent[]> {
+    const { rows } = await this.pool.query<SalesEventRow>(
+      `SELECT e.id, e.product_id, e.from_status, e.to_status, e.reason,
+              e.changed_by, e.changed_at, u.name AS changed_by_name
+         FROM sales_status_events e
+         LEFT JOIN users u ON u.id = e.changed_by
+        WHERE e.product_id = $1
+        ORDER BY e.changed_at DESC`,
+      [productId]
+    );
+    return rows.map(rowToSalesEvent);
+  }
+
+  async appendSalesEvent(input: {
+    productId: string;
+    fromStatus?: string;
+    toStatus: string;
+    reason?: string;
+    changedBy: { id: string };
+  }): Promise<SalesStatusEvent> {
+    const { rows } = await this.pool.query<SalesEventRow>(
+      `INSERT INTO sales_status_events
+         (product_id, from_status, to_status, reason, changed_by)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, product_id, from_status, to_status, reason,
+                 changed_by, changed_at,
+                 (SELECT name FROM users WHERE id = $5) AS changed_by_name`,
+      [
+        input.productId,
+        input.fromStatus ?? null,
+        input.toStatus,
+        input.reason ?? null,
+        input.changedBy.id
+      ]
+    );
+    return rowToSalesEvent(rows[0]);
+  }
+}
+
+interface LotRow {
+  id: string;
+  product_id: string;
+  lot_no: string;
+  produced_at: Date | null;
+  quantity_kg: string | number | null;
+  verdict: string | null;
+  tested_at: Date | null;
+  notes: string | null;
+  created_at: Date;
+}
+
+const LOT_SELECT = `
+  SELECT id, product_id, lot_no, produced_at, quantity_kg,
+         verdict, tested_at, notes, created_at
+    FROM product_lots
+`;
+
+function rowToLot(row: LotRow): ProductLot {
+  return {
+    id: row.id,
+    productId: row.product_id,
+    number: row.lot_no,
+    producedAt: row.produced_at ? formatDate(row.produced_at) : undefined,
+    quantity: row.quantity_kg != null ? String(row.quantity_kg) : undefined,
+    verdict: (row.verdict as ProductLot["verdict"]) ?? undefined,
+    testedAt: row.tested_at ? formatDate(row.tested_at) : undefined,
+    note: row.notes ?? undefined,
+    createdAt:
+      row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at)
+  };
+}
+
+interface SalesEventRow {
+  id: string;
+  product_id: string;
+  from_status: string | null;
+  to_status: string;
+  reason: string | null;
+  changed_by: string;
+  changed_at: Date;
+  changed_by_name: string | null;
+}
+
+function rowToSalesEvent(row: SalesEventRow): SalesStatusEvent {
+  return {
+    id: row.id,
+    productId: row.product_id,
+    fromStatus: (row.from_status as SalesStatus | null) ?? undefined,
+    toStatus: row.to_status as SalesStatus,
+    reason: row.reason ?? undefined,
+    changedById: row.changed_by,
+    changedByName: row.changed_by_name ?? "",
+    changedAt:
+      row.changed_at instanceof Date ? row.changed_at.toISOString() : String(row.changed_at)
+  };
 }
 
 // ---------------------------------------------------------------------------

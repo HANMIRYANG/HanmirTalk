@@ -430,33 +430,33 @@
 
 ### J-1. 스키마
 
-- [ ] **마이그레이션 015_product_subsystems.sql**:
+- [x] **마이그레이션 015_product_subsystems.sql**:
   - `product_specs (id, product_id NOT NULL FK, key TEXT NOT NULL, value TEXT NOT NULL, sort_order INT, UNIQUE(product_id, key))`
   - `product_lots (id, product_id NOT NULL FK, lot_no TEXT NOT NULL, produced_at DATE, quantity_kg NUMERIC, verdict VARCHAR(20), tested_at DATE, notes TEXT, UNIQUE(product_id, lot_no))`
   - `sales_status_events (id, product_id NOT NULL FK, from_status VARCHAR(40), to_status VARCHAR(40) NOT NULL, reason TEXT, changed_by NOT NULL FK users, changed_at TIMESTAMP NOT NULL DEFAULT NOW())`
-  - 기존 `product_documents` 활용 — `document_type` 컬럼 enum화 (catalog, test_report, proposal, price_sheet, install_guide, faq, certificate, image)
+  - 기존 `product_documents` 활용 — `document_type` 인덱스 추가 (enum 강제는 데이터 안정화 후 별도 마이그레이션). UI 필터: catalog, test_report, proposal, price_sheet, install_guide, faq, certificate, image
 
 ### J-2. 백엔드 API
 
-- [ ] `GET/POST/PATCH/DELETE /api/v1/products/:id/specs/:specId`
-- [ ] `GET/POST/PATCH/DELETE /api/v1/products/:id/lots/:lotId`
-- [ ] `GET /api/v1/products/:id/sales-history` — sales_status_events
-- [ ] 기존 `PATCH /api/v1/products/:id` 의 salesStatus 변경을 hook 으로 sales_status_events에 row 자동 insert
-- [ ] `POST /api/v1/products/:id/documents` — 이미 spec에 있음. 기존 `attachments + product_documents` 연동
-- [ ] `GET /api/v1/products/:id/documents?type=`
+- [x] `GET/POST/PATCH/DELETE /api/v1/products/:id/specs/:specId`
+- [x] `GET/POST/PATCH/DELETE /api/v1/products/:id/lots/:lotId`
+- [x] `GET /api/v1/products/:id/sales-history` — sales_status_events
+- [x] 기존 `PATCH /api/v1/products/:id` 의 salesStatus 변경을 hook 으로 sales_status_events에 row 자동 insert (PATCH body `salesReason`을 reason으로 캡처)
+- [x] `POST /api/v1/products/:id/documents` — 이미 spec에 있음. 기존 `attachments + product_documents` 연동
+- [x] `GET /api/v1/products/:id/documents?type=`
 
 ### J-3. 프론트
 
-- [ ] `/products/[id]/page.tsx` 탭 6개 활성화 — 페이지 내 state 또는 별도 라우트
-  - [ ] `제품 개요` — 현재 페이지 유지
-  - [ ] `시험성적서` — document_type=test_report 필터
-  - [ ] `생산 LOT` — lots 목록
-  - [ ] `영업 상태 이력` — sales_status_events 타임라인
-  - [ ] `관련 프로젝트` — relatedProjectIds
-  - [ ] `문의 채팅` — DM 또는 product 채팅방
-- [ ] 제품 사양 섹션 `수정` → ProductSpecsModal
-- [ ] `변경 이력 →` / `전체 LOT →` 링크 — 해당 탭으로 이동
-- [ ] `1:1 대화 시작` → Phase 4 의 `openDirectMessage(product.ownerId)`
+- [x] `/products/[id]/page.tsx` 탭 6개 활성화 — `ProductTabs.tsx` 클라이언트 state로 전환
+  - [x] `제품 개요` — DB-backed specs + 최근 상태 3건 + side cards (분기 판매, 담당자)
+  - [x] `시험성적서` — document_type=test_report 필터 (현재는 이름 패턴 매칭, 추후 type 필드 도입 시 교체)
+  - [x] `생산 LOT` — lots 목록 + 작성자 수정/삭제
+  - [x] `영업 상태 이력` — sales_status_events 타임라인
+  - [x] `관련 프로젝트` — relatedProjectIds
+  - [x] `문의 채팅` — ProductOwnerChatButton (openDirectMessage)
+- [x] 제품 사양 섹션 `수정` → ProductSpecsModal (배치 add/edit/remove + sort_order 자동 부여)
+- [x] `LOT 등록` / 행별 `수정` → ProductLotModal (생성/수정/삭제 + 409 중복 lot 안내)
+- [x] `1:1 대화 시작` → Phase 4 의 `openDirectMessage(product.ownerId)` (재사용)
 
 ---
 

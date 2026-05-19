@@ -7,6 +7,8 @@ import type {
   CreateFileInput,
   CreateNoticeInput,
   CreateProductInput,
+  CreateProductLotInput,
+  CreateProductSpecInput,
   CreateProjectInput,
   CreateRoomInput,
   CreateTaskInput,
@@ -23,13 +25,18 @@ import type {
   NotificationSettings,
   PinnedMessageRef,
   Product,
+  ProductLot,
+  ProductSpec,
   Project,
   Room,
+  SalesStatusEvent,
   TaskItem,
   UpdateDecisionInput,
   UpdateNotificationSettingsInput,
   UpdateDepartmentInput,
   UpdateProductInput,
+  UpdateProductLotInput,
+  UpdateProductSpecInput,
   UpdateProjectInput,
   UpdateRoomInput,
   UpdateTaskInput,
@@ -184,6 +191,37 @@ export interface ProductRepository {
   create(input: CreateProductInput): Promise<Product>;
   update(id: string, input: UpdateProductInput): Promise<Product | undefined>;
   delete(id: string): Promise<boolean>;
+
+  // Phase 7 J-1 — product_specs.
+  listSpecs(productId: string): Promise<ProductSpec[]>;
+  createSpec(productId: string, input: CreateProductSpecInput): Promise<ProductSpec>;
+  updateSpec(
+    productId: string,
+    specId: string,
+    input: UpdateProductSpecInput
+  ): Promise<ProductSpec | undefined>;
+  deleteSpec(productId: string, specId: string): Promise<boolean>;
+
+  // Phase 7 J-1 — product_lots. (lot_no, product_id) UNIQUE.
+  listLots(productId: string): Promise<ProductLot[]>;
+  createLot(productId: string, input: CreateProductLotInput): Promise<ProductLot>;
+  updateLot(
+    productId: string,
+    lotId: string,
+    input: UpdateProductLotInput
+  ): Promise<ProductLot | undefined>;
+  deleteLot(productId: string, lotId: string): Promise<boolean>;
+
+  // Phase 7 J-1 — sales_status_events 타임라인. PATCH /products/:id 의
+  // salesStatus 변경 hook이 append를 호출.
+  listSalesEvents(productId: string): Promise<SalesStatusEvent[]>;
+  appendSalesEvent(input: {
+    productId: string;
+    fromStatus?: string;
+    toStatus: string;
+    reason?: string;
+    changedBy: { id: string };
+  }): Promise<SalesStatusEvent>;
 }
 
 export interface FileRepository {

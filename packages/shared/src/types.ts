@@ -394,24 +394,90 @@ export interface UpdateTaskInput {
   description?: string;
 }
 
+// Phase 7 J-1 — DB-backed product lot. Maps to product_lots row.
+// `number`는 DB의 lot_no. `quantity`는 NUMERIC(12,2)를 string으로
+// 전달 (소수점/포맷 보존). verdict / testedAt / note 모두 optional.
+//
+// trcVersion / trcStatus는 deprecated — 시험성적서는 product_documents
+// (document_type='test_report')에서 별도 관리하므로 lot 자체에는 두지 않음.
+// 기존 seed/mock UI 호환을 위해 optional로 남김.
 export interface ProductLot {
   id: string;
+  productId?: string;
   number: string;
-  producedAt: string;
-  quantity: string;
-  trcVersion: string;
-  trcStatus: "in_review" | "approved" | "pending";
-  verdict: "pass" | "hold" | "retest";
+  producedAt?: string;
+  quantity?: string;
+  verdict?: "pass" | "hold" | "retest";
+  testedAt?: string;
+  note?: string;
+  createdAt?: string;
+  // Deprecated — Phase 7에서 시험성적서를 product_documents로 분리. 기존
+  // seed mock UI는 이 두 필드를 표시하므로 optional로 유지 (DB 안 들어감).
+  trcVersion?: string;
+  trcStatus?: "in_review" | "approved" | "pending";
+}
+
+export interface CreateProductLotInput {
+  number: string;
+  producedAt?: string;
+  quantity?: string;
+  verdict?: "pass" | "hold" | "retest";
+  testedAt?: string;
   note?: string;
 }
 
+export interface UpdateProductLotInput {
+  number?: string;
+  producedAt?: string;
+  quantity?: string;
+  verdict?: "pass" | "hold" | "retest";
+  testedAt?: string;
+  note?: string;
+}
+
+// Phase 7 J-1 — DB-backed sales status event. PATCH /products/:id 의
+// salesStatus 변경 시 hook이 자동 insert. changedByName은 server-side
+// JOIN 결과 (UI 표시용).
+//
+// 기존 mock UI에서 쓰던 title/meta/date/state 필드는 deprecated. 새
+// 로직은 fromStatus/toStatus/reason/changedAt 기반.
 export interface SalesStatusEvent {
   id: string;
-  status: SalesStatus;
-  title: string;
-  meta: string;
-  date: string;
-  state: "done" | "current" | "future";
+  productId?: string;
+  fromStatus?: SalesStatus;
+  toStatus: SalesStatus;
+  reason?: string;
+  changedById?: string;
+  changedByName?: string;
+  changedAt: string;
+  // Deprecated — Phase 7 이전 mock UI 호환용. 새 코드는 toStatus +
+  // changedAt + reason만 사용.
+  status?: SalesStatus;
+  title?: string;
+  meta?: string;
+  date?: string;
+  state?: "done" | "current" | "future";
+}
+
+// Phase 7 J-1 — DB-backed product spec (key-value).
+export interface ProductSpec {
+  id: string;
+  productId: string;
+  key: string;
+  value: string;
+  sortOrder: number;
+}
+
+export interface CreateProductSpecInput {
+  key: string;
+  value: string;
+  sortOrder?: number;
+}
+
+export interface UpdateProductSpecInput {
+  key?: string;
+  value?: string;
+  sortOrder?: number;
 }
 
 export interface CreateProductInput {

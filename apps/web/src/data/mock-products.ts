@@ -104,6 +104,9 @@ export const mockProducts: Product[] = [
     history: [
       {
         id: "h-1",
+        toStatus: "available",
+        changedAt: "2026.04.18",
+        reason: "시험성적서 v0.2 결재 완료 · 일반 영업 진행 가능",
         status: "available",
         title: "영업 가능 (정상)",
         meta: "시험성적서 v0.2 결재 완료 · 일반 영업 진행 가능",
@@ -112,6 +115,10 @@ export const mockProducts: Product[] = [
       },
       {
         id: "h-2",
+        toStatus: "conditional",
+        fromStatus: "available",
+        changedAt: "2026.05.13",
+        reason: "시험성적서 v0.3 의견 반영 중 / 품질보증팀 결재 후 신규 견적 가능 / +5영업일 납기 적용",
         status: "conditional",
         title: "제한적 영업 가능",
         meta: "시험성적서 v0.3 의견 반영 중 / 품질보증팀 결재 후 신규 견적 가능 / +5영업일 납기 적용",
@@ -120,6 +127,9 @@ export const mockProducts: Product[] = [
       },
       {
         id: "h-3",
+        toStatus: "available",
+        changedAt: "예정",
+        reason: "시험성적서 v1.0 확정 후 자동 전환 — 예정일 2026.05.20",
         status: "available",
         title: "영업 가능 (정상) 복귀 예정",
         meta: "시험성적서 v1.0 확정 후 자동 전환 — 예정일 2026.05.20",
