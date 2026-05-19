@@ -5,7 +5,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { cn } from "@/lib/classNames";
 import { authService } from "@/services/auth.service";
-import { clearSessionCookie } from "@/lib/client-auth";
 import {
   AdminIcon,
   ChatIcon,
@@ -49,13 +48,15 @@ export function Sidebar() {
   const onLogout = async () => {
     if (loggingOut) return;
     setLoggingOut(true);
+    // Phase 1 D-3: server-side logout clears both httpOnly cookies via
+    // Set-Cookie. JS can no longer touch the access cookie directly.
     try {
       await authService.logout();
     } catch {
-      // Even if the server call fails, drop the local cookie so the user is
-      // pushed back to /login.
+      // Server unreachable — cookies expire on their own; redirect anyway
+      // so the user isn't stranded on an authenticated route they can't
+      // actually use.
     }
-    clearSessionCookie();
     router.replace("/login");
     router.refresh();
   };

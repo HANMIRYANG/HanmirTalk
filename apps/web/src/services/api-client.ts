@@ -42,7 +42,45 @@ function buildUrl(path: string, query?: ApiRequestOptions["query"]): string {
   return qs ? `${base}${normalized}?${qs}` : `${base}${normalized}`;
 }
 
+// Phase 1 D-3 — single-flight refresh promise. When multiple in-flight
+// requests get 401 at the same time we want exactly one /auth/refresh
+// round trip; subsequent callers await the same promise. This avoids a
+// thundering-herd of refresh attempts (and the refresh-rotation that
+// would render all-but-one of them invalid).
+let inflightRefresh: Promise<boolean> | null = null;
+
+async function attemptRefresh(): Promise<boolean> {
+  if (inflightRefresh) return inflightRefresh;
+  inflightRefresh = (async () => {
+    try {
+      const res = await fetch(buildUrl("/auth/refresh"), {
+        method: "POST",
+        credentials: "include",
+        headers: { Accept: "application/json" },
+        cache: "no-store"
+      });
+      return res.ok;
+    } catch {
+      return false;
+    } finally {
+      // Clear immediately after settling so the next round of 401s
+      // triggers a fresh refresh attempt rather than reusing this resolved
+      // promise indefinitely.
+      inflightRefresh = null;
+    }
+  })();
+  return inflightRefresh;
+}
+
 export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
+  return apiRequestInternal<T>(path, options, false);
+}
+
+async function apiRequestInternal<T>(
+  path: string,
+  options: ApiRequestOptions,
+  didRetry: boolean
+): Promise<T> {
   const { body, query, token, headers, expectStatus, credentials, ...rest } = options;
   const url = buildUrl(path, query);
   const finalHeaders: Record<string, string> = {
@@ -63,6 +101,24 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
     });
   } catch (error) {
     throw new ApiError(0, `Network error while requesting ${path}`, error);
+  }
+
+  // 401 auto-refresh: attempt exactly once per call. Skip when the failing
+  // request IS the refresh endpoint (otherwise we recurse forever) or when
+  // an explicit Authorization-header token was passed (bearer flow opts
+  // out of the cookie/refresh dance).
+  if (
+    response.status === 401 &&
+    !didRetry &&
+    !token &&
+    typeof window !== "undefined" &&
+    !path.startsWith("/auth/refresh") &&
+    !path.startsWith("/auth/login")
+  ) {
+    const ok = await attemptRefresh();
+    if (ok) {
+      return apiRequestInternal<T>(path, options, true);
+    }
   }
 
   if (response.status === 204) {

@@ -34,6 +34,31 @@ export interface AuditRepository {
   list(opts?: { limit?: number; action?: string; actorUserId?: string }): Promise<AuditEntry[]>;
 }
 
+// Phase 1 D-3 — DB-backed refresh tokens (paired with in-memory access
+// sessionStore). Raw tokens are returned only at issue time and never
+// stored; we keep sha256 digests so DB compromise does not leak credentials.
+export interface IssuedRefreshToken {
+  // Raw token to send to the client (cookie value). Never persisted.
+  token: string;
+  // Internal row id, used by `rotate` to identify which row to revoke.
+  tokenId: string;
+  expiresAt: Date;
+}
+
+export interface ResolvedRefreshToken {
+  tokenId: string;
+  userId: string;
+  expiresAt: Date;
+}
+
+export interface RefreshTokenRepository {
+  issue(userId: string, ctx?: { userAgent?: string; ip?: string }): Promise<IssuedRefreshToken>;
+  // Returns undefined when the token is missing, revoked, or expired.
+  resolve(rawToken: string): Promise<ResolvedRefreshToken | undefined>;
+  revoke(tokenId: string): Promise<void>;
+  revokeAllForUser(userId: string): Promise<void>;
+}
+
 export interface UserRepository {
   list(): Promise<User[]>;
   findById(id: string): Promise<User | undefined>;
@@ -156,4 +181,5 @@ export interface Repositories {
   files: FileRepository;
   notices: NoticeRepository;
   audit: AuditRepository;
+  refreshTokens: RefreshTokenRepository;
 }

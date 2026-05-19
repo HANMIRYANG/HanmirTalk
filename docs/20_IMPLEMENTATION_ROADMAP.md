@@ -87,8 +87,8 @@
 
 **의존성**: 다른 phase와 독립적. 단, Phase 2/3/5/6/7 보다 먼저 끝내는 게 권장.
 **예상 작업량**: 4~6일 (SMTP 포함)
-**진행 상황 (2026-05-19 기준)**: D-1, D-2, D-4(부분), D-5, D-6, D-7(SMTP) ✅
-**남은 작업 (실행 순서)**: **D-8 (rooms 멤버십 권한, 긴급) → D-3 (httpOnly+refresh) → D-4 sweep (확장 10건) → D-9 (문서 drift 정리)**
+**진행 상황 (2026-05-19 기준)**: D-1, D-2, D-3, D-4(부분), D-5, D-6, D-7(SMTP), D-8 ✅
+**남은 작업 (실행 순서)**: **D-4 sweep (확장 10건) → D-9 (문서 drift 정리)**
 
 > **2026-05-19 추가 결정**: codex 추가 검수에서 발견된 채팅방 권한 결함이 D-3보다 먼저 차단되어야 함이 확인됨. 또한 D-4 audit hook이 사용자/부서 외에도 task/product/notice/file 등에 누락되어 sweep 범위가 확장됨. D-9는 SMTP 도입 후 발견된 .env/docker-compose 문서 drift 정리.
 
@@ -111,15 +111,20 @@
 - [x] `/account/password` 페이지 + `ChangePasswordForm` client component
 - [x] 메모리 모드 시드는 dev 편의상 `mustChangePassword=false` 유지
 
-### D-3. httpOnly + Secure 쿠키 + Refresh Token (doc/10, 14) ❌ **남음**
+### D-3. httpOnly + Secure 쿠키 + Refresh Token (doc/10, 14) ✅
 
-- [ ] **마이그레이션 008_refresh_tokens.sql** — `refresh_tokens(id, user_id, token_hash, expires_at, revoked_at)`
-- [ ] `POST /auth/login` 응답 — `Set-Cookie: hanmir_token=<access>; HttpOnly; Secure; SameSite=Strict; Max-Age=900` (15분), `Set-Cookie: hanmir_refresh=<refresh>; HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth; Max-Age=2592000` (30일)
-- [ ] `POST /auth/refresh` — refresh cookie 검증 → 새 access 발급 + refresh rotation
-- [ ] `POST /auth/logout` — access + refresh 모두 revoke + clear
-- [ ] 프론트 — `client-auth.ts`의 `document.cookie` 조작 코드 제거
-- [ ] 프론트 — 401 시 자동 `/auth/refresh` 1회 시도 후 실패하면 `/login`
-- [ ] socket.io 핸드셰이크 토큰 — cookie 기반으로 전환
+- [x] **마이그레이션 008_refresh_tokens.sql** — `refresh_tokens(id, user_id, token_hash CHAR(64), expires_at, revoked_at, user_agent, ip, created_at)` + user_id·expires_at 인덱스. 토큰은 sha256 hex digest로만 저장 (raw 토큰은 issue 시점에만 반환)
+- [x] `auth/token.ts` — `setAuthCookies(res, {access, refresh, ...})` / `clearAuthCookies(res)` 헬퍼. `hanmir_token` HttpOnly+SameSite=Strict+Max-Age=900, `hanmir_refresh` HttpOnly+SameSite=Strict+Path=/api/v1/auth+Max-Age=2592000. CORS_ORIGIN이 https://이면 Secure 자동 추가
+- [x] `POST /auth/login` — sessionStore.issue + refreshTokens.issue → setAuthCookies. Body의 `token` 필드는 backward compat용 유지
+- [x] `POST /auth/refresh` — refresh cookie 검증 → rotation (구 row revoke + 신 row issue) + 신 access pair → setAuthCookies
+- [x] `POST /auth/logout` — access sessionStore.revoke + refresh row revoke + clearAuthCookies
+- [x] `POST /auth/change-password` — 성공 시 본인의 모든 refresh 토큰 revoke (탈취 대응)
+- [x] `RefreshTokenRepository` 인터페이스 + 메모리·PG 어댑터 (PG는 sha256 hex로 lookup)
+- [x] 프론트 `LoginForm.tsx` — `document.cookie` 직접 set 제거. 서버 Set-Cookie에 의존
+- [x] 프론트 `api-client.ts` — 401 시 single-flight `/auth/refresh` 시도 후 자동 재시도 1회. `/auth/refresh` 자체와 `/auth/login`은 재시도 제외
+- [x] 프론트 `client-auth.ts` — `clearSessionCookie` → `clearSession()` (httpOnly라 JS clear 불가, server logout 호출)
+- [x] `Sidebar.tsx` 로그아웃 — `authService.logout()` 호출만 (cookie clear는 서버가)
+- [x] socket.io 핸드셰이크 — `tokenFromHandshake()`로 httpOnly cookie를 우선 읽고, fallback으로 auth.token / Authorization 헤더 (script/test 호환)
 
 ### D-4. 감사 로그 영속화 (doc/14) ✅
 
@@ -556,7 +561,7 @@
 | 005 | rooms.pinned_message_id | (완료) |
 | 006 | users password_hash 시드 bcrypt | (완료) Phase 1 D-1 |
 | 007 | users.must_change_password | (완료) Phase 1 D-2 |
-| 008 | refresh_tokens | (예약) Phase 1 D-3 — **미적용 슬롯** |
+| 008 | refresh_tokens | (완료) Phase 1 D-3 |
 | 009 | audit_logs | (완료) Phase 1 D-4 |
 | 010 | messages.edited_at | Phase 2 |
 | 011 | messages FTS index | Phase 2 |

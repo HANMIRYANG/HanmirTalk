@@ -15,6 +15,7 @@
  * tables exist — see README "Postgres adapter 구현 범위" for the matrix.
  */
 
+import { createHash, randomBytes } from "crypto";
 import type { Pool } from "pg";
 import { hashPassword, seedPasswordHash, verifyPassword } from "../auth/password";
 import type {
@@ -56,15 +57,24 @@ import type {
   AuditRepository,
   DepartmentRepository,
   FileRepository,
+  IssuedRefreshToken,
   MessageRepository,
   NoticeRepository,
   ProductRepository,
   ProjectRepository,
+  RefreshTokenRepository,
   Repositories,
+  ResolvedRefreshToken,
   RoomRepository,
   TaskRepository,
   UserRepository
 } from "./types";
+
+const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+function hashRefreshToken(raw: string): string {
+  return createHash("sha256").update(raw).digest("hex");
+}
 
 // (Phase 1 D-1) bcryptjs-based password storage. Seed users have their
 // password_hash set by migration 006 to bcrypt('hanmir1234'); newly-created
@@ -1577,6 +1587,63 @@ function relativeTimePg(d: Date): string {
   return `${dt.getFullYear()}.${String(dt.getMonth() + 1).padStart(2, "0")}.${String(dt.getDate()).padStart(2, "0")}`;
 }
 
+class PgRefreshTokenRepository implements RefreshTokenRepository {
+  constructor(private readonly pool: Pool) {}
+
+  async issue(
+    userId: string,
+    ctx?: { userAgent?: string; ip?: string }
+  ): Promise<IssuedRefreshToken> {
+    const raw = randomBytes(32).toString("hex");
+    const tokenHash = hashRefreshToken(raw);
+    const expiresAt = new Date(Date.now() + REFRESH_TTL_MS);
+    const { rows } = await this.pool.query<{ id: string }>(
+      `INSERT INTO refresh_tokens (user_id, token_hash, expires_at, user_agent, ip)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id`,
+      [userId, tokenHash, expiresAt, ctx?.userAgent ?? null, ctx?.ip ?? null]
+    );
+    return { token: raw, tokenId: rows[0].id, expiresAt };
+  }
+
+  async resolve(rawToken: string): Promise<ResolvedRefreshToken | undefined> {
+    if (!rawToken) return undefined;
+    const hash = hashRefreshToken(rawToken);
+    const { rows } = await this.pool.query<{
+      id: string;
+      user_id: string;
+      expires_at: Date;
+      revoked_at: Date | null;
+    }>(
+      `SELECT id, user_id, expires_at, revoked_at
+         FROM refresh_tokens
+        WHERE token_hash = $1`,
+      [hash]
+    );
+    const row = rows[0];
+    if (!row) return undefined;
+    if (row.revoked_at) return undefined;
+    if (new Date(row.expires_at).getTime() <= Date.now()) return undefined;
+    return { tokenId: row.id, userId: row.user_id, expiresAt: new Date(row.expires_at) };
+  }
+
+  async revoke(tokenId: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE refresh_tokens SET revoked_at = NOW()
+        WHERE id = $1 AND revoked_at IS NULL`,
+      [tokenId]
+    );
+  }
+
+  async revokeAllForUser(userId: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE refresh_tokens SET revoked_at = NOW()
+        WHERE user_id = $1 AND revoked_at IS NULL`,
+      [userId]
+    );
+  }
+}
+
 export function createPostgresRepositories(pool: Pool): Repositories {
   const users = new PgUserRepository(pool);
   return {
@@ -1589,6 +1656,7 @@ export function createPostgresRepositories(pool: Pool): Repositories {
     products: new PgProductRepository(pool),
     files: new PgFileRepository(pool),
     notices: new PgNoticeRepository(pool),
-    audit: new PgAuditRepository(pool)
+    audit: new PgAuditRepository(pool),
+    refreshTokens: new PgRefreshTokenRepository(pool)
   };
 }

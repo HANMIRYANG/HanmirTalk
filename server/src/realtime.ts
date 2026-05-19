@@ -2,8 +2,30 @@ import type { Server as HttpServer } from "http";
 import { Server as SocketServer, type Socket } from "socket.io";
 import type { ChatMessage, Notice, PinnedMessageRef } from "@hanmir/shared";
 import { sessionStore } from "./auth/session";
+import { SESSION_COOKIE } from "./auth/token";
 import { config } from "./config";
 import type { Repositories } from "./repositories/types";
+
+// Parse the access token from the socket.io handshake. Phase 1 D-3:
+// access token now lives in an httpOnly cookie, so JS-side `auth.token` is
+// no longer available. We read directly from the handshake cookie header.
+// The legacy `auth.token` path is kept as a fallback for non-browser
+// clients (CLI tests, scripts) that still pass a bearer token.
+function tokenFromHandshake(socket: Socket): string | undefined {
+  const cookieHeader = socket.handshake.headers.cookie;
+  if (typeof cookieHeader === "string" && cookieHeader.length > 0) {
+    const match = cookieHeader
+      .split(";")
+      .map((c) => c.trim())
+      .find((c) => c.startsWith(`${SESSION_COOKIE}=`));
+    if (match) return decodeURIComponent(match.slice(SESSION_COOKIE.length + 1));
+  }
+  const fromAuth = (socket.handshake.auth as { token?: string } | undefined)?.token;
+  if (typeof fromAuth === "string" && fromAuth) return fromAuth;
+  const header = socket.handshake.headers.authorization;
+  if (typeof header === "string") return header.replace(/^Bearer\s+/i, "");
+  return undefined;
+}
 
 // Lightweight singleton wrapper around socket.io so route handlers can call
 // `realtime.emitMessageNew(...)` without juggling the Server instance. The
@@ -28,15 +50,11 @@ class Realtime {
       transports: ["websocket", "polling"]
     });
 
-    // Authenticate on handshake. Clients pass the access token via the
-    // `auth.token` field of socket.io's connect handshake. Sockets that
-    // can't be resolved get disconnected immediately.
+    // Authenticate on handshake. Browsers send the access token via the
+    // httpOnly `hanmir_token` cookie (D-3); non-browser clients may still
+    // pass a bearer via `auth.token` or Authorization header.
     io.use((socket, next) => {
-      const token =
-        (socket.handshake.auth as { token?: string } | undefined)?.token ??
-        (typeof socket.handshake.headers.authorization === "string"
-          ? socket.handshake.headers.authorization.replace(/^Bearer\s+/i, "")
-          : undefined);
+      const token = tokenFromHandshake(socket);
       const session = sessionStore.resolve(token);
       if (!session) {
         next(new Error("unauthorized"));

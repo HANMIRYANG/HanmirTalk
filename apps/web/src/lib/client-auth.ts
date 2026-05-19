@@ -1,12 +1,22 @@
 "use client";
 
 import type { AppRouterInstance } from "next/dist/shared/lib/app-router-context.shared-runtime";
+import { authService } from "@/services/auth.service";
 
 export const SESSION_COOKIE = "hanmir_token";
 
-export function clearSessionCookie(): void {
-  if (typeof document === "undefined") return;
-  document.cookie = `${SESSION_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
+// Phase 1 D-3 — the access cookie is now httpOnly, so JS can no longer
+// clear it via document.cookie. Call the server logout endpoint which
+// revokes the refresh token row and emits Set-Cookie clears for both
+// hanmir_token and hanmir_refresh.
+export async function clearSession(): Promise<void> {
+  try {
+    await authService.logout();
+  } catch {
+    // Silent — even if logout fails the redirect still happens; cookies
+    // expire on their own and the server will reject the stale access
+    // token at next request.
+  }
 }
 
 export function redirectToLogin(router: AppRouterInstance): void {
@@ -15,7 +25,9 @@ export function redirectToLogin(router: AppRouterInstance): void {
 }
 
 // Convenience used by client components catching 401s from write actions.
+// Fire-and-forget the logout so the UI doesn't block on it; the redirect
+// happens immediately.
 export function handleSessionExpired(router: AppRouterInstance): void {
-  clearSessionCookie();
+  void clearSession();
   redirectToLogin(router);
 }

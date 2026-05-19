@@ -1,4 +1,4 @@
-import { randomBytes } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import type {
   AuditEntry,
   ChatMessage,
@@ -44,15 +44,27 @@ import type {
   AuditRepository,
   DepartmentRepository,
   FileRepository,
+  IssuedRefreshToken,
   MessageRepository,
   NoticeRepository,
   ProductRepository,
   ProjectRepository,
+  RefreshTokenRepository,
   Repositories,
+  ResolvedRefreshToken,
   RoomRepository,
   TaskRepository,
   UserRepository
 } from "./types";
+
+// Refresh token TTL — paired with the cookie Max-Age in routes/auth.ts.
+// Single source of truth lives here so a future config switch can change
+// both in one place.
+const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+function hashRefreshToken(raw: string): string {
+  return createHash("sha256").update(raw).digest("hex");
+}
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -885,6 +897,63 @@ function relativeTime(iso: string): string {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
 }
 
+interface RefreshRow {
+  id: string;
+  userId: string;
+  tokenHash: string;
+  expiresAt: Date;
+  revokedAt: Date | null;
+  userAgent?: string;
+  ip?: string;
+  createdAt: Date;
+}
+
+class MemoryRefreshTokenRepository implements RefreshTokenRepository {
+  private readonly rows: RefreshRow[] = [];
+
+  async issue(
+    userId: string,
+    ctx?: { userAgent?: string; ip?: string }
+  ): Promise<IssuedRefreshToken> {
+    // 32 random bytes → 64-char hex token. Stored only as sha256 digest.
+    const raw = randomBytes(32).toString("hex");
+    const row: RefreshRow = {
+      id: newId("rt"),
+      userId,
+      tokenHash: hashRefreshToken(raw),
+      expiresAt: new Date(Date.now() + REFRESH_TTL_MS),
+      revokedAt: null,
+      userAgent: ctx?.userAgent,
+      ip: ctx?.ip,
+      createdAt: new Date()
+    };
+    this.rows.push(row);
+    return { token: raw, tokenId: row.id, expiresAt: row.expiresAt };
+  }
+
+  async resolve(rawToken: string): Promise<ResolvedRefreshToken | undefined> {
+    if (!rawToken) return undefined;
+    const hash = hashRefreshToken(rawToken);
+    const row = this.rows.find((r) => r.tokenHash === hash);
+    if (!row) return undefined;
+    if (row.revokedAt) return undefined;
+    if (row.expiresAt.getTime() <= Date.now()) return undefined;
+    return { tokenId: row.id, userId: row.userId, expiresAt: row.expiresAt };
+  }
+
+  async revoke(tokenId: string): Promise<void> {
+    const row = this.rows.find((r) => r.id === tokenId);
+    if (row && !row.revokedAt) row.revokedAt = new Date();
+  }
+
+  async revokeAllForUser(userId: string): Promise<void> {
+    const now = new Date();
+    for (const r of this.rows) {
+      if (r.userId === userId && !r.revokedAt) r.revokedAt = now;
+    }
+  }
+}
+
 export function createMemoryRepositories(): Repositories {
   const departments = new MemoryDepartmentRepository();
   const users = new MemoryUserRepository({ departments });
@@ -911,6 +980,7 @@ export function createMemoryRepositories(): Repositories {
     products: new MemoryProductRepository(),
     files: new MemoryFileRepository(),
     notices,
-    audit: new MemoryAuditRepository()
+    audit: new MemoryAuditRepository(),
+    refreshTokens: new MemoryRefreshTokenRepository()
   };
 }

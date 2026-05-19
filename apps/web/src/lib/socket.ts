@@ -2,7 +2,6 @@
 
 import { io, type Socket } from "socket.io-client";
 import { apiBaseUrl } from "@/services/api-client";
-import { SESSION_COOKIE } from "@/lib/client-auth";
 
 // Derive socket.io URL from the API base. apiBaseUrl includes the
 // `/api/v1` suffix which socket.io must NOT see — it owns its own
@@ -17,20 +16,14 @@ function socketOrigin(): string {
   }
 }
 
-function readCookieToken(): string | undefined {
-  if (typeof document === "undefined") return undefined;
-  const match = document.cookie
-    .split(";")
-    .map((s) => s.trim())
-    .find((s) => s.startsWith(`${SESSION_COOKIE}=`));
-  return match ? decodeURIComponent(match.split("=").slice(1).join("=")) : undefined;
-}
-
 let cached: Socket | null = null;
 
 // One shared socket per tab. Multiple components subscribe to the same
 // connection; we connect lazily on first use and reuse the instance until
 // the page reloads. Reconnection is delegated to socket.io's defaults.
+// Phase 1 D-3: access token now lives in an httpOnly cookie so the
+// browser attaches it automatically via `withCredentials`. We no longer
+// read document.cookie or pass `auth.token`.
 export function getSocket(): Socket {
   if (cached && cached.connected) return cached;
   if (cached) {
@@ -40,7 +33,6 @@ export function getSocket(): Socket {
   cached = io(socketOrigin(), {
     autoConnect: true,
     transports: ["websocket", "polling"],
-    auth: () => ({ token: readCookieToken() }),
     withCredentials: true
   });
   return cached;

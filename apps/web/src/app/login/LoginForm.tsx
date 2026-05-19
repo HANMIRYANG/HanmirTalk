@@ -15,6 +15,10 @@ export function LoginForm({ defaultEmail = "kim.minjun@hanmir.co.kr" }: LoginFor
   const router = useRouter();
   const [idOrEmail, setIdOrEmail] = useState(defaultEmail);
   const [password, setPassword] = useState("hanmir1234");
+  // `remember` is kept for UX continuity but no longer changes cookie
+  // expiry — the server controls the refresh-token TTL (30d) and the
+  // access cookie (15min). A future "remember me" off path would call a
+  // dedicated /auth/login?remember=false instead.
   const [remember, setRemember] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,15 +32,10 @@ export function LoginForm({ defaultEmail = "kim.minjun@hanmir.co.kr" }: LoginFor
     }
     setSubmitting(true);
     try {
-      const result = await authService.login(idOrEmail.trim(), password);
-      if (typeof document !== "undefined" && result.token) {
-        // MVP: cookie-based session. TODO: replace with httpOnly refresh-token
-        // cookie set by the backend; for now we set a non-httpOnly cookie so
-        // both server components (via `cookies()`) and client `fetch` reads can
-        // share it.
-        const maxAge = remember ? 60 * 60 * 24 * 7 : 60 * 60 * 12;
-        document.cookie = `hanmir_token=${encodeURIComponent(result.token)}; Path=/; Max-Age=${maxAge}; SameSite=Lax`;
-      }
+      // Phase 1 D-3 — the server now sets httpOnly `hanmir_token` +
+      // `hanmir_refresh` cookies via Set-Cookie. JS no longer touches
+      // document.cookie for auth; we just navigate after success.
+      await authService.login(idOrEmail.trim(), password);
       router.push("/chat");
       router.refresh();
     } catch (err) {
