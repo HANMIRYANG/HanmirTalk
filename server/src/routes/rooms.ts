@@ -401,7 +401,16 @@ export function createRoomsRouter(repos: Repositories): Router {
       level: target === me.id ? "info" : "warn",
       meta: { removedUserId: target, removedUserName: targetUser?.name }
     });
+    // 남은 멤버들에게는 멤버 목록 갱신 신호.
     realtime.emitRoomUpdated(updated);
+    // 추방된 사용자 본인에게도 user:<id> 채널로 보냄. emitRoomUpdated는
+    // 새 members 배열을 순회하기 때문에 (이미 빠진) 본인은 못 받음 →
+    // 자발적 leave와 동일하게 emitRoomMembershipChanged를 별도 호출해서
+    // 본인 ChatList가 socket 한 번에 갱신되도록.
+    realtime.emitRoomMembershipChanged(req.params.roomId, {
+      kind: "leave",
+      userId: target
+    });
     res.json(updated);
   });
 
