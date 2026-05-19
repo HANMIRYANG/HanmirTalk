@@ -1,3 +1,10 @@
+// MUST be the first import — populates process.env from <cwd>/.env before
+// any other module reads `process.env.X` (notably ./config). When npm run
+// dev / start is invoked from the repo root the .env at the root is picked
+// up; running from server/ directly would need a server/.env instead.
+// .env.example is the tracked template; .env itself is gitignored.
+import "dotenv/config";
+
 import { createServer } from "http";
 import { Pool } from "pg";
 import { createApp } from "./app";

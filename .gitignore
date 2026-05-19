@@ -2,7 +2,9 @@ node_modules/
 .next/
 .turbo/
 .vercel/
-.env*.local
+# Local environment files. .env.example is the only env file tracked.
+.env*
+!.env.example
 *.log
 dist/
 build/
