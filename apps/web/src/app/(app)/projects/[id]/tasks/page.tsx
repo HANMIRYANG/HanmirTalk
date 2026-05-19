@@ -22,12 +22,16 @@ export default async function ProjectTasksPage({ params }: Props) {
     userService.listUsers({ token })
   ]);
 
+  const isAdmin = me.role === "admin" || me.role === "super_admin";
+  const isMember = isAdmin || project.memberIds.includes(me.id);
+
   return (
     <>
       <Topbar title="프로젝트" sub={`${project.code} ${project.name}`} />
       <ProjectHeader
         project={project}
         activeTab="tasks"
+        viewer={{ isMember, isAdmin }}
         rightActions={<TaskCreateButton projectId={params.id} users={users} />}
       />
       <TasksWorkspace

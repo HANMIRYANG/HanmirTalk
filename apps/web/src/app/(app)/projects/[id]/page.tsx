@@ -34,7 +34,7 @@ const milestoneLabel: Record<string, string> = {
 };
 
 export default async function ProjectDetailPage({ params }: Props) {
-  const { token } = await requireServerMe();
+  const { me, token } = await requireServerMe();
   const project = await projectService.getProject(params.id, { token });
   if (!project) notFound();
 
@@ -43,6 +43,9 @@ export default async function ProjectDetailPage({ params }: Props) {
     dashboardService.listProjectActivities({ token })
   ]);
 
+  const isAdmin = me.role === "admin" || me.role === "super_admin";
+  const isMember = isAdmin || project.memberIds.includes(me.id);
+
   return (
     <>
       <Topbar title="프로젝트" sub={`${project.code} ${project.name}`} />
@@ -50,6 +53,7 @@ export default async function ProjectDetailPage({ params }: Props) {
         project={project}
         variant="detail"
         activeTab="overview"
+        viewer={{ isMember, isAdmin }}
         rightActions={<ProjectActions project={project} />}
       />
 

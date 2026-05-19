@@ -13,7 +13,7 @@ interface Props {
 }
 
 export default async function ProjectFilesPage({ params }: Props) {
-  const { token } = await requireServerMe();
+  const { me, token } = await requireServerMe();
   const project = await projectService.getProject(params.id, { token });
   if (!project) notFound();
 
@@ -22,10 +22,18 @@ export default async function ProjectFilesPage({ params }: Props) {
     userService.listUsers({ token })
   ]);
 
+  const isAdmin = me.role === "admin" || me.role === "super_admin";
+  const isMember = isAdmin || project.memberIds.includes(me.id);
+
   return (
     <>
       <Topbar title="프로젝트" sub={`${project.code} ${project.name}`} />
-      <ProjectHeader project={project} variant="detail" activeTab="files" />
+      <ProjectHeader
+        project={project}
+        variant="detail"
+        activeTab="files"
+        viewer={{ isMember, isAdmin }}
+      />
       <div className="content no-pad">
         <div className={styles.wrap}>
           <ProjectFilesPanel projectId={params.id} initialFiles={files} users={users} />

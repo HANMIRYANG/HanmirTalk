@@ -10,16 +10,40 @@ interface ProjectHeaderProps {
   variant?: "detail" | "compact";
   activeTab: "overview" | "tasks" | "gantt" | "chat" | "files" | "decisions" | "settings";
   rightActions?: React.ReactNode;
+  // Phase 3 F-2c follow-up — the "결정 기록" tab points to a member-only
+  // route. When provided, the header hides tabs the viewer can't reach
+  // so they don't click into a 404. Pass `undefined` to keep the legacy
+  // "show all tabs" behavior (server-side fallback still catches 404).
+  viewer?: {
+    isMember: boolean;
+    isAdmin: boolean;
+  };
 }
 
-const TABS: { key: ProjectHeaderProps["activeTab"]; label: string; href?: (id: string) => string; num?: (p: Project) => string }[] = [
+interface TabDef {
+  key: ProjectHeaderProps["activeTab"];
+  label: string;
+  href?: (id: string) => string;
+  num?: (p: Project) => string;
+  // When set, only viewers passing this predicate see the tab.
+  visibleTo?: (viewer: NonNullable<ProjectHeaderProps["viewer"]>) => boolean;
+}
+
+const TABS: TabDef[] = [
   { key: "overview", label: "개요", href: (id) => `/projects/${id}` },
   { key: "tasks", label: "업무", href: (id) => `/projects/${id}/tasks`, num: (p) => String(p.taskCounts.total) },
   { key: "gantt", label: "간트", href: (id) => `/projects/${id}/gantt` },
   // TODO(chat): map project → its room id when project rooms are introduced.
   { key: "chat", label: "대화", href: () => "/chat/r-p2410" },
   { key: "files", label: "파일", href: (id) => `/projects/${id}/files` },
-  { key: "decisions", label: "결정 기록", href: (id) => `/projects/${id}/decisions` },
+  {
+    key: "decisions",
+    label: "결정 기록",
+    href: (id) => `/projects/${id}/decisions`,
+    // Decisions route is member-only on the server. Hide the tab for
+    // viewers who can't open it; admin bypass mirrors the server.
+    visibleTo: (v) => v.isAdmin || v.isMember
+  },
   { key: "settings", label: "설정" }
 ];
 
@@ -27,8 +51,12 @@ export function ProjectHeader({
   project,
   variant = "compact",
   activeTab,
-  rightActions
+  rightActions,
+  viewer
 }: ProjectHeaderProps) {
+  // Filter tabs by viewer permissions. When `viewer` isn't passed, show
+  // every tab (legacy behavior — server-side 404 catches still protect).
+  const visibleTabs = viewer ? TABS.filter((t) => !t.visibleTo || t.visibleTo(viewer)) : TABS;
   return (
     <section className={cn(styles.ph, variant === "detail" && styles.phDetail)}>
       {variant === "detail" ? (
@@ -81,7 +109,7 @@ export function ProjectHeader({
       </div>
 
       <nav className={styles.tabs}>
-        {TABS.map((tab) => {
+        {visibleTabs.map((tab) => {
           const cls = cn(styles.tab, activeTab === tab.key && styles.tabActive);
           const content = (
             <>

@@ -126,11 +126,14 @@ const ROWS: GanttRow[] = [
 ];
 
 export default async function ProjectGanttPage({ params }: Props) {
-  const { token } = await requireServerMe();
+  const { me, token } = await requireServerMe();
   const project = await projectService.getProject(params.id, { token });
   if (!project) notFound();
 
   const users = await userService.listUsers({ token });
+
+  const isAdmin = me.role === "admin" || me.role === "super_admin";
+  const isMember = isAdmin || project.memberIds.includes(me.id);
 
   return (
     <>
@@ -138,6 +141,7 @@ export default async function ProjectGanttPage({ params }: Props) {
       <ProjectHeader
         project={project}
         activeTab="gantt"
+        viewer={{ isMember, isAdmin }}
         rightActions={
           <>
             <GanttPdfButton />
