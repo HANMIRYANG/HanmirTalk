@@ -156,7 +156,7 @@ docs `15_DEVELOPMENT_PHASES.md` 기준 진척도. 백엔드 라우트와 프론�
 | 5 | Project 진행률/지연 자동 집계 | ✅ (memory CUD/PG read 모두) | ✅ (목록/카드 표시) |
 | 6 | 제품 read | ✅ | ✅ (`/products`, `/products/[id]`) |
 | 6 | 제품 등록/수정/삭제/영업상태 변경 | ✅ (writer roles) | ✅ (`/products` `+ 제품 등록`, 상세 페이지 영업 상태 dropdown + 수정/삭제 액션) |
-| 6 | 제품 문서 첨부 / LOT / 시험성적서 등 부속 | ❌ (별도 테이블 미연동) | ❌ |
+| 6 | 제품 문서 첨부 / LOT / 시험성적서 / 영업이력 등 부속 | ✅ (Phase 7 — product_specs / product_lots / product_documents / sales_status_events) | ✅ (`/products/[id]` 6개 탭 + specs/LOT/문서 모달) |
 | 7 | 관리자 KPI/감사/부서통계 | ✅ (seed) | ✅ (`/admin`) |
 | 7 | `/dashboard` 종합 화면 | ✅ (기존 서비스 집계) | ✅ (KPI 4종 + 내 업무 + 진행중 프로젝트 + 최근 공지/활동 + admin KPI) |
 | 7 | `/admin` 좌측 메뉴 동작화 | — | ✅ (대시보드/users/depts/audit anchor + 프로젝트/채팅/공지/제품/파일 Link, 미구현 항목은 "준비중" 뱃지) |

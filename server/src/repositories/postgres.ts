@@ -46,6 +46,8 @@ import type {
   NotificationSettings,
   PinnedMessageRef,
   Product,
+  ProductDocument,
+  ProductDocumentType,
   ProductLot,
   ProductSpec,
   Project,
@@ -1708,6 +1710,99 @@ class PgProductRepository implements ProductRepository {
     );
     return rowToSalesEvent(rows[0]);
   }
+
+  // ── Phase 7 J-2 — product_documents ───────────────────────────────
+
+  private async readDocument(docId: string): Promise<ProductDocument | undefined> {
+    const { rows } = await this.pool.query<ProductDocRow>(
+      `${PRODUCT_DOC_SELECT} WHERE pd.id = $1`,
+      [docId]
+    );
+    return rows[0] ? rowToProductDoc(rows[0]) : undefined;
+  }
+
+  async listDocuments(productId: string, type?: string): Promise<ProductDocument[]> {
+    const params: unknown[] = [productId];
+    let where = `WHERE pd.product_id = $1`;
+    if (type) {
+      params.push(type);
+      where += ` AND pd.document_type = $2`;
+    }
+    const { rows } = await this.pool.query<ProductDocRow>(
+      `${PRODUCT_DOC_SELECT} ${where} ORDER BY pd.created_at DESC`,
+      params
+    );
+    return rows.map(rowToProductDoc);
+  }
+
+  async createDocument(
+    productId: string,
+    attachmentId: string,
+    documentType: ProductDocumentType
+  ): Promise<ProductDocument | undefined> {
+    // INSERT only when the attachment exists — guards the FK and lets the
+    // route return a clean 404 instead of a 500 on a bad attachment id.
+    const { rows } = await this.pool.query<{ id: string }>(
+      `INSERT INTO product_documents (product_id, attachment_id, document_type)
+       SELECT $1, $2, $3
+        WHERE EXISTS (SELECT 1 FROM attachments WHERE id = $2)
+       RETURNING id`,
+      [productId, attachmentId, documentType]
+    );
+    if (rows.length === 0) return undefined;
+    return this.readDocument(rows[0].id);
+  }
+
+  async deleteDocument(
+    productId: string,
+    docId: string
+  ): Promise<{ attachmentId: string } | undefined> {
+    const { rows } = await this.pool.query<{ attachment_id: string }>(
+      `DELETE FROM product_documents
+        WHERE id = $1 AND product_id = $2
+       RETURNING attachment_id`,
+      [docId, productId]
+    );
+    return rows[0] ? { attachmentId: rows[0].attachment_id } : undefined;
+  }
+}
+
+interface ProductDocRow {
+  id: string;
+  product_id: string;
+  attachment_id: string;
+  document_type: string;
+  created_at: Date | string;
+  file_name: string;
+  file_type: string | null;
+  file_size: string | number | null;
+  uploaded_by: string;
+  uploaded_by_name: string | null;
+}
+
+const PRODUCT_DOC_SELECT = `
+  SELECT pd.id, pd.product_id, pd.attachment_id, pd.document_type, pd.created_at,
+         a.file_name, a.file_type, a.file_size, a.uploaded_by,
+         u.name AS uploaded_by_name
+    FROM product_documents pd
+    JOIN attachments a ON a.id = pd.attachment_id
+    LEFT JOIN users u ON u.id = a.uploaded_by
+`;
+
+function rowToProductDoc(row: ProductDocRow): ProductDocument {
+  return {
+    id: row.id,
+    productId: row.product_id,
+    attachmentId: row.attachment_id,
+    documentType: row.document_type as ProductDocumentType,
+    fileName: row.file_name,
+    fileKind: deriveFileKind(row.file_name, row.file_type),
+    sizeLabel: row.file_size != null ? formatBytes(Number(row.file_size)) : "",
+    uploadedById: row.uploaded_by,
+    uploadedByName: row.uploaded_by_name ?? undefined,
+    createdAt:
+      row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at)
+  };
 }
 
 interface LotRow {

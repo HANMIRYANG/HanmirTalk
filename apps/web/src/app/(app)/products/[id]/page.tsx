@@ -24,15 +24,19 @@ export default async function ProductDetailPage({ params }: Props) {
   // Phase 7 J-3 — DB-backed specs / lots / sales-history.
   // listSalesHistory가 비어 있으면 product.history(mock)로 fallback해서
   // 데모 데이터 호환 유지.
-  const [owner, relatedProjects, dbSpecs, dbLots, dbHistory] = await Promise.all([
-    product.ownerId ? userService.getUser(product.ownerId, { token }) : Promise.resolve(undefined),
-    Promise.all(
-      product.relatedProjectIds.map((id) => projectService.getProject(id, { token }))
-    ).then((items) => items.filter((p): p is NonNullable<typeof p> => Boolean(p))),
-    productService.listSpecs(params.id, { token }).catch(() => []),
-    productService.listLots(params.id, { token }).catch(() => []),
-    productService.listSalesHistory(params.id, { token }).catch(() => [])
-  ]);
+  const [owner, relatedProjects, dbSpecs, dbLots, dbHistory, dbDocuments] =
+    await Promise.all([
+      product.ownerId
+        ? userService.getUser(product.ownerId, { token })
+        : Promise.resolve(undefined),
+      Promise.all(
+        product.relatedProjectIds.map((id) => projectService.getProject(id, { token }))
+      ).then((items) => items.filter((p): p is NonNullable<typeof p> => Boolean(p))),
+      productService.listSpecs(params.id, { token }).catch(() => []),
+      productService.listLots(params.id, { token }).catch(() => []),
+      productService.listSalesHistory(params.id, { token }).catch(() => []),
+      productService.listDocuments(params.id, { token }).catch(() => [])
+    ]);
   const canManage = WRITER_ROLES.has(me.role);
 
   return (
@@ -93,6 +97,7 @@ export default async function ProductDetailPage({ params }: Props) {
         specs={dbSpecs}
         lots={dbLots}
         salesHistory={dbHistory}
+        documents={dbDocuments}
         relatedProjects={relatedProjects}
         owner={owner}
         meId={me.id}

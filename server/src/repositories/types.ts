@@ -25,6 +25,8 @@ import type {
   NotificationSettings,
   PinnedMessageRef,
   Product,
+  ProductDocument,
+  ProductDocumentType,
   ProductLot,
   ProductSpec,
   Project,
@@ -222,6 +224,22 @@ export interface ProductRepository {
     reason?: string;
     changedBy: { id: string };
   }): Promise<SalesStatusEvent>;
+
+  // Phase 7 J-2 — product_documents. Classifies an existing attachment as
+  // one of the 8 product document types. `type` filters the list.
+  listDocuments(productId: string, type?: string): Promise<ProductDocument[]>;
+  // Returns undefined when the attachment does not exist / is not scoped to
+  // this product.
+  createDocument(
+    productId: string,
+    attachmentId: string,
+    documentType: ProductDocumentType
+  ): Promise<ProductDocument | undefined>;
+  // Returns the freed attachment id so the route can drop the file too.
+  deleteDocument(
+    productId: string,
+    docId: string
+  ): Promise<{ attachmentId: string } | undefined>;
 }
 
 export interface FileRepository {

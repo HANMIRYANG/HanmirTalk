@@ -27,6 +27,8 @@ import type {
   Notification,
   NotificationSettings,
   Product,
+  ProductDocument,
+  ProductDocumentType,
   ProductLot,
   ProductSpec,
   Project,
@@ -866,6 +868,7 @@ class MemoryProductRepository implements ProductRepository {
     this.specs = this.specs.filter((s) => s.productId !== id);
     this.lots = this.lots.filter((l) => l.productId !== id);
     this.salesEvents = this.salesEvents.filter((e) => e.productId !== id);
+    this.documents = this.documents.filter((d) => d.productId !== id);
     return true;
   }
 
@@ -998,6 +1001,87 @@ class MemoryProductRepository implements ProductRepository {
     this.salesEvents.unshift(event);
     return clone(event);
   }
+
+  // Phase 7 J-2 — product_documents. Stores only the link row; the file's
+  // name/kind/size and the uploader name are resolved through the accessors
+  // at read time so the memory adapter stays consistent with the file repo.
+  private documents: {
+    id: string;
+    productId: string;
+    attachmentId: string;
+    documentType: ProductDocumentType;
+    createdAt: string;
+  }[] = [];
+  private getFile: (id: string) => FileEntry | undefined = () => undefined;
+  private getUserName: (id: string) => string = () => "";
+
+  setDocumentAccessors(a: {
+    getFile: (id: string) => FileEntry | undefined;
+    getUserName: (id: string) => string;
+  }): void {
+    this.getFile = a.getFile;
+    this.getUserName = a.getUserName;
+  }
+
+  private toDocument(link: {
+    id: string;
+    productId: string;
+    attachmentId: string;
+    documentType: ProductDocumentType;
+    createdAt: string;
+  }): ProductDocument | undefined {
+    const file = this.getFile(link.attachmentId);
+    if (!file) return undefined;
+    return {
+      id: link.id,
+      productId: link.productId,
+      attachmentId: link.attachmentId,
+      documentType: link.documentType,
+      fileName: file.name,
+      fileKind: file.kind,
+      sizeLabel: file.size,
+      uploadedById: file.uploaderId,
+      uploadedByName: this.getUserName(file.uploaderId) || undefined,
+      createdAt: link.createdAt
+    };
+  }
+
+  async listDocuments(productId: string, type?: string): Promise<ProductDocument[]> {
+    return this.documents
+      .filter((d) => d.productId === productId && (!type || d.documentType === type))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((d) => this.toDocument(d))
+      .filter((d): d is ProductDocument => Boolean(d));
+  }
+
+  async createDocument(
+    productId: string,
+    attachmentId: string,
+    documentType: ProductDocumentType
+  ): Promise<ProductDocument | undefined> {
+    if (!this.getFile(attachmentId)) return undefined;
+    const link = {
+      id: newId("pdoc"),
+      productId,
+      attachmentId,
+      documentType,
+      createdAt: new Date().toISOString()
+    };
+    this.documents.unshift(link);
+    return this.toDocument(link);
+  }
+
+  async deleteDocument(
+    productId: string,
+    docId: string
+  ): Promise<{ attachmentId: string } | undefined> {
+    const idx = this.documents.findIndex(
+      (d) => d.id === docId && d.productId === productId
+    );
+    if (idx < 0) return undefined;
+    const [removed] = this.documents.splice(idx, 1);
+    return { attachmentId: removed.attachmentId };
+  }
 }
 
 function deriveFileKind(filename: string, mime?: string): FileKind {
@@ -1054,6 +1138,13 @@ class MemoryFileRepository implements FileRepository {
   }
 
   async findById(id: string): Promise<FileEntry | undefined> {
+    const found = this.files.find((f) => f.id === id);
+    return found ? clone(found) : undefined;
+  }
+
+  // Sync lookup for repos that need to enrich rows without awaiting (Phase 7
+  // J-2 — product_documents resolves attachment metadata this way).
+  findByIdSync(id: string): FileEntry | undefined {
     const found = this.files.find((f) => f.id === id);
     return found ? clone(found) : undefined;
   }
@@ -1697,6 +1788,15 @@ export function createMemoryRepositories(): Repositories {
     getUserById: (id) => users._data.find((u) => u.id === id),
     getMessageRoomId: (mid) => messages.findRoomIdByMessageIdSync(mid)
   });
+  const products = new MemoryProductRepository();
+  const files = new MemoryFileRepository();
+  // Phase 7 J-2 — product_documents needs to read attachment metadata
+  // (file repo) and the uploader's name (user repo). Closures keep the
+  // repos decoupled, mirroring the decisions wiring above.
+  products.setDocumentAccessors({
+    getFile: (id) => files.findByIdSync(id),
+    getUserName: (id) => users._data.find((u) => u.id === id)?.name ?? ""
+  });
   return {
     users,
     departments,
@@ -1704,8 +1804,8 @@ export function createMemoryRepositories(): Repositories {
     messages,
     projects,
     tasks,
-    products: new MemoryProductRepository(),
-    files: new MemoryFileRepository(),
+    products,
+    files,
     notices,
     decisions,
     notifications: new MemoryNotificationRepository(),

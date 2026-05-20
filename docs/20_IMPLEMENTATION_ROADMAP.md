@@ -423,7 +423,7 @@
 
 ---
 
-## J. Phase 7 — 제품 부속 (doc/06, doc/19 Group C)
+## J. Phase 7 — 제품 부속 (doc/06, doc/19 Group C) ✅ **완료 (2026-05-20)**
 
 **의존성**: 마이그레이션 015. Phase 1 audit hook 적용.
 **예상 작업량**: 3~5일
@@ -442,14 +442,15 @@
 - [x] `GET/POST/PATCH/DELETE /api/v1/products/:id/lots/:lotId`
 - [x] `GET /api/v1/products/:id/sales-history` — sales_status_events
 - [x] 기존 `PATCH /api/v1/products/:id` 의 salesStatus 변경을 hook 으로 sales_status_events에 row 자동 insert (PATCH body `salesReason`을 reason으로 캡처)
-- [x] `POST /api/v1/products/:id/documents` — 이미 spec에 있음. 기존 `attachments + product_documents` 연동
-- [x] `GET /api/v1/products/:id/documents?type=`
+- [x] `POST /api/v1/products/:id/documents` — `{attachmentId, documentType}` JSON. 기존 `/files/upload?productId=`로 올린 attachment를 `product_documents`로 분류하는 2-step 연동. 8종 type 화이트리스트 검증, audit `product.document.add`. attachment 부재 시 404 `attachment_not_found`
+- [x] `GET /api/v1/products/:id/documents?type=` — `product_documents` JOIN `attachments` (+uploader). type 필터(8종), 잘못된 type은 400 `type_invalid`
+- [x] `DELETE /api/v1/products/:id/documents/:docId` — product_documents 링크 + attachment row + 디스크 파일까지 정리. audit `product.document.delete` (warn)
 
 ### J-3. 프론트
 
 - [x] `/products/[id]/page.tsx` 탭 6개 활성화 — `ProductTabs.tsx` 클라이언트 state로 전환
   - [x] `제품 개요` — DB-backed specs + 최근 상태 3건 + side cards (분기 판매, 담당자)
-  - [x] `시험성적서` — document_type=test_report 필터 (현재는 이름 패턴 매칭, 추후 type 필드 도입 시 교체)
+  - [x] `시험성적서` — `product_documents` (document_type=test_report) DB 연동. 업로드 모달(`ProductDocumentUploadModal`) + 다운로드 링크 + 삭제 버튼
   - [x] `생산 LOT` — lots 목록 + 작성자 수정/삭제
   - [x] `영업 상태 이력` — sales_status_events 타임라인
   - [x] `관련 프로젝트` — relatedProjectIds

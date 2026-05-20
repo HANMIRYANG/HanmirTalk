@@ -1,8 +1,11 @@
 import { Router } from "express";
+import fs from "fs/promises";
+import path from "path";
 import type {
   CreateProductInput,
   CreateProductLotInput,
   CreateProductSpecInput,
+  ProductDocumentType,
   SalesStatus,
   UpdateProductInput,
   UpdateProductLotInput,
@@ -11,8 +14,21 @@ import type {
 import type { Repositories } from "../repositories/types";
 import { requireRole } from "../auth/middleware";
 import { auditLog } from "../audit";
+import { config } from "../config";
 
 const VALID_VERDICT = ["pass", "hold", "retest"] as const;
+
+// Phase 7 J-2 — 8 product document types from docs/06_PRODUCT_INFO_SPEC.
+const VALID_DOCUMENT_TYPE: ProductDocumentType[] = [
+  "catalog",
+  "test_report",
+  "proposal",
+  "price_sheet",
+  "install_guide",
+  "faq",
+  "certificate",
+  "image"
+];
 
 const VALID_SALES_STATUS: SalesStatus[] = [
   "unavailable",
@@ -348,6 +364,95 @@ export function createProductsRouter(repos: Repositories): Router {
     }
     const events = await repos.products.listSalesEvents(req.params.id);
     res.json(events);
+  });
+
+  // ── Phase 7 J-2 — product documents (attachments + product_documents) ──
+
+  router.get("/:id/documents", async (req, res) => {
+    const product = await repos.products.findById(req.params.id);
+    if (!product) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    const type = typeof req.query.type === "string" ? req.query.type : undefined;
+    if (type && !(VALID_DOCUMENT_TYPE as string[]).includes(type)) {
+      res.status(400).json({ error: "type_invalid" });
+      return;
+    }
+    const documents = await repos.products.listDocuments(req.params.id, type);
+    res.json(documents);
+  });
+
+  // Links an already-uploaded attachment (POST /files/upload?productId=) to
+  // the product under one of the 8 document types.
+  router.post("/:id/documents", writers, async (req, res) => {
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    if (!isString(b.attachmentId) || !b.attachmentId.trim()) {
+      res.status(400).json({ error: "attachmentId_required" });
+      return;
+    }
+    if (
+      !isString(b.documentType) ||
+      !(VALID_DOCUMENT_TYPE as string[]).includes(b.documentType)
+    ) {
+      res.status(400).json({ error: "documentType_invalid" });
+      return;
+    }
+    const product = await repos.products.findById(req.params.id);
+    if (!product) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    const document = await repos.products.createDocument(
+      req.params.id,
+      b.attachmentId.trim(),
+      b.documentType as ProductDocumentType
+    );
+    if (!document) {
+      res.status(404).json({ error: "attachment_not_found" });
+      return;
+    }
+    await auditLog(repos, req, {
+      action: "product.document.add",
+      targetType: "product",
+      targetId: req.params.id,
+      targetLabel: `${product.name} — ${document.fileName}`,
+      meta: {
+        documentId: document.id,
+        documentType: document.documentType,
+        attachmentId: document.attachmentId
+      }
+    });
+    res.status(201).json(document);
+  });
+
+  router.delete("/:id/documents/:docId", writers, async (req, res) => {
+    const removed = await repos.products.deleteDocument(
+      req.params.id,
+      req.params.docId
+    );
+    if (!removed) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    // The attachment was uploaded specifically as this product document, so
+    // drop the file row + on-disk bytes too rather than leaving an orphan.
+    const storage = await repos.files.findStorage(removed.attachmentId);
+    await repos.files.delete(removed.attachmentId);
+    if (storage) {
+      const abs = path.resolve(config.uploadDir, storage.fileUrl);
+      if (abs.startsWith(config.uploadDir)) {
+        await fs.unlink(abs).catch(() => undefined);
+      }
+    }
+    await auditLog(repos, req, {
+      action: "product.document.delete",
+      targetType: "product",
+      targetId: req.params.id,
+      targetLabel: req.params.docId,
+      level: "warn"
+    });
+    res.json({ ok: true });
   });
 
   return router;

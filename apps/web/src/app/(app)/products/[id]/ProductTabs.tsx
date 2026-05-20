@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type {
   Product,
+  ProductDocument,
   ProductLot,
   ProductSpec,
   Project,
@@ -17,7 +18,12 @@ import { Tag } from "@/components/ui/Tag";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { ProductSpecsModal } from "./ProductSpecsModal";
 import { ProductLotModal } from "./ProductLotModal";
+import { ProductDocumentUploadModal } from "./ProductDocumentUploadModal";
 import { ProductOwnerChatButton } from "./ProductOwnerChatButton";
+import { fileService } from "@/services/file.service";
+import { productService } from "@/services/product.service";
+import { ApiError } from "@/services/api-client";
+import { handleSessionExpired } from "@/lib/client-auth";
 import { cn } from "@/lib/classNames";
 import styles from "./detail.module.css";
 
@@ -28,6 +34,7 @@ interface Props {
   specs: ProductSpec[];
   lots: ProductLot[];
   salesHistory: SalesStatusEvent[];
+  documents: ProductDocument[];
   relatedProjects: Project[];
   owner?: User;
   meId: string;
@@ -67,6 +74,7 @@ export function ProductTabs({
   specs: initialSpecs,
   lots: initialLots,
   salesHistory,
+  documents,
   relatedProjects,
   owner,
   meId,
@@ -78,6 +86,30 @@ export function ProductTabs({
   const [lotModal, setLotModal] = useState<
     { mode: "create" } | { mode: "edit"; lot: ProductLot } | null
   >(null);
+  const [docModalOpen, setDocModalOpen] = useState(false);
+  const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
+  const [docError, setDocError] = useState<string | null>(null);
+
+  const onDeleteDocument = async (doc: ProductDocument) => {
+    if (deletingDocId) return;
+    if (!window.confirm(`'${doc.fileName}'을(를) 삭제하시겠습니까? 파일도 함께 삭제됩니다.`)) {
+      return;
+    }
+    setDeletingDocId(doc.id);
+    setDocError(null);
+    try {
+      await productService.deleteDocument(product.id, doc.id);
+      router.refresh();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        handleSessionExpired(router);
+        return;
+      }
+      setDocError("문서 삭제에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setDeletingDocId(null);
+    }
+  };
 
   // DB 우선 + 비어있으면 product의 mock data로 fallback.
   const specs = initialSpecs.length > 0
@@ -103,9 +135,8 @@ export function ProductTabs({
         changedAt: h.changedAt ?? h.date ?? ""
       }));
 
-  const testReports = product.documents.filter((d) =>
-    d.name.includes("시험성적") || d.name.toLowerCase().includes("test")
-  );
+  // Phase 7 J-2 — DB-backed product_documents (document_type='test_report').
+  const testReports = documents.filter((d) => d.documentType === "test_report");
 
   return (
     <>
@@ -209,20 +240,57 @@ export function ProductTabs({
                 <div className="card__head">
                   <h3>시험성적서</h3>
                   <span className="muted t-xs">{testReports.length}건</span>
+                  {canManage ? (
+                    <div className="right">
+                      <button
+                        className="btn btn--primary btn--sm"
+                        type="button"
+                        onClick={() => setDocModalOpen(true)}
+                      >
+                        + 시험성적서 업로드
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
+                {docError ? (
+                  <div
+                    className="t-xs"
+                    style={{ padding: "0 16px 8px", color: "#DC2626" }}
+                    role="alert"
+                  >
+                    {docError}
+                  </div>
+                ) : null}
                 {testReports.length === 0 ? (
                   <div className="muted t-sm" style={{ padding: 16 }}>
-                    등록된 시험성적서가 없습니다. 파일함에서 PDF를 업로드한 뒤 제품에 연결하세요.
+                    등록된 시험성적서가 없습니다.
+                    {canManage ? " 위 버튼으로 PDF를 업로드하세요." : ""}
                   </div>
                 ) : (
                   <ul className={styles.docList}>
                     {testReports.map((d) => (
                       <li key={d.id} className={styles.docRow}>
-                        <div className={styles.docIc}>PDF</div>
+                        <div className={styles.docIc}>{d.fileKind.toUpperCase()}</div>
                         <div className={styles.docMeta}>
-                          <div className={styles.docName}>{d.name}</div>
-                          <div className={styles.docSub}>{d.meta}</div>
+                          <a className={styles.docName} href={fileService.downloadUrl(d.attachmentId)}>
+                            {d.fileName}
+                          </a>
+                          <div className={styles.docSub}>
+                            {d.sizeLabel}
+                            {d.uploadedByName ? ` · ${d.uploadedByName}` : ""}
+                            {d.createdAt ? ` · ${formatDate(d.createdAt)}` : ""}
+                          </div>
                         </div>
+                        {canManage ? (
+                          <button
+                            type="button"
+                            className="btn btn--ghost btn--sm"
+                            onClick={() => onDeleteDocument(d)}
+                            disabled={deletingDocId === d.id}
+                          >
+                            {deletingDocId === d.id ? "삭제 중..." : "삭제"}
+                          </button>
+                        ) : null}
                       </li>
                     ))}
                   </ul>
@@ -457,6 +525,17 @@ export function ProductTabs({
           onClose={() => setLotModal(null)}
           onSaved={() => {
             setLotModal(null);
+            router.refresh();
+          }}
+        />
+      ) : null}
+      {docModalOpen ? (
+        <ProductDocumentUploadModal
+          productId={product.id}
+          documentType="test_report"
+          onClose={() => setDocModalOpen(false)}
+          onSaved={() => {
+            setDocModalOpen(false);
             router.refresh();
           }}
         />

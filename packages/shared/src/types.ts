@@ -480,6 +480,37 @@ export interface UpdateProductSpecInput {
   sortOrder?: number;
 }
 
+// Phase 7 J-2 — DB-backed product document. A product_documents row links
+// an existing attachment to a product under one of the 8 classification
+// types from docs/06_PRODUCT_INFO_SPEC.
+export type ProductDocumentType =
+  | "catalog"
+  | "test_report"
+  | "proposal"
+  | "price_sheet"
+  | "install_guide"
+  | "faq"
+  | "certificate"
+  | "image";
+
+export interface ProductDocument {
+  id: string;
+  productId: string;
+  attachmentId: string;
+  documentType: ProductDocumentType;
+  fileName: string;
+  fileKind: FileKind;
+  sizeLabel: string;
+  uploadedById: string;
+  uploadedByName?: string;
+  createdAt: string;
+}
+
+export interface CreateProductDocumentInput {
+  attachmentId: string;
+  documentType: ProductDocumentType;
+}
+
 export interface CreateProductInput {
   // Only `name` is required; the rest map to the columns the current
   // products table actually has. DTO-only fields (code, fullName, spec,

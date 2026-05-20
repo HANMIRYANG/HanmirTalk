@@ -1,4 +1,5 @@
 import type {
+  ProductDocumentType,
   ProjectStatus,
   SalesStatus,
   TaskPriority,
@@ -36,6 +37,18 @@ export const salesStatusLabel: Record<SalesStatus, string> = {
   internal: "내부 검토 가능",
   conditional: "제한적 영업 가능",
   available: "정식 영업 가능"
+};
+
+// Phase 7 J-2 — 제품 문서 유형 라벨 (docs/06_PRODUCT_INFO_SPEC 8종).
+export const productDocumentTypeLabel: Record<ProductDocumentType, string> = {
+  catalog: "카탈로그",
+  test_report: "시험성적서",
+  proposal: "제안서",
+  price_sheet: "단가표",
+  install_guide: "시공방법서",
+  faq: "FAQ",
+  certificate: "인증서",
+  image: "제품 이미지"
 };
 
 export const userRoleLabel: Record<UserRole, string> = {

@@ -1,8 +1,11 @@
 import type {
+  CreateProductDocumentInput,
   CreateProductInput,
   CreateProductLotInput,
   CreateProductSpecInput,
   Product,
+  ProductDocument,
+  ProductDocumentType,
   ProductLot,
   ProductSpec,
   SalesStatusEvent,
@@ -131,6 +134,40 @@ export const productService = {
     return apiRequest<SalesStatusEvent[]>(
       `/products/${encodeURIComponent(productId)}/sales-history`,
       { token: opts.token }
+    );
+  },
+
+  // ── Phase 7 J-2 — product documents ───────────────────────────────
+
+  async listDocuments(
+    productId: string,
+    opts: AuthOptions & { type?: ProductDocumentType } = {}
+  ): Promise<ProductDocument[]> {
+    const query: Record<string, string> = {};
+    if (opts.type) query.type = opts.type;
+    return apiRequest<ProductDocument[]>(
+      `/products/${encodeURIComponent(productId)}/documents`,
+      { token: opts.token, query }
+    );
+  },
+  async createDocument(
+    productId: string,
+    input: CreateProductDocumentInput,
+    opts: AuthOptions = {}
+  ): Promise<ProductDocument> {
+    return apiRequest<ProductDocument>(
+      `/products/${encodeURIComponent(productId)}/documents`,
+      { method: "POST", body: input, token: opts.token }
+    );
+  },
+  async deleteDocument(
+    productId: string,
+    docId: string,
+    opts: AuthOptions = {}
+  ): Promise<{ ok: boolean }> {
+    return apiRequest<{ ok: boolean }>(
+      `/products/${encodeURIComponent(productId)}/documents/${encodeURIComponent(docId)}`,
+      { method: "DELETE", token: opts.token }
     );
   }
 };
