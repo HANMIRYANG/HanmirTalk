@@ -29,6 +29,7 @@ import type {
   NoticeReadStatusEntry,
   Notification,
   NotificationSettings,
+  OrgNotificationDefault,
   Product,
   ProductDocument,
   ProductDocumentType,
@@ -53,6 +54,7 @@ import type {
   User,
   UserInvitation
 } from "@hanmir/shared";
+import { NOTIFICATION_CATEGORIES } from "@hanmir/shared";
 import { hashPassword, seedPasswordHash, verifyPassword } from "../auth/password";
 import { seedUsers } from "../seed/users";
 import { seedDepartments } from "../seed/departments";
@@ -75,6 +77,7 @@ import type {
   MessageRepository,
   NoticeRepository,
   NotificationRepository,
+  OrgNotificationRepository,
   ProductRepository,
   ProjectRepository,
   PushSubscriptionRecord,
@@ -1914,6 +1917,55 @@ class MemoryInvitationRepository implements InvitationRepository {
   }
 }
 
+// Phase 8 K-4 — 전사 기본 알림 정책.
+class MemoryOrgNotificationRepository implements OrgNotificationRepository {
+  private readonly rows = new Map<
+    string,
+    { enabled: boolean; updatedAt: string; updatedById: string }
+  >();
+  private getUserName: (id: string) => string = () => "";
+
+  setUserAccessor(fn: (id: string) => string): void {
+    this.getUserName = fn;
+  }
+
+  async list(): Promise<OrgNotificationDefault[]> {
+    return NOTIFICATION_CATEGORIES.map((category) => {
+      const r = this.rows.get(category);
+      return {
+        category,
+        enabled: r ? r.enabled : true,
+        updatedAt: r?.updatedAt,
+        updatedByName: r ? this.getUserName(r.updatedById) || undefined : undefined
+      };
+    });
+  }
+
+  async isCategoryEnabled(category: string): Promise<boolean> {
+    const r = this.rows.get(category);
+    return r ? r.enabled : true;
+  }
+
+  async setEnabled(
+    category: string,
+    enabled: boolean,
+    updatedBy: string
+  ): Promise<OrgNotificationDefault> {
+    this.rows.set(category, {
+      enabled,
+      updatedAt: new Date().toISOString(),
+      updatedById: updatedBy
+    });
+    const r = this.rows.get(category)!;
+    return {
+      category: category as OrgNotificationDefault["category"],
+      enabled,
+      updatedAt: r.updatedAt,
+      updatedByName: this.getUserName(updatedBy) || undefined
+    };
+  }
+}
+
 export function createMemoryRepositories(): Repositories {
   const departments = new MemoryDepartmentRepository();
   const users = new MemoryUserRepository({ departments });
@@ -1955,6 +2007,11 @@ export function createMemoryRepositories(): Repositories {
     getDepartmentName: (id) => departments.nameByIdSync(id),
     getUserName: (id) => users._data.find((u) => u.id === id)?.name ?? ""
   });
+  // Phase 8 K-4 — 전사 알림 기본값.
+  const orgNotifications = new MemoryOrgNotificationRepository();
+  orgNotifications.setUserAccessor(
+    (id) => users._data.find((u) => u.id === id)?.name ?? ""
+  );
   return {
     users,
     departments,
@@ -1970,6 +2027,7 @@ export function createMemoryRepositories(): Repositories {
     pushSubscriptions: new MemoryPushSubscriptionRepository(),
     audit: new MemoryAuditRepository(),
     refreshTokens: new MemoryRefreshTokenRepository(),
-    invitations
+    invitations,
+    orgNotifications
   };
 }

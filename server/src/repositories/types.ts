@@ -26,6 +26,7 @@ import type {
   NoticeReadStatus,
   Notification,
   NotificationSettings,
+  OrgNotificationDefault,
   PinnedMessageRef,
   Product,
   ProductDocument,
@@ -384,6 +385,19 @@ export interface InvitationRepository {
   delete(id: string): Promise<boolean>;
 }
 
+// Phase 8 K-4 — 전사 기본 알림 정책 (카테고리별 회사 전체 게이트).
+export interface OrgNotificationRepository {
+  // 6개 카테고리 전체를 반환 — 행이 없는 카테고리는 enabled:true.
+  list(): Promise<OrgNotificationDefault[]>;
+  // notify.ts dispatch 게이트.
+  isCategoryEnabled(category: string): Promise<boolean>;
+  setEnabled(
+    category: string,
+    enabled: boolean,
+    updatedBy: string
+  ): Promise<OrgNotificationDefault>;
+}
+
 export interface Repositories {
   users: UserRepository;
   departments: DepartmentRepository;
@@ -400,4 +414,5 @@ export interface Repositories {
   audit: AuditRepository;
   refreshTokens: RefreshTokenRepository;
   invitations: InvitationRepository;
+  orgNotifications: OrgNotificationRepository;
 }

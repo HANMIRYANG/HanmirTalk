@@ -30,6 +30,7 @@ import { createDashboardRouter } from "./routes/dashboard";
 import { createInvitationsRouter } from "./routes/invitations";
 import { createAuditRouter } from "./routes/audit";
 import { createSystemRouter, type SystemDeps } from "./routes/system";
+import { createOrgNotificationsRouter } from "./routes/org-notifications";
 
 export interface AppDeps {
   repos: Repositories;
@@ -79,6 +80,11 @@ export function createApp(deps: AppDeps = { repos: createMemoryRepositories() })
   app.use(`${config.apiPrefix}/dashboard`, requireAuth, createDashboardRouter(deps.repos));
   app.use(`${config.apiPrefix}/invitations`, requireAuth, createInvitationsRouter(deps.repos));
   app.use(`${config.apiPrefix}/audit`, requireAuth, createAuditRouter(deps.repos));
+  app.use(
+    `${config.apiPrefix}/org-notification-defaults`,
+    requireAuth,
+    createOrgNotificationsRouter(deps.repos)
+  );
   app.use(
     `${config.apiPrefix}/system`,
     requireAuth,

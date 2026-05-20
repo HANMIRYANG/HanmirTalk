@@ -1,4 +1,5 @@
 import type {
+  NotificationCategory,
   ProductDocumentType,
   ProjectStatus,
   SalesStatus,
@@ -49,6 +50,16 @@ export const productDocumentTypeLabel: Record<ProductDocumentType, string> = {
   faq: "FAQ",
   certificate: "인증서",
   image: "제품 이미지"
+};
+
+// Phase 8 K-4 — 전사 알림 카테고리 라벨.
+export const notificationCategoryLabel: Record<NotificationCategory, string> = {
+  message: "새 메시지",
+  mention: "멘션",
+  notice: "공지",
+  task: "업무 배정",
+  project: "프로젝트 상태 변경",
+  decision: "결정사항"
 };
 
 export const userRoleLabel: Record<UserRole, string> = {

@@ -912,3 +912,32 @@ export interface UpdateNotificationSettingsInput {
   webPushEnabled?: boolean;
   browserEnabled?: boolean;
 }
+
+// Phase 8 K-4 — 전사 기본 알림 정책. 알림 카테고리별 회사 전체 게이트.
+export type NotificationCategory =
+  | "message"
+  | "mention"
+  | "notice"
+  | "task"
+  | "project"
+  | "decision";
+
+export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
+  "message",
+  "mention",
+  "notice",
+  "task",
+  "project",
+  "decision"
+];
+
+export interface OrgNotificationDefault {
+  category: NotificationCategory;
+  enabled: boolean;
+  updatedAt?: string;
+  updatedByName?: string;
+}
+
+export interface UpdateOrgNotificationDefaultInput {
+  enabled: boolean;
+}

@@ -47,6 +47,7 @@ import type {
   NoticeReadStatusEntry,
   Notification,
   NotificationSettings,
+  OrgNotificationDefault,
   PinnedMessageRef,
   Product,
   ProductDocument,
@@ -78,12 +79,14 @@ import type {
   UserInvitation,
   UserRole
 } from "@hanmir/shared";
+import { NOTIFICATION_CATEGORIES } from "@hanmir/shared";
 import type {
   AuditRepository,
   CreateNotificationInput,
   CreatePushSubscriptionInput,
   DecisionRepository,
   DepartmentRepository,
+  OrgNotificationRepository,
   FileRepository,
   InvitationRepository,
   IssuedRefreshToken,
@@ -3013,6 +3016,65 @@ class PgInvitationRepository implements InvitationRepository {
   }
 }
 
+// Phase 8 K-4 — 전사 기본 알림 정책.
+class PgOrgNotificationRepository implements OrgNotificationRepository {
+  constructor(private readonly pool: Pool) {}
+
+  async list(): Promise<OrgNotificationDefault[]> {
+    const { rows } = await this.pool.query<{
+      category: string;
+      enabled: boolean;
+      updated_at: Date | string | null;
+      updated_by_name: string | null;
+    }>(
+      `SELECT d.category, d.enabled, d.updated_at, u.name AS updated_by_name
+         FROM org_notification_defaults d
+         LEFT JOIN users u ON u.id = d.updated_by`
+    );
+    const byCat = new Map(rows.map((r) => [r.category, r]));
+    return NOTIFICATION_CATEGORIES.map((category) => {
+      const r = byCat.get(category);
+      return {
+        category,
+        enabled: r ? r.enabled : true,
+        updatedAt:
+          r?.updated_at != null
+            ? r.updated_at instanceof Date
+              ? r.updated_at.toISOString()
+              : String(r.updated_at)
+            : undefined,
+        updatedByName: r?.updated_by_name ?? undefined
+      };
+    });
+  }
+
+  async isCategoryEnabled(category: string): Promise<boolean> {
+    const { rows } = await this.pool.query<{ enabled: boolean }>(
+      `SELECT enabled FROM org_notification_defaults WHERE category = $1`,
+      [category]
+    );
+    return rows[0] ? rows[0].enabled : true;
+  }
+
+  async setEnabled(
+    category: string,
+    enabled: boolean,
+    updatedBy: string
+  ): Promise<OrgNotificationDefault> {
+    await this.pool.query(
+      `INSERT INTO org_notification_defaults (category, enabled, updated_by, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (category)
+       DO UPDATE SET enabled = EXCLUDED.enabled,
+                     updated_by = EXCLUDED.updated_by,
+                     updated_at = NOW()`,
+      [category, enabled, updatedBy]
+    );
+    const all = await this.list();
+    return all.find((d) => d.category === category)!;
+  }
+}
+
 export function createPostgresRepositories(pool: Pool): Repositories {
   const users = new PgUserRepository(pool);
   return {
@@ -3030,6 +3092,7 @@ export function createPostgresRepositories(pool: Pool): Repositories {
     pushSubscriptions: new PgPushSubscriptionRepository(pool),
     audit: new PgAuditRepository(pool),
     refreshTokens: new PgRefreshTokenRepository(pool),
-    invitations: new PgInvitationRepository(pool)
+    invitations: new PgInvitationRepository(pool),
+    orgNotifications: new PgOrgNotificationRepository(pool)
   };
 }

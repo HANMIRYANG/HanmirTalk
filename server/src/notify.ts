@@ -72,38 +72,48 @@ export async function notifyMessageNew(
     const mentionSet = new Set(mentionedIds);
     const messageRecipients = memberIds.filter((uid) => !mentionSet.has(uid));
 
+    // Phase 8 K-4 — 전사 카테고리 게이트 (회사 전체 off면 발송 안 함).
+    const [messageEnabled, mentionEnabled] = await Promise.all([
+      repos.orgNotifications.isCategoryEnabled("message"),
+      repos.orgNotifications.isCategoryEnabled("mention")
+    ]);
+
     // 일반 메시지 알림 — settings 존중
-    const allowedRecipients: string[] = [];
-    for (const uid of messageRecipients) {
-      if (await shouldNotify(repos, uid, { roomId })) allowedRecipients.push(uid);
-    }
-    if (allowedRecipients.length > 0) {
-      const created = await repos.notifications.createMany(allowedRecipients, {
-        kind: "message:new",
-        title: `${message.authorName}님의 새 메시지`,
-        body: message.body.slice(0, 120),
-        link: `/chat/${roomId}`,
-        payload: { roomId, messageId: message.id, roomName: room.name }
-      });
-      await dispatchAll(repos, created);
+    if (messageEnabled) {
+      const allowedRecipients: string[] = [];
+      for (const uid of messageRecipients) {
+        if (await shouldNotify(repos, uid, { roomId })) allowedRecipients.push(uid);
+      }
+      if (allowedRecipients.length > 0) {
+        const created = await repos.notifications.createMany(allowedRecipients, {
+          kind: "message:new",
+          title: `${message.authorName}님의 새 메시지`,
+          body: message.body.slice(0, 120),
+          link: `/chat/${roomId}`,
+          payload: { roomId, messageId: message.id, roomName: room.name }
+        });
+        await dispatchAll(repos, created);
+      }
     }
 
     // 멘션 알림 — 별도, 더 우선순위 높은 kind
-    const allowedMentioned: string[] = [];
-    for (const uid of mentionedIds) {
-      if (memberIds.includes(uid) && (await shouldNotify(repos, uid, { roomId }))) {
-        allowedMentioned.push(uid);
+    if (mentionEnabled) {
+      const allowedMentioned: string[] = [];
+      for (const uid of mentionedIds) {
+        if (memberIds.includes(uid) && (await shouldNotify(repos, uid, { roomId }))) {
+          allowedMentioned.push(uid);
+        }
       }
-    }
-    if (allowedMentioned.length > 0) {
-      const created = await repos.notifications.createMany(allowedMentioned, {
-        kind: "mention",
-        title: `${message.authorName}님이 회원님을 언급했습니다`,
-        body: message.body.slice(0, 120),
-        link: `/chat/${roomId}`,
-        payload: { roomId, messageId: message.id }
-      });
-      await dispatchAll(repos, created);
+      if (allowedMentioned.length > 0) {
+        const created = await repos.notifications.createMany(allowedMentioned, {
+          kind: "mention",
+          title: `${message.authorName}님이 회원님을 언급했습니다`,
+          body: message.body.slice(0, 120),
+          link: `/chat/${roomId}`,
+          payload: { roomId, messageId: message.id }
+        });
+        await dispatchAll(repos, created);
+      }
     }
   } catch (err) {
     // eslint-disable-next-line no-console
@@ -118,6 +128,7 @@ export async function notifyNoticeNew(
   notice: Notice
 ): Promise<void> {
   try {
+    if (!(await repos.orgNotifications.isCategoryEnabled("notice"))) return;
     const users = await repos.users.list();
     const recipients = users
       .filter((u) => u.isActive !== false && u.id !== authorUserId)
@@ -149,6 +160,7 @@ export async function notifyTaskAssigned(
   actorUserId: string
 ): Promise<void> {
   try {
+    if (!(await repos.orgNotifications.isCategoryEnabled("task"))) return;
     const recipients = newAssigneeIds.filter((uid) => uid !== actorUserId);
     const allowed: string[] = [];
     for (const uid of recipients) {
@@ -177,6 +189,7 @@ export async function notifyProjectUpdated(
   reason: string
 ): Promise<void> {
   try {
+    if (!(await repos.orgNotifications.isCategoryEnabled("project"))) return;
     const recipients = project.memberIds.filter((uid) => uid !== actorUserId);
     const allowed: string[] = [];
     for (const uid of recipients) {
@@ -203,6 +216,7 @@ export async function notifyDecisionNew(
   decision: Decision
 ): Promise<void> {
   try {
+    if (!(await repos.orgNotifications.isCategoryEnabled("decision"))) return;
     const project = await repos.projects.findById(decision.projectId);
     if (!project) return;
     const recipients = project.memberIds.filter((uid) => uid !== decision.decidedById);
