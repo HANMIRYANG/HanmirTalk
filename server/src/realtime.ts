@@ -116,6 +116,11 @@ class Realtime {
     console.log("[hanmir-server] realtime: socket.io attached");
   }
 
+  // Phase 8 K-6 — currently connected socket clients (admin status page).
+  clientCount(): number {
+    return this.io ? this.io.engine.clientsCount : 0;
+  }
+
   // Mirror of the HTTP `ensureRoomAccess` helper. Admin/super_admin can
   // subscribe to any room; everyone else must appear in `room.members`.
   private async canAccessRoom(roomId: string, userId: string): Promise<boolean> {

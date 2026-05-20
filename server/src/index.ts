@@ -14,7 +14,11 @@ import { createMemoryRepositories } from "./repositories/memory";
 import { createPostgresRepositories } from "./repositories/postgres";
 import type { Repositories } from "./repositories/types";
 
-function buildRepositories(): { repos: Repositories; mode: "memory" | "postgres" } {
+function buildRepositories(): {
+  repos: Repositories;
+  mode: "memory" | "postgres";
+  pool?: Pool;
+} {
   if (!config.databaseUrl) {
     return { repos: createMemoryRepositories(), mode: "memory" };
   }
@@ -23,11 +27,11 @@ function buildRepositories(): { repos: Repositories; mode: "memory" | "postgres"
     // eslint-disable-next-line no-console
     console.error("[hanmir-server] postgres pool error:", err.message);
   });
-  return { repos: createPostgresRepositories(pool), mode: "postgres" };
+  return { repos: createPostgresRepositories(pool), mode: "postgres", pool };
 }
 
-const { repos, mode } = buildRepositories();
-const app = createApp({ repos });
+const { repos, mode, pool } = buildRepositories();
+const app = createApp({ repos, system: { mode, pool } });
 
 // Plain http server so socket.io can attach alongside Express.
 const httpServer = createServer(app);

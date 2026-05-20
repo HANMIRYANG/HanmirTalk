@@ -762,6 +762,27 @@ export interface AuditLogPage {
   actions: string[];
 }
 
+// Phase 8 K-6 — 서비스 상태 / 버전.
+export interface SystemHealth {
+  status: "ok" | "degraded";
+  adapter: "memory" | "postgres";
+  uptimeSeconds: number;
+  startedAt: string;
+  socketClients: number;
+  database: {
+    ok: boolean;
+    pool?: { total: number; idle: number; waiting: number };
+  };
+  timestamp: string;
+}
+
+export interface SystemVersion {
+  version: string;
+  gitCommit: string;
+  node: string;
+  env: string;
+}
+
 export interface AdminKpi {
   label: string;
   value: string;

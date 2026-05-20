@@ -29,9 +29,13 @@ import { createDepartmentsRouter } from "./routes/departments";
 import { createDashboardRouter } from "./routes/dashboard";
 import { createInvitationsRouter } from "./routes/invitations";
 import { createAuditRouter } from "./routes/audit";
+import { createSystemRouter, type SystemDeps } from "./routes/system";
 
 export interface AppDeps {
   repos: Repositories;
+  // Phase 8 K-6 — adapter mode + pg pool for the /system status endpoints.
+  // Omitted in tests / default boot → treated as the memory adapter.
+  system?: SystemDeps;
 }
 
 export function createApp(deps: AppDeps = { repos: createMemoryRepositories() }): Express {
@@ -75,6 +79,11 @@ export function createApp(deps: AppDeps = { repos: createMemoryRepositories() })
   app.use(`${config.apiPrefix}/dashboard`, requireAuth, createDashboardRouter(deps.repos));
   app.use(`${config.apiPrefix}/invitations`, requireAuth, createInvitationsRouter(deps.repos));
   app.use(`${config.apiPrefix}/audit`, requireAuth, createAuditRouter(deps.repos));
+  app.use(
+    `${config.apiPrefix}/system`,
+    requireAuth,
+    createSystemRouter(deps.system ?? { mode: "memory" })
+  );
   app.use(`${config.apiPrefix}/notifications`, requireAuth, createNotificationsRouter(deps.repos));
   app.use(
     `${config.apiPrefix}/notification-settings`,
