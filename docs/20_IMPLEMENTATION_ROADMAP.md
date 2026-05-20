@@ -537,27 +537,49 @@
 
 ---
 
-## N. 운영 배포 직전 체크리스트 (Phase 0~9 완료 후)
+## N. 운영 배포 계획 (Phase 9 완료 후)
 
-### N-1. 인프라
+### N-0. 배포 아키텍처 (2026-05-20 확정)
 
-- [ ] `Dockerfile` (web + server 멀티스테이지)
-- [ ] `docker-compose.prod.yml` — app + postgres + caddy 리버스 프록시
-- [ ] Caddy `Caddyfile` — 자동 LE 또는 자체 CA (사내 LAN)
-- [ ] Proxmox VM 세팅 가이드 (`docs/21_DEPLOYMENT_GUIDE.md` 신설)
-- [ ] Postgres 백업 cron (`pg_dump` daily, 14일 보관)
-- [ ] Proxmox VM 스냅샷 weekly
+> 본 절의 모든 구성은 아래 확정 사항을 전제로 한다. 변경 시 N-1 이하를 재검토.
+
+- **호스트**: 사내 Proxmox VE 서버 (내부 스토리지 풀 약 40TB)
+- **게스트**: **Ubuntu Server VM 1대.** 기능별 다중 VM 분리는 하지 않는다.
+  - 앱이 단일 인스턴스 설계 — 인메모리 세션 스토어(`SessionStore`), 인메모리 AI rate limiter, socket.io 단일 노드(Redis 어댑터 없음). 다중 인스턴스는 재설계 없이는 불가.
+  - 사내 협업툴 규모상 수평 확장 불필요. 격리 단위는 VM이 아니라 **Docker 컨테이너**.
+- **컨테이너 구성** — 단일 VM 내 `docker-compose.prod.yml`:
+  - `caddy` — 리버스 프록시 + HTTPS 종단
+  - `web` — Next.js 프론트
+  - `server` — Express API + socket.io (동일 프로세스)
+  - `postgres` — PostgreSQL 16
+- **파일 스토리지**: **VM 로컬 디스크** (40TB 풀에서 할당). `UPLOAD_DIR`로 host 경로 지정 후 `server` 컨테이너에 바인드 마운트. Cloudflare R2 / MinIO / S3 **미사용** — 사내 보관 + 데이터 주권 + 운영 부담 0. (파일 바이트=파일시스템, 메타데이터=DB 구조 유지 — 파일을 DB BLOB로 넣지 않음)
+- **Redis 미사용** — 세션·rate limit이 인메모리, 단일 인스턴스라 불필요.
+- **확장 경로**: 1차로 Proxmox에서 해당 VM에 CPU/RAM 수직 증설. 실제 필요가 생길 때만 Redis 도입 + 다중 인스턴스를 재검토 (현 로드맵 범위 밖).
+
+### N-1. 인프라 구성
+
+- [ ] `Dockerfile` — web / server (멀티스테이지 빌드)
+- [ ] `docker-compose.prod.yml` — `caddy` + `web` + `server` + `postgres` 4개 서비스
+  - postgres 데이터: named volume
+  - 업로드 디렉터리: host 40TB 경로 ↔ `server` 컨테이너 bind mount
+  - 마이그레이션 `server/src/db/migrations` → postgres initdb 마운트 (현 dev compose와 동일, 001~017)
+- [ ] Caddy `Caddyfile` — 운영 도메인 + HTTPS. 인터넷 연결 시 자동 Let's Encrypt, 폐쇄망이면 사내 자체 CA 인증서
+- [ ] 파일 스토리지 — `UPLOAD_DIR`을 40TB 디스크 경로(예: `/srv/hanmir-talk/uploads`)로 설정, compose에서 마운트. **앱 코드 변경 불필요** — `config.uploadDir`가 이미 `UPLOAD_DIR`을 지원
+- [ ] Proxmox — Ubuntu Server VM 생성, 가상 디스크를 40TB 풀에서 넉넉히 할당(또는 전용 데이터셋 마운트), CPU/RAM 적정 산정
+- [ ] `.env` 운영값 작성 — `DATABASE_URL` / `CORS_ORIGIN`(운영 도메인, https) / `SMTP_*` / `VAPID_*` / `ANTHROPIC_API_KEY` / `UPLOAD_DIR`. 파일 권한 제한 + git 미포함
+- [ ] `docs/21_DEPLOYMENT_GUIDE.md` 신설 — VM 세팅 ~ `docker compose up`까지 단계별 runbook
 
 ### N-2. 보안 최종 점검
 
-- [ ] bcrypt 적용 + DEFAULT_PASSWORD 환경변수 운영서 제거
-- [ ] httpOnly+Secure 쿠키
+- [ ] bcrypt 적용 + `DEFAULT_PASSWORD` 운영서 제거(또는 무의미화)
+- [ ] httpOnly + Secure 쿠키 (`CORS_ORIGIN`이 https:// 면 자동)
 - [ ] refresh token rotation 동작
-- [ ] CORS_ORIGIN 운영 도메인으로 한정
-- [ ] 모든 사용자가 `must_change_password=false`인지 확인 (초기 시드 사용자도 변경 완료)
-- [ ] 감사 로그가 모든 관리자 action을 캡처하는지
+- [ ] `CORS_ORIGIN` 운영 도메인으로 한정
+- [ ] 모든 사용자가 `must_change_password` 처리 완료 (초기 시드 사용자 포함)
+- [ ] 감사 로그가 관리자 action을 캡처 (Phase 8 K-5에서 페이지·검색 점검 완료)
 - [ ] 파일 업로드 화이트리스트 + MIME 검사 동작
 - [ ] HTTPS 강제 (Caddy)
+- [ ] VAPID / ANTHROPIC / SMTP 키를 운영 시크릿으로 분리, 리포지토리 미포함 확인
 
 ### N-3. 모바일/PWA
 
@@ -568,14 +590,17 @@
 
 ### N-4. 데이터
 
-- [ ] 시드 사용자 4명의 이메일을 실제 운영 직원으로 마이그레이션 또는 별도 운영 시드
+- [ ] 시드 사용자 이메일을 실제 운영 직원으로 마이그레이션 또는 별도 운영 시드
 - [ ] 부서 6개를 실제 한미르 조직도에 맞춰 갱신
 - [ ] 더미 채팅방/메시지 시드 제거 또는 별도 환경 분리
 
-### N-5. 백업/복원 리허설
+### N-5. 백업 / 복원
 
-- [ ] `pg_dump` → 다른 빈 DB에 복원 → 어플리케이션 정상 부팅 1회 검증
-- [ ] Proxmox 스냅샷 복원 후 docker compose up 정상 확인
+- [ ] PostgreSQL — `pg_dump` daily cron, 14일 보관
+- [ ] 업로드 디렉터리 — daily 백업 (rsync 또는 스냅샷). DB 백업과 동일 세트로 관리
+- [ ] Proxmox VM 스냅샷 weekly
+- [ ] 복원 리허설 — `pg_dump` → 빈 DB 복원 + 업로드 디렉터리 복원 → `docker compose up` → 정상 부팅 + 파일 다운로드 1회 검증
+- [ ] (선택) 오프사이트 백업 — 화재/도난 대비, DB 덤프 + 업로드를 사외(기 생성한 R2 버킷 등)로 주기 복제. **1차 저장소가 아닌 백업 사본 용도**
 
 ---
 
