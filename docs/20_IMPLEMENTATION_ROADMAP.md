@@ -8,8 +8,8 @@
 
 ## A. 한 페이지 요약
 
-- **현재 위치**: MVP-1 (회사 내부 시범 가능 골격) — 약 50~60% 완료
-- **남은 작업**: 11개 phase (Phase 0~10), 약 4~6주 1인 풀타임 분량
+- **현재 위치**: Phase 0~8 완료 — 보안 코어 · 메시지 · 결정사항 · 채팅운영 · 멘션/AI · 알림 · 제품 부속 · 관리자 영역까지 구축 완료
+- **남은 작업**: Phase 9 (통합 검색), Phase 10 (메시지 에디터 고급 — 후순위)
 - **이 문서의 사용법**: 작업 완료 시 해당 phase의 체크박스 ✅ 처리 → commit message에 `[Phase N]` 태그 사용
 - **선행조건 원칙**: schema 변경이 필요한 작업이 같은 컬럼/테이블을 건드리는 다른 작업보다 먼저 와야 함. 보안 코어는 외부 배포 전 끝나야 함.
 
@@ -461,44 +461,52 @@
 
 ---
 
-## K. Phase 8 — 관리자 영역 확장 (doc/14, doc/19 Group E)
+## K. Phase 8 — 관리자 영역 확장 (doc/14, doc/19 Group E) ✅ **완료 (2026-05-20)**
 
 **의존성**: Phase 1 감사로그 영속화. Phase 6 알림 정책.
 **예상 작업량**: 3~5일
 
-### K-1. 권한 / 역할 매트릭스 (`/admin/permissions`)
+> **Step 0 (선행)**: `/admin`을 단일 페이지 + 앵커 nav에서 별도 `/admin/*` 라우트로 전환. 사이드바를 `/admin/layout.tsx` + `AdminNav`(usePathname 활성표시)로 추출, 역할 가드를 layout으로 이동.
+>
+> **2026-05-20 버그 수정**: K-5 작업 중 `auditLog`가 합성 req 객체(`{...req}`)에서 lazy `headers` getter를 잃어 `auth.login.*` / `invitation.accept` 감사가 Phase 1부터 silent 누락돼 온 것을 발견 → `auditLog`에 명시적 `actorOverride` 파라미터 추가로 해결.
 
-- [ ] 페이지 신설 — 현재 5개 role 별로 read/write 가능 영역 매트릭스 (참고용, 변경은 코드 기반)
+### K-1. 권한 / 역할 매트릭스 (`/admin/permissions`) ✅
 
-### K-2. 사용자 초대 / 가입 승인 (`/admin/invitations`)
+- [x] 페이지 신설 — 5개 role × 13개 기능 영역 접근 권한 매트릭스 (정적 참고용, 변경은 코드 기반). 범례 + super_admin≡admin 안내
 
-- [ ] **마이그레이션 016_invitations.sql** — `user_invitations(id, email, role, department_id, token UNIQUE, invited_by FK, accepted_at, expires_at, created_at)`
-- [ ] `POST /api/v1/invitations` — admin only. 이메일+역할+부서 → 토큰 발급
-- [ ] `GET /api/v1/invitations` — admin only. 목록
-- [ ] `DELETE /api/v1/invitations/:id` — revoke
-- [ ] (선택) SMTP 발송 — Phase 1 SMTP 도입 후 활성화. 그 전엔 토큰 URL 복사 UI
-- [ ] `POST /api/v1/auth/accept-invite` — 토큰 + 비밀번호 + 이름 → 사용자 생성
-- [ ] `/admin/invitations` 페이지 — 발급, 목록, 취소
+### K-2. 사용자 초대 / 가입 승인 (`/admin/invitations`) ✅
 
-### K-3. 보안 / 로그인 정책 (`/admin/security`)
+- [x] **마이그레이션 016_invitations.sql** — `user_invitations(id, email, role, department_id, token UNIQUE, invited_by FK, accepted_at, expires_at, created_at)`
+- [x] `POST /api/v1/invitations` — admin only. 이메일+역할+부서 → 7일 만료 토큰 발급. 이미 가입된 이메일은 409
+- [x] `GET /api/v1/invitations` — admin only. 목록 (status pending/accepted/expired 파생)
+- [x] `DELETE /api/v1/invitations/:id` — revoke
+- [x] SMTP 발송 — best-effort 초대 메일 (실패해도 초대 유효). admin은 토큰 URL 복사 UI도 사용 가능
+- [x] `GET /api/v1/auth/invitation/:token` + `POST /api/v1/auth/accept-invite` — 비인증. 토큰 검증 + 원자적 소진(markAccepted) 후 계정 생성
+- [x] `/admin/invitations` 페이지 — 발급 폼, 목록, URL 복사, 취소
+- [x] 공개 `/invite` 수락 페이지 — preview + 이름·비밀번호 설정
 
-- [ ] 페이지 — 환경변수 기반 정책 표시 (비밀번호 길이, refresh TTL, session TTL 등). 변경은 .env 안내
+### K-3. 보안 / 로그인 정책 (`/admin/security`) ✅
 
-### K-4. 알림 정책 (`/admin/notifications`)
+- [x] `GET /api/v1/system/security-policy` — 비밀번호 길이/해시·토큰 TTL·쿠키·업로드 한도를 config + auth 상수에서 파생
+- [x] 페이지 — 인증·세션·파일/메일 정책 카드. 변경은 .env / 코드 안내
 
-- [ ] 전사 기본 알림 종류 토글 (admin 이 회사 전체 default 설정 가능)
-- [ ] 사용자별 override는 Phase 6 의 `/account/notifications`
+### K-4. 알림 정책 (`/admin/notifications`) ✅
 
-### K-5. 감사 로그 페이지 (`/admin/audit`)
+- [x] **마이그레이션 017_org_notification_defaults.sql** — 카테고리별 회사 전체 게이트
+- [x] 전사 기본 알림 종류 토글 (6 카테고리: message·mention·notice·task·project·decision). `GET/PATCH /api/v1/org-notification-defaults`
+- [x] `notify.ts` 각 dispatch가 카테고리 게이트 확인 — 끄면 전사 발송 중지
+- [x] 사용자별 override는 Phase 6 의 `/account/notifications` (기존)
 
-- [ ] Phase 1 의 `audit_logs` 테이블 — 페이징 + actor/action/target 필터
-- [ ] 검색 (사용자, 기간, action)
+### K-5. 감사 로그 페이지 (`/admin/audit`) ✅
 
-### K-6. 서비스 상태 / 버전 (`/admin/status`)
+- [x] `AuditRepository.search()` — `audit_logs` 페이징(offset) + action/actor/기간 필터 + distinct action 목록 (메모리·PG)
+- [x] `GET /api/v1/audit` (admin) + `/admin/audit` 페이지 — 필터바 + 테이블 + 페이지네이션
 
-- [ ] `GET /api/v1/system/health` — 이미 `/health` 있음. 확장 (DB connection, socket clients, uptime)
-- [ ] `GET /api/v1/system/version` — package.json version + git short hash
-- [ ] 페이지 — 위 정보 + Postgres pool 통계 + 활성 socket 수
+### K-6. 서비스 상태 / 버전 (`/admin/status`) ✅
+
+- [x] `GET /api/v1/system/health` — 어댑터·uptime·활성 socket 수·DB 연결 + PG pool 통계
+- [x] `GET /api/v1/system/version` — package.json version + git short hash + Node·환경
+- [x] 페이지 — 위 정보 카드 + 수동 새로고침
 
 ---
 
@@ -595,8 +603,9 @@
 | 012 | decisions.is_deleted + decision_reads | (완료) Phase 3 |
 | 013 | messages.entities / ai_generated / ai_command / source_message_ids | (완료) Phase 5 |
 | 014 | user_notifications / user_notification_settings / push_subscriptions | (완료) Phase 6 |
-| 015 | product_specs / product_lots / sales_status_events | Phase 7 |
-| 016 | user_invitations | Phase 8 |
+| 015 | product_specs / product_lots / sales_status_events | (완료) Phase 7 |
+| 016 | user_invitations | (완료) Phase 8 K-2 |
+| 017 | org_notification_defaults | (완료) Phase 8 K-4 |
 
 ---
 
