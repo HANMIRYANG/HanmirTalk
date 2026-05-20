@@ -567,7 +567,7 @@
 - [ ] 파일 스토리지 — `UPLOAD_DIR`을 40TB 디스크 경로(예: `/srv/hanmir-talk/uploads`)로 설정, compose에서 마운트. **앱 코드 변경 불필요** — `config.uploadDir`가 이미 `UPLOAD_DIR`을 지원
 - [ ] Proxmox — Ubuntu Server VM 생성, 가상 디스크를 40TB 풀에서 넉넉히 할당(또는 전용 데이터셋 마운트), CPU/RAM 적정 산정
 - [ ] `.env` 운영값 작성 — `DATABASE_URL` / `CORS_ORIGIN`(운영 도메인, https) / `SMTP_*` / `VAPID_*` / `ANTHROPIC_API_KEY` / `UPLOAD_DIR`. 파일 권한 제한 + git 미포함
-- [ ] `docs/21_DEPLOYMENT_GUIDE.md` 신설 — VM 세팅 ~ `docker compose up`까지 단계별 runbook
+- [ ] 배포 runbook — VM 세팅 ~ `docker compose up`까지 단계별 절차를 본 문서 **R절(배포 runbook)** 에 작성 (별도 파일 없음, 배포 준비 시점에 상세화)
 
 ### N-2. 보안 최종 점검
 
@@ -653,3 +653,46 @@
 | 012a | `decisions` 테이블 + `decision_reads` 테이블 (결정 4의 결과) | Phase 3 |
 
 (005~016 외 추가 슬롯이 필요할 경우 `012a`, `014b` 형태로 부번호 사용)
+
+---
+
+## R. 배포 runbook
+
+> 별도 `21_DEPLOYMENT_GUIDE.md`를 만들지 않고 배포 절차는 본 절에 통합한다.
+> 아래는 N절 계획을 실행 단계로 풀어낸 **골격** — 실제 배포 준비 시점에
+> 각 단계의 명령어·설정값을 채워 상세화한다.
+
+### R-1. Proxmox VM 준비
+
+- [ ] Ubuntu Server VM 생성 (CPU/RAM/디스크 산정)
+- [ ] 40TB 풀에서 가상 디스크 또는 전용 데이터셋 할당, 마운트
+- [ ] Docker Engine + Docker Compose 설치, 방화벽/시간대(KST) 설정
+
+### R-2. 소스 배치 · 환경설정
+
+- [ ] 리포지토리 클론
+- [ ] `.env` 운영값 작성 (N-1 참고 — `DATABASE_URL`·`CORS_ORIGIN`·`UPLOAD_DIR`·`SMTP_*`·`VAPID_*`·`ANTHROPIC_API_KEY`)
+- [ ] 업로드 디렉터리 생성 (`UPLOAD_DIR`, 예: `/srv/hanmir-talk/uploads`)
+
+### R-3. 빌드 · 기동
+
+- [ ] `Dockerfile`로 web / server 이미지 빌드
+- [ ] `docker-compose.prod.yml` up — `caddy` + `web` + `server` + `postgres`
+- [ ] 마이그레이션 001~017 적용 확인 (initdb 또는 `db:migrate`)
+- [ ] `UPLOAD_DIR` 바인드 마운트 정상 확인
+
+### R-4. 도메인 · HTTPS
+
+- [ ] `Caddyfile` 운영 도메인 설정
+- [ ] 인증서 발급 — 인터넷 연결 시 자동 LE, 폐쇄망이면 사내 자체 CA
+
+### R-5. 기동 검증
+
+- [ ] N-2(보안) · N-3(PWA) · N-4(데이터) 체크리스트 수행
+- [ ] 스모크 — 로그인 → 메시지 송수신 → 파일 업로드/다운로드 → 알림 1회
+
+### R-6. 백업 · 운영
+
+- [ ] `pg_dump` daily cron + 업로드 디렉터리 daily 백업 등록
+- [ ] Proxmox VM 스냅샷 weekly
+- [ ] N-5 복원 리허설 1회
