@@ -15,9 +15,14 @@ import type { Repositories } from "./repositories/types";
 export async function auditLog(
   repos: Repositories,
   req: Request,
-  input: Omit<CreateAuditInput, "actorUserId" | "actorName" | "actorRole" | "ip">
+  input: Omit<CreateAuditInput, "actorUserId" | "actorName" | "actorRole" | "ip">,
+  // Flows like login / invite-acceptance run before `req.currentUser` is
+  // populated. Pass the resolved actor here instead of synthesizing a fake
+  // req — spreading an Express req drops the lazy `headers` getter and the
+  // IP capture below silently throws.
+  actorOverride?: { id: string; name: string; role: string }
 ): Promise<void> {
-  const me = req.currentUser;
+  const me = actorOverride ?? req.currentUser;
   try {
     await repos.audit.record({
       ...input,
@@ -25,8 +30,10 @@ export async function auditLog(
       actorName: me?.name,
       actorRole: me?.role,
       ip:
-        (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ??
-        req.socket.remoteAddress ??
+        (req.headers?.["x-forwarded-for"] as string | undefined)
+          ?.split(",")[0]
+          ?.trim() ??
+        req.socket?.remoteAddress ??
         undefined
     });
   } catch (err) {

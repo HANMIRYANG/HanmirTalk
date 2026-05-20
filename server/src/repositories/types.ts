@@ -1,5 +1,7 @@
 import type {
   AuditEntry,
+  AuditLogPage,
+  AuditLogQuery,
   ChatMessage,
   CreateAuditInput,
   CreateDecisionInput,
@@ -51,6 +53,8 @@ export interface AuditRepository {
   record(input: CreateAuditInput): Promise<void>;
   // Returns the most recent entries first. Limit caps the rows fetched.
   list(opts?: { limit?: number; action?: string; actorUserId?: string }): Promise<AuditEntry[]>;
+  // Phase 8 K-5 — paginated + filtered search for the /admin/audit page.
+  search(query: AuditLogQuery): Promise<AuditLogPage>;
 }
 
 // Phase 1 D-3 — DB-backed refresh tokens (paired with in-memory access

@@ -1,6 +1,9 @@
 import { createHash, randomBytes } from "crypto";
 import type {
   AuditEntry,
+  AuditLogPage,
+  AuditLogQuery,
+  AuditLogRow,
   ChatMessage,
   CreateAuditInput,
   CreateDecisionInput,
@@ -1345,6 +1348,50 @@ class MemoryAuditRepository implements AuditRepository {
     rows = rows.slice(0, limit);
     return rows.map((r) => formatAuditEntry(r));
   }
+
+  // Phase 8 K-5 — paginated + filtered search.
+  async search(query: AuditLogQuery): Promise<AuditLogPage> {
+    const limit = Math.min(Math.max(query.limit ?? 25, 1), 100);
+    const offset = Math.max(query.offset ?? 0, 0);
+    let rows = this.data.slice(); // already newest-first
+    if (query.action) rows = rows.filter((r) => r.action === query.action);
+    if (query.actor) {
+      const needle = query.actor.toLowerCase();
+      rows = rows.filter((r) => (r.actorName ?? "").toLowerCase().includes(needle));
+    }
+    if (query.after) {
+      const a = Date.parse(query.after);
+      if (!Number.isNaN(a)) rows = rows.filter((r) => Date.parse(r.createdAt) >= a);
+    }
+    if (query.before) {
+      const b = Date.parse(query.before);
+      // before is a YYYY-MM-DD day — include the whole day.
+      if (!Number.isNaN(b)) {
+        rows = rows.filter((r) => Date.parse(r.createdAt) < b + 86_400_000);
+      }
+    }
+    const total = rows.length;
+    const actions = [...new Set(this.data.map((r) => r.action))].sort();
+    return {
+      rows: rows.slice(offset, offset + limit).map(toAuditLogRow),
+      total,
+      actions
+    };
+  }
+}
+
+function toAuditLogRow(r: AuditRow): AuditLogRow {
+  return {
+    id: r.id,
+    action: r.action,
+    actorName: r.actorName ?? "시스템",
+    actorRole: r.actorRole,
+    targetType: r.targetType,
+    targetLabel: r.targetLabel ?? r.targetId,
+    level: (r.level ?? "info") as AuditLogRow["level"],
+    ip: r.ip,
+    createdAt: r.createdAt
+  };
 }
 
 function formatAuditEntry(r: AuditRow): AuditEntry {

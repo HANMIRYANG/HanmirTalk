@@ -28,6 +28,7 @@ import { createNoticesRouter } from "./routes/notices";
 import { createDepartmentsRouter } from "./routes/departments";
 import { createDashboardRouter } from "./routes/dashboard";
 import { createInvitationsRouter } from "./routes/invitations";
+import { createAuditRouter } from "./routes/audit";
 
 export interface AppDeps {
   repos: Repositories;
@@ -73,6 +74,7 @@ export function createApp(deps: AppDeps = { repos: createMemoryRepositories() })
   app.use(`${config.apiPrefix}/notices`, requireAuth, createNoticesRouter(deps.repos));
   app.use(`${config.apiPrefix}/dashboard`, requireAuth, createDashboardRouter(deps.repos));
   app.use(`${config.apiPrefix}/invitations`, requireAuth, createInvitationsRouter(deps.repos));
+  app.use(`${config.apiPrefix}/audit`, requireAuth, createAuditRouter(deps.repos));
   app.use(`${config.apiPrefix}/notifications`, requireAuth, createNotificationsRouter(deps.repos));
   app.use(
     `${config.apiPrefix}/notification-settings`,

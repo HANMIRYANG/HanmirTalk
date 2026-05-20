@@ -76,29 +76,37 @@ export function createAuthRouter(repos: Repositories): Router {
       // wrong password is high-volume noise. For admins it's a meaningful
       // signal worth surfacing in the audit log.
       if (user.role === "admin" || user.role === "super_admin") {
-        // We synthesize a req-like object so auditLog records the *targeted*
-        // account as the actor (since req.currentUser is still empty here).
-        const targeted = { ...req, currentUser: user } as Request;
-        await auditLog(repos, targeted, {
-          action: "auth.login.failure",
-          targetType: "user",
-          targetId: user.id,
-          targetLabel: user.email,
-          level: "warn"
-        });
+        // req.currentUser is still empty here — pass the targeted account as
+        // the explicit actor so the failure is attributed to it.
+        await auditLog(
+          repos,
+          req,
+          {
+            action: "auth.login.failure",
+            targetType: "user",
+            targetId: user.id,
+            targetLabel: user.email,
+            level: "warn"
+          },
+          user
+        );
       }
       res.status(401).json({ error: "invalid_credentials" });
       return;
     }
     const { accessToken } = await issueSessionFor(repos, res, user.id, clientContext(req));
     if (user.role === "admin" || user.role === "super_admin") {
-      const ctx = { ...req, currentUser: user } as Request;
-      await auditLog(repos, ctx, {
-        action: "auth.login.success",
-        targetType: "user",
-        targetId: user.id,
-        targetLabel: user.email
-      });
+      await auditLog(
+        repos,
+        req,
+        {
+          action: "auth.login.success",
+          targetType: "user",
+          targetId: user.id,
+          targetLabel: user.email
+        },
+        user
+      );
     }
     // Keep `token` in the response body for the transition period — older
     // frontend code paths still read it, and Authorization-header API
@@ -262,13 +270,17 @@ export function createAuthRouter(repos: Repositories): Router {
       role: invitation.role
     });
     await repos.users.setPassword(user.id, password);
-    const ctx = { ...req, currentUser: user } as Request;
-    await auditLog(repos, ctx, {
-      action: "invitation.accept",
-      targetType: "user",
-      targetId: user.id,
-      targetLabel: user.email
-    });
+    await auditLog(
+      repos,
+      req,
+      {
+        action: "invitation.accept",
+        targetType: "user",
+        targetId: user.id,
+        targetLabel: user.email
+      },
+      user
+    );
     res.status(201).json({ ok: true });
   });
 

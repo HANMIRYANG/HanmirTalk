@@ -20,6 +20,9 @@ import type { Pool } from "pg";
 import { hashPassword, seedPasswordHash, verifyPassword } from "../auth/password";
 import type {
   AuditEntry,
+  AuditLogPage,
+  AuditLogQuery,
+  AuditLogRow,
   ChatMessage,
   CreateAuditInput,
   CreateDecisionInput,
@@ -2249,6 +2252,85 @@ class PgAuditRepository implements AuditRepository {
       time: relativeTimePg(r.created_at),
       level: (r.level ?? "info") as AuditEntry["level"]
     }));
+  }
+
+  // Phase 8 K-5 — paginated + filtered search for /admin/audit.
+  async search(query: AuditLogQuery): Promise<AuditLogPage> {
+    const limit = Math.min(Math.max(query.limit ?? 25, 1), 100);
+    const offset = Math.max(query.offset ?? 0, 0);
+    const conds: string[] = [];
+    const params: unknown[] = [];
+    if (query.action) {
+      params.push(query.action);
+      conds.push(`action = $${params.length}`);
+    }
+    if (query.actor) {
+      params.push(`%${query.actor}%`);
+      conds.push(`actor_name ILIKE $${params.length}`);
+    }
+    if (query.after) {
+      params.push(query.after);
+      conds.push(`created_at >= $${params.length}::date`);
+    }
+    if (query.before) {
+      params.push(query.before);
+      conds.push(`created_at < ($${params.length}::date + INTERVAL '1 day')`);
+    }
+    const where = conds.length > 0 ? `WHERE ${conds.join(" AND ")}` : "";
+
+    const countRes = await this.pool.query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM audit_logs ${where}`,
+      params
+    );
+    const total = countRes.rows[0]?.n ?? 0;
+
+    const listParams = params.slice();
+    listParams.push(limit);
+    const limIdx = listParams.length;
+    listParams.push(offset);
+    const offIdx = listParams.length;
+    const { rows } = await this.pool.query<{
+      id: string;
+      action: string;
+      actor_name: string | null;
+      actor_role: string | null;
+      target_type: string | null;
+      target_label: string | null;
+      ip: string | null;
+      level: string | null;
+      created_at: Date | string;
+    }>(
+      `SELECT id, action, actor_name, actor_role, target_type, target_label,
+              ip, level, created_at
+         FROM audit_logs
+        ${where}
+        ORDER BY created_at DESC
+        LIMIT $${limIdx} OFFSET $${offIdx}`,
+      listParams
+    );
+
+    const actionsRes = await this.pool.query<{ action: string }>(
+      `SELECT DISTINCT action FROM audit_logs ORDER BY action`
+    );
+
+    return {
+      rows: rows.map((r) => ({
+        id: r.id,
+        action: r.action,
+        actorName: r.actor_name ?? "시스템",
+        actorRole: r.actor_role ?? undefined,
+        targetType: r.target_type ?? undefined,
+        targetLabel: r.target_label ?? undefined,
+        level: (r.level ?? "info") as AuditLogRow["level"],
+        ip: r.ip ?? undefined,
+        createdAt:
+          r.created_at instanceof Date
+            ? r.created_at.toISOString()
+            : String(r.created_at)
+      })),
+      total,
+      actions: actionsRes.rows.map((r) => r.action)
+    };
   }
 }
 

@@ -732,6 +732,36 @@ export interface CreateAuditInput {
   meta?: unknown;
 }
 
+// Phase 8 K-5 — 감사 로그 페이지용 구조화 행. AuditEntry(대시보드 카드용
+// 요약)와 달리 필터/페이징을 위해 원본 컬럼을 그대로 노출한다.
+export interface AuditLogRow {
+  id: string;
+  action: string;
+  actorName: string;
+  actorRole?: string;
+  targetType?: string;
+  targetLabel?: string;
+  level: "info" | "warn" | "danger";
+  ip?: string;
+  createdAt: string;
+}
+
+export interface AuditLogQuery {
+  limit?: number;
+  offset?: number;
+  action?: string;
+  actor?: string;
+  after?: string;
+  before?: string;
+}
+
+export interface AuditLogPage {
+  rows: AuditLogRow[];
+  total: number;
+  // 필터 드롭다운용 — 현재 로그에 존재하는 distinct action 목록.
+  actions: string[];
+}
+
 export interface AdminKpi {
   label: string;
   value: string;
