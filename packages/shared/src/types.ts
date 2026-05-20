@@ -612,6 +612,16 @@ export interface Product {
   };
 }
 
+// Phase 9 — 통합 검색 결과. 각 도메인은 검색어에 대해 독립 조회되고
+// 도메인별 상한이 있다. messages는 호출자가 접근 가능한 방으로 스코프됨.
+export interface SearchResults {
+  query: string;
+  messages: ChatMessage[];
+  files: FileEntry[];
+  projects: Project[];
+  products: Product[];
+}
+
 export interface FileEntry {
   id: string;
   kind: FileKind;

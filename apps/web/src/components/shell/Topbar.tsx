@@ -39,7 +39,7 @@ export async function Topbar({ title, sub }: TopbarProps) {
           <SearchIcon size={14} />
           <input
             name="q"
-            placeholder="메시지 검색 (2자 이상)"
+            placeholder="통합 검색 (2자 이상)"
             aria-label="검색"
           />
         </form>

@@ -106,3 +106,109 @@
   padding: 0 2px;
   border-radius: 2px;
 }
+
+/* Phase 9 — 통합 검색 탭 + 도메인별 결과 카드 */
+.tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.tab {
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--text-3);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+.tab:hover {
+  color: var(--text-1);
+}
+.tabActive {
+  color: var(--brand-blue);
+  border-bottom-color: var(--brand-blue);
+  font-weight: 600;
+}
+.count {
+  display: inline-block;
+  min-width: 16px;
+  padding: 0 5px;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  border-radius: 8px;
+  background: var(--surface-muted);
+  color: var(--text-3);
+}
+.tabActive .count {
+  background: var(--brand-blue-50);
+  color: var(--brand-blue);
+}
+
+.section {
+  margin-bottom: 22px;
+}
+.sectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.sectionTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-4);
+}
+.moreBtn {
+  background: none;
+  border: none;
+  font-size: 12px;
+  color: var(--brand-blue);
+  cursor: pointer;
+}
+
+.hit {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.hitMain {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.hitTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hitMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.fileBadge {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  background: var(--brand-blue-50);
+  color: var(--brand-blue);
+  border-radius: 6px;
+  font-size: 9px;
+  font-weight: 700;
+}

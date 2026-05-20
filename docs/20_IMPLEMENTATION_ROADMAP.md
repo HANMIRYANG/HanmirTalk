@@ -8,8 +8,8 @@
 
 ## A. 한 페이지 요약
 
-- **현재 위치**: Phase 0~8 완료 — 보안 코어 · 메시지 · 결정사항 · 채팅운영 · 멘션/AI · 알림 · 제품 부속 · 관리자 영역까지 구축 완료
-- **남은 작업**: Phase 9 (통합 검색), Phase 10 (메시지 에디터 고급 — 후순위)
+- **현재 위치**: Phase 0~9 완료 — 보안 코어 · 메시지 · 결정사항 · 채팅운영 · 멘션/AI · 알림 · 제품 부속 · 관리자 영역 · 통합 검색까지 구축 완료
+- **남은 작업**: Phase 10 (메시지 에디터 고급 — 후순위). 이후 N·R절 배포
 - **이 문서의 사용법**: 작업 완료 시 해당 phase의 체크박스 ✅ 처리 → commit message에 `[Phase N]` 태그 사용
 - **선행조건 원칙**: schema 변경이 필요한 작업이 같은 컬럼/테이블을 건드리는 다른 작업보다 먼저 와야 함. 보안 코어는 외부 배포 전 끝나야 함.
 
@@ -510,17 +510,17 @@
 
 ---
 
-## L. Phase 9 — 검색 (doc/02, 08)
+## L. Phase 9 — 검색 (doc/02, 08) ✅ **완료 (2026-05-20)**
 
 **의존성**: Phase 2 messages FTS 인덱스. Phase 1 권한.
 **예상 작업량**: 2~3일
 
-- [ ] `GET /api/v1/search?q=&scope=all|messages|files|projects|products` — 통합 검색. 각 도메인별 분리 호출
-- [ ] 메시지 검색 — 이미 Phase 2 의 `/messages/search` 활용
-- [ ] 파일 검색 — file_name LIKE 또는 trigram
-- [ ] 프로젝트/제품 검색 — name/description LIKE
-- [ ] Topbar 검색 form action → `/search?q=...` 라우트 신설
-- [ ] `/search/page.tsx` — 통합 결과 페이지 (탭으로 도메인 분리)
+- [x] `GET /api/v1/search?q=&scope=all|messages|files|projects|products` — 통합 검색. 도메인별 분리 조회, 도메인당 20건 상한
+- [x] 메시지 검색 — Phase 2 `MessageRepository.search` 재사용 + 방 멤버십 스코프(D-8)
+- [x] 파일 검색 — `file_name` substring 매칭 (라우트 레벨 — 내부툴 데이터량엔 충분)
+- [x] 프로젝트/제품 검색 — name/code/category/description substring 매칭
+- [x] Topbar 검색 form action `/search` (Phase 2에서 신설됨) — placeholder "통합 검색"으로 갱신
+- [x] `/search/page.tsx` — SSR + `SearchResultsView` 클라이언트 컴포넌트. 전체/메시지/파일/프로젝트/제품 탭, "전체"는 도메인별 5건 미리보기 + 전체보기 전환
 
 ---
 
