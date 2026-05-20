@@ -112,6 +112,47 @@ export interface UpdateUserInput {
   initials?: string;
 }
 
+// Phase 8 K-2 — 사용자 초대. `status`는 accepted_at / expires_at에서
+// 파생된다. `token`은 admin이 초대 URL을 만들 때만 쓰이고, 목록 응답에는
+// 포함되지만 화면에는 "URL 복사" 액션으로만 노출한다.
+export type InvitationStatus = "pending" | "accepted" | "expired";
+
+export interface UserInvitation {
+  id: string;
+  email: string;
+  role: UserRole;
+  departmentId?: string;
+  departmentName?: string;
+  token: string;
+  invitedById: string;
+  invitedByName?: string;
+  status: InvitationStatus;
+  acceptedAt?: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
+export interface CreateInvitationInput {
+  email: string;
+  role: UserRole;
+  departmentId: string;
+}
+
+export interface AcceptInviteInput {
+  token: string;
+  name: string;
+  password: string;
+}
+
+// Public payload for the accept-invite page — enough to render the form,
+// without leaking who invited whom.
+export interface InvitationPreview {
+  valid: boolean;
+  email?: string;
+  role?: UserRole;
+  departmentName?: string;
+}
+
 export interface RoomMember {
   userId: string;
   isOwner?: boolean;

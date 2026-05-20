@@ -47,7 +47,8 @@ import type {
   UpdateRoomInput,
   UpdateTaskInput,
   UpdateUserInput,
-  User
+  User,
+  UserInvitation
 } from "@hanmir/shared";
 import { hashPassword, seedPasswordHash, verifyPassword } from "../auth/password";
 import { seedUsers } from "../seed/users";
@@ -66,6 +67,7 @@ import type {
   DecisionRepository,
   DepartmentRepository,
   FileRepository,
+  InvitationRepository,
   IssuedRefreshToken,
   MessageRepository,
   NoticeRepository,
@@ -236,6 +238,11 @@ class MemoryDepartmentRepository implements DepartmentRepository {
   async findById(id: string): Promise<Department | undefined> {
     const found = this.data.find((d) => d.id === id);
     return found ? clone(found) : undefined;
+  }
+
+  // Sync name lookup for repos that enrich rows (Phase 8 — invitations).
+  nameByIdSync(id: string): string {
+    return this.data.find((d) => d.id === id)?.name ?? "";
   }
 
   async create(input: CreateDepartmentInput): Promise<Department> {
@@ -1762,6 +1769,104 @@ class MemoryRefreshTokenRepository implements RefreshTokenRepository {
   }
 }
 
+// Phase 8 K-2 — 사용자 초대.
+interface InvitationRow {
+  id: string;
+  email: string;
+  role: string;
+  departmentId: string;
+  token: string;
+  invitedById: string;
+  acceptedAt: string | null;
+  expiresAt: string;
+  createdAt: string;
+}
+
+class MemoryInvitationRepository implements InvitationRepository {
+  private readonly rows: InvitationRow[] = [];
+  private getDepartmentName: (id: string) => string = () => "";
+  private getUserName: (id: string) => string = () => "";
+
+  setAccessors(a: {
+    getDepartmentName: (id: string) => string;
+    getUserName: (id: string) => string;
+  }): void {
+    this.getDepartmentName = a.getDepartmentName;
+    this.getUserName = a.getUserName;
+  }
+
+  private toDto(row: InvitationRow): UserInvitation {
+    const status: UserInvitation["status"] = row.acceptedAt
+      ? "accepted"
+      : Date.parse(row.expiresAt) <= Date.now()
+      ? "expired"
+      : "pending";
+    return {
+      id: row.id,
+      email: row.email,
+      role: row.role as UserInvitation["role"],
+      departmentId: row.departmentId || undefined,
+      departmentName: this.getDepartmentName(row.departmentId) || undefined,
+      token: row.token,
+      invitedById: row.invitedById,
+      invitedByName: this.getUserName(row.invitedById) || undefined,
+      status,
+      acceptedAt: row.acceptedAt ?? undefined,
+      expiresAt: row.expiresAt,
+      createdAt: row.createdAt
+    };
+  }
+
+  async list(): Promise<UserInvitation[]> {
+    return this.rows
+      .slice()
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((r) => this.toDto(r));
+  }
+
+  async findByToken(token: string): Promise<UserInvitation | undefined> {
+    const row = this.rows.find((r) => r.token === token);
+    return row ? this.toDto(row) : undefined;
+  }
+
+  async create(input: {
+    email: string;
+    role: string;
+    departmentId: string;
+    token: string;
+    expiresAt: string;
+    invitedBy: { id: string };
+  }): Promise<UserInvitation> {
+    const row: InvitationRow = {
+      id: newId("inv"),
+      email: input.email,
+      role: input.role,
+      departmentId: input.departmentId,
+      token: input.token,
+      invitedById: input.invitedBy.id,
+      acceptedAt: null,
+      expiresAt: input.expiresAt,
+      createdAt: new Date().toISOString()
+    };
+    this.rows.unshift(row);
+    return this.toDto(row);
+  }
+
+  async markAccepted(id: string): Promise<boolean> {
+    const row = this.rows.find((r) => r.id === id);
+    if (!row || row.acceptedAt) return false;
+    row.acceptedAt = new Date().toISOString();
+    return true;
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const idx = this.rows.findIndex((r) => r.id === id);
+    if (idx < 0) return false;
+    this.rows.splice(idx, 1);
+    return true;
+  }
+}
+
 export function createMemoryRepositories(): Repositories {
   const departments = new MemoryDepartmentRepository();
   const users = new MemoryUserRepository({ departments });
@@ -1797,6 +1902,12 @@ export function createMemoryRepositories(): Repositories {
     getFile: (id) => files.findByIdSync(id),
     getUserName: (id) => users._data.find((u) => u.id === id)?.name ?? ""
   });
+  // Phase 8 K-2 — invitations enrich rows with department + inviter names.
+  const invitations = new MemoryInvitationRepository();
+  invitations.setAccessors({
+    getDepartmentName: (id) => departments.nameByIdSync(id),
+    getUserName: (id) => users._data.find((u) => u.id === id)?.name ?? ""
+  });
   return {
     users,
     departments,
@@ -1811,6 +1922,7 @@ export function createMemoryRepositories(): Repositories {
     notifications: new MemoryNotificationRepository(),
     pushSubscriptions: new MemoryPushSubscriptionRepository(),
     audit: new MemoryAuditRepository(),
-    refreshTokens: new MemoryRefreshTokenRepository()
+    refreshTokens: new MemoryRefreshTokenRepository(),
+    invitations
   };
 }

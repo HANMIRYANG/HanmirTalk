@@ -14,6 +14,7 @@ import type {
   CreateTaskInput,
   CreateUserInput,
   Decision,
+  UserInvitation,
   DecisionReadStatus,
   Department,
   FileEntry,
@@ -361,6 +362,24 @@ export interface NotificationRepository {
   ): Promise<NotificationSettings>;
 }
 
+// Phase 8 K-2 — 사용자 초대. raw token으로 비인증 accept 흐름을 식별한다.
+export interface InvitationRepository {
+  list(): Promise<UserInvitation[]>;
+  findByToken(token: string): Promise<UserInvitation | undefined>;
+  create(input: {
+    email: string;
+    role: string;
+    departmentId: string;
+    token: string;
+    expiresAt: string;
+    invitedBy: { id: string };
+  }): Promise<UserInvitation>;
+  // Atomic claim — returns false if the invitation was already accepted or
+  // is missing, so concurrent accepts cannot both win.
+  markAccepted(id: string): Promise<boolean>;
+  delete(id: string): Promise<boolean>;
+}
+
 export interface Repositories {
   users: UserRepository;
   departments: DepartmentRepository;
@@ -376,4 +395,5 @@ export interface Repositories {
   pushSubscriptions: PushSubscriptionRepository;
   audit: AuditRepository;
   refreshTokens: RefreshTokenRepository;
+  invitations: InvitationRepository;
 }

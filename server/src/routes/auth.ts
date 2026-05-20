@@ -188,5 +188,89 @@ export function createAuthRouter(repos: Repositories): Router {
     res.json({ ok: true });
   });
 
+  // Phase 8 K-2 — 초대 미리보기 (비인증). accept 페이지가 폼 렌더용으로
+  // 호출. 유효하지 않으면 valid:false만 반환해 토큰 정보를 흘리지 않는다.
+  router.get("/invitation/:token", async (req, res) => {
+    const invitation = await repos.invitations.findByToken(req.params.token);
+    if (!invitation || invitation.status !== "pending") {
+      res.json({ valid: false });
+      return;
+    }
+    res.json({
+      valid: true,
+      email: invitation.email,
+      role: invitation.role,
+      departmentName: invitation.departmentName
+    });
+  });
+
+  // Phase 8 K-2 — 초대 수락 (비인증). 토큰 + 이름 + 비밀번호로 계정 생성.
+  router.post("/accept-invite", async (req, res) => {
+    const { token, name, password } = req.body ?? {};
+    if (
+      typeof token !== "string" ||
+      typeof name !== "string" ||
+      typeof password !== "string"
+    ) {
+      res.status(400).json({ error: "invalid_request" });
+      return;
+    }
+    if (!name.trim()) {
+      res.status(400).json({ error: "name_required" });
+      return;
+    }
+    if (password.length < 8) {
+      res.status(400).json({ error: "password_too_short" });
+      return;
+    }
+    const invitation = await repos.invitations.findByToken(token);
+    if (!invitation) {
+      res.status(404).json({ error: "invitation_not_found" });
+      return;
+    }
+    if (invitation.status === "accepted") {
+      res.status(409).json({ error: "invitation_used" });
+      return;
+    }
+    if (invitation.status === "expired") {
+      res.status(410).json({ error: "invitation_expired" });
+      return;
+    }
+    if (!invitation.departmentId) {
+      // Department was deleted while the invite was pending.
+      res.status(409).json({ error: "department_unavailable" });
+      return;
+    }
+    // Someone may have registered this email by other means since the
+    // invite was issued.
+    const existing = await repos.users.findByEmail(invitation.email);
+    if (existing) {
+      res.status(409).json({ error: "email_already_registered" });
+      return;
+    }
+    // Atomic claim — concurrent accepts cannot both create a user.
+    const claimed = await repos.invitations.markAccepted(invitation.id);
+    if (!claimed) {
+      res.status(409).json({ error: "invitation_used" });
+      return;
+    }
+    const user = await repos.users.create({
+      name: name.trim(),
+      email: invitation.email,
+      departmentId: invitation.departmentId,
+      position: "",
+      role: invitation.role
+    });
+    await repos.users.setPassword(user.id, password);
+    const ctx = { ...req, currentUser: user } as Request;
+    await auditLog(repos, ctx, {
+      action: "invitation.accept",
+      targetType: "user",
+      targetId: user.id,
+      targetLabel: user.email
+    });
+    res.status(201).json({ ok: true });
+  });
+
   return router;
 }

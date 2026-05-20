@@ -72,6 +72,7 @@ import type {
   UpdateTaskInput,
   UpdateUserInput,
   User,
+  UserInvitation,
   UserRole
 } from "@hanmir/shared";
 import type {
@@ -81,6 +82,7 @@ import type {
   DecisionRepository,
   DepartmentRepository,
   FileRepository,
+  InvitationRepository,
   IssuedRefreshToken,
   MessageRepository,
   NoticeRepository,
@@ -2816,6 +2818,119 @@ class PgRefreshTokenRepository implements RefreshTokenRepository {
   }
 }
 
+// Phase 8 K-2 — 사용자 초대.
+interface InvitationRow {
+  id: string;
+  email: string;
+  role: string;
+  department_id: string | null;
+  department_name: string | null;
+  token: string;
+  invited_by: string;
+  invited_by_name: string | null;
+  accepted_at: Date | string | null;
+  expires_at: Date | string;
+  created_at: Date | string;
+}
+
+const INVITATION_SELECT = `
+  SELECT i.id, i.email, i.role, i.department_id, i.token, i.invited_by,
+         i.accepted_at, i.expires_at, i.created_at,
+         d.name AS department_name, u.name AS invited_by_name
+    FROM user_invitations i
+    LEFT JOIN departments d ON d.id = i.department_id
+    LEFT JOIN users u ON u.id = i.invited_by
+`;
+
+function rowToInvitation(row: InvitationRow): UserInvitation {
+  const iso = (v: Date | string) =>
+    v instanceof Date ? v.toISOString() : String(v);
+  const accepted = row.accepted_at ? iso(row.accepted_at) : undefined;
+  const expiresAt = iso(row.expires_at);
+  const status: UserInvitation["status"] = accepted
+    ? "accepted"
+    : Date.parse(expiresAt) <= Date.now()
+    ? "expired"
+    : "pending";
+  return {
+    id: row.id,
+    email: row.email,
+    role: row.role as UserInvitation["role"],
+    departmentId: row.department_id ?? undefined,
+    departmentName: row.department_name ?? undefined,
+    token: row.token,
+    invitedById: row.invited_by,
+    invitedByName: row.invited_by_name ?? undefined,
+    status,
+    acceptedAt: accepted,
+    expiresAt,
+    createdAt: iso(row.created_at)
+  };
+}
+
+class PgInvitationRepository implements InvitationRepository {
+  constructor(private readonly pool: Pool) {}
+
+  async list(): Promise<UserInvitation[]> {
+    const { rows } = await this.pool.query<InvitationRow>(
+      `${INVITATION_SELECT} ORDER BY i.created_at DESC`
+    );
+    return rows.map(rowToInvitation);
+  }
+
+  async findByToken(token: string): Promise<UserInvitation | undefined> {
+    const { rows } = await this.pool.query<InvitationRow>(
+      `${INVITATION_SELECT} WHERE i.token = $1`,
+      [token]
+    );
+    return rows[0] ? rowToInvitation(rows[0]) : undefined;
+  }
+
+  async create(input: {
+    email: string;
+    role: string;
+    departmentId: string;
+    token: string;
+    expiresAt: string;
+    invitedBy: { id: string };
+  }): Promise<UserInvitation> {
+    const { rows } = await this.pool.query<{ id: string }>(
+      `INSERT INTO user_invitations
+         (email, role, department_id, token, invited_by, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id`,
+      [
+        input.email,
+        input.role,
+        input.departmentId,
+        input.token,
+        input.invitedBy.id,
+        input.expiresAt
+      ]
+    );
+    const created = await this.findByToken(input.token);
+    if (!created) throw new Error("[postgres] failed to read back invitation");
+    return created;
+  }
+
+  async markAccepted(id: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      `UPDATE user_invitations SET accepted_at = NOW()
+        WHERE id = $1 AND accepted_at IS NULL`,
+      [id]
+    );
+    return (rowCount ?? 0) > 0;
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      `DELETE FROM user_invitations WHERE id = $1`,
+      [id]
+    );
+    return (rowCount ?? 0) > 0;
+  }
+}
+
 export function createPostgresRepositories(pool: Pool): Repositories {
   const users = new PgUserRepository(pool);
   return {
@@ -2832,6 +2947,7 @@ export function createPostgresRepositories(pool: Pool): Repositories {
     notifications: new PgNotificationRepository(pool),
     pushSubscriptions: new PgPushSubscriptionRepository(pool),
     audit: new PgAuditRepository(pool),
-    refreshTokens: new PgRefreshTokenRepository(pool)
+    refreshTokens: new PgRefreshTokenRepository(pool),
+    invitations: new PgInvitationRepository(pool)
   };
 }
