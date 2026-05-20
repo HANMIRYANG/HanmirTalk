@@ -5,6 +5,12 @@ import path from "path";
 import type { Pool } from "pg";
 import { requireRole } from "../auth/middleware";
 import { realtime } from "../realtime";
+import { config } from "../config";
+import {
+  ACCESS_MAX_AGE_SEC,
+  PASSWORD_MIN_LENGTH,
+  REFRESH_MAX_AGE_SEC
+} from "./auth";
 
 // Phase 8 K-6 — 서비스 상태 / 버전.
 export interface SystemDeps {
@@ -93,6 +99,24 @@ export function createSystemRouter(deps: SystemDeps): Router {
       gitCommit: GIT_COMMIT,
       node: process.version,
       env: process.env.NODE_ENV ?? "development"
+    });
+  });
+
+  // Phase 8 K-3 — 보안 / 로그인 정책 (읽기 전용). 코드 상수 + .env에서 파생.
+  router.get("/security-policy", admins, (_req, res) => {
+    res.json({
+      passwordMinLength: PASSWORD_MIN_LENGTH,
+      passwordHash: "bcrypt",
+      forcePasswordChangeOnFirstLogin: true,
+      accessTokenTtlMinutes: Math.round(ACCESS_MAX_AGE_SEC / 60),
+      refreshTokenTtlDays: Math.round(REFRESH_MAX_AGE_SEC / 86400),
+      refreshTokenRotation: true,
+      cookieHttpOnly: true,
+      cookieSameSite: "Strict",
+      cookieSecure: config.corsOrigin.startsWith("https://"),
+      uploadMaxMb: Math.round(config.uploadMaxBytes / (1024 * 1024)),
+      auditLogging: true,
+      smtpEnabled: config.smtpEnabled
     });
   });
 

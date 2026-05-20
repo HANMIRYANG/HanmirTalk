@@ -19,8 +19,11 @@ import { auditLog } from "../audit";
 // valid 30-day refresh. 1 hour covers normal business-hour navigation
 // while keeping refresh rotation as the primary security boundary.
 // Future: a Next.js middleware refresh would let us drop this back down.
-const ACCESS_MAX_AGE_SEC = 60 * 60;
-const REFRESH_MAX_AGE_SEC = 30 * 24 * 60 * 60;
+// Exported so /system/security-policy (Phase 8 K-3) reports the live values
+// without re-declaring them.
+export const ACCESS_MAX_AGE_SEC = 60 * 60;
+export const REFRESH_MAX_AGE_SEC = 30 * 24 * 60 * 60;
+export const PASSWORD_MIN_LENGTH = 8;
 
 function clientContext(req: Request): { userAgent?: string; ip?: string } {
   return {
@@ -170,7 +173,7 @@ export function createAuthRouter(repos: Repositories): Router {
       res.status(400).json({ error: "invalid_request" });
       return;
     }
-    if (newPassword.length < 8) {
+    if (newPassword.length < PASSWORD_MIN_LENGTH) {
       res.status(400).json({ error: "password_too_short" });
       return;
     }
@@ -227,7 +230,7 @@ export function createAuthRouter(repos: Repositories): Router {
       res.status(400).json({ error: "name_required" });
       return;
     }
-    if (password.length < 8) {
+    if (password.length < PASSWORD_MIN_LENGTH) {
       res.status(400).json({ error: "password_too_short" });
       return;
     }

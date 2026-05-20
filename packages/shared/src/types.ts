@@ -783,6 +783,22 @@ export interface SystemVersion {
   env: string;
 }
 
+// Phase 8 K-3 — 보안 / 로그인 정책 (읽기 전용 표시). 변경은 .env / 코드.
+export interface SecurityPolicy {
+  passwordMinLength: number;
+  passwordHash: string;
+  forcePasswordChangeOnFirstLogin: boolean;
+  accessTokenTtlMinutes: number;
+  refreshTokenTtlDays: number;
+  refreshTokenRotation: boolean;
+  cookieHttpOnly: boolean;
+  cookieSameSite: string;
+  cookieSecure: boolean;
+  uploadMaxMb: number;
+  auditLogging: boolean;
+  smtpEnabled: boolean;
+}
+
 export interface AdminKpi {
   label: string;
   value: string;
