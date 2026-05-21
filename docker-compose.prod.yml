@@ -1,0 +1,139 @@
+# 한미르톡 운영 — 단일 VM Docker Compose (로드맵 N-0 확정 구성).
+# caddy(리버스 프록시) + web(Next.js) + server(API·socket.io) + postgres.
+# 현재 사내 HTTP 배포 구성. HTTPS 전환 절차는 Caddyfile 상단 주석 참고.
+#
+# 사용:
+#   1) .env.prod.example 를 .env.prod 로 복사해 실제 값 입력
+#   2) docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+#
+# 마이그레이션: postgres 데이터 볼륨이 비어 있는 최초 기동에서만
+# server/src/db/migrations/*.sql 가 initdb 디렉터리에 마운트되어
+# 001~017 알파벳 순으로 자동 적용된다. 이후 기동에서는 건너뛴다.
+#   ⚠️ 볼륨에 데이터가 있으면 새 마이그레이션(018+)은 자동 적용되지 않는다.
+#      기존 운영 DB에 마이그레이션을 추가 적용할 때는 psql 로 수동 실행:
+#        docker compose -f docker-compose.prod.yml exec -T postgres \
+#          psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
+#          -f /docker-entrypoint-initdb.d/018_xxx.sql
+#
+# name: dev 의 docker-compose.yml 과 볼륨·네트워크가 섞이지 않도록 별도
+# 프로젝트명을 고정한다 (둘 다 기본 프로젝트명이 'hanmir-talk' 라 충돌).
+name: hanmir-talk-prod
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: hanmir-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      LANG: ko_KR.UTF-8
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    volumes:
+      - hanmir_pgdata:/var/lib/postgresql/data
+      - ./server/src/db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # 운영 DB 포트는 외부 비노출 — 컨테이너 네트워크 내부에서만 접근.
+    # 백업은 `docker compose exec postgres pg_dump ...` 로 수행.
+
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: hanmir-server
+    restart: unless-stopped
+    init: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # CORS·쿠키 기준 origin. https 면 서버가 쿠키에 Secure 플래그를 붙인다.
+      CORS_ORIGIN: ${PUBLIC_ORIGIN}
+      # 업로드물은 컨테이너 내부 /data/uploads → 호스트 디스크에 bind mount.
+      UPLOAD_DIR: /data/uploads
+      UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-52428800}
+      DEFAULT_PASSWORD: ${DEFAULT_PASSWORD}
+      SMTP_ENABLED: ${SMTP_ENABLED:-true}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_FROM: ${SMTP_FROM:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
+      AI_DAILY_TOKEN_LIMIT: ${AI_DAILY_TOKEN_LIMIT:-0}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+    volumes:
+      # 호스트 40TB 디스크 경로 ↔ 컨테이너 업로드 디렉터리.
+      - ${UPLOAD_DIR_HOST}:/data/uploads
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:4000/api/v1/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # 상대경로 — 브라우저는 접속한 주소를 그대로 API 출처로 쓴다.
+        # IP·호스트명 무관, HTTP↔HTTPS 전환 시에도 web 재빌드 불필요.
+        NEXT_PUBLIC_API_BASE_URL: /api/v1
+    container_name: hanmir-web
+    restart: unless-stopped
+    init: true
+    depends_on:
+      server:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      # SSR(웹 컨테이너)은 컨테이너 네트워크로 server 에 직접 도달 — 리버스
+      # 프록시 hairpin·인증서 검증을 피한다 (api-client.ts 의 분기 참고).
+      API_BASE_URL: http://server:4000/api/v1
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/login',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: hanmir-caddy
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+      server:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      # HTTPS 전환 시 "443:443" 추가
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      # HTTPS 전환 시 인증서 디렉터리 마운트:
+      # - ./certs:/etc/caddy/certs:ro
+
+volumes:
+  hanmir_pgdata:
+  caddy_data:
+  caddy_config:

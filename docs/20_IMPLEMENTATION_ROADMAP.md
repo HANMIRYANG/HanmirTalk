@@ -558,15 +558,21 @@
 
 ### N-1. 인프라 구성
 
-- [ ] `Dockerfile` — web / server (멀티스테이지 빌드)
-- [ ] `docker-compose.prod.yml` — `caddy` + `web` + `server` + `postgres` 4개 서비스
+> **2026-05-21 진행**: 아래 파일 4종 작성 + Docker 이미지 빌드·기동 검증 완료
+> (server·web 멀티스테이지 이미지 빌드 성공, 깨끗한 볼륨에서 마이그레이션
+> 001~017 → 25개 테이블 전부 적용 확인, PG 모드 로그인·검색 스모크 통과).
+> 남은 항목: Proxmox VM 생성 · 운영 `.env.prod` 실값 작성 · runbook 상세화.
+
+- [x] `Dockerfile` — web / server (멀티스테이지 빌드) — `apps/web/Dockerfile`, `server/Dockerfile` (+ `.dockerignore`)
+- [x] `docker-compose.prod.yml` — `caddy` + `web` + `server` + `postgres` 4개 서비스
   - postgres 데이터: named volume
   - 업로드 디렉터리: host 40TB 경로 ↔ `server` 컨테이너 bind mount
-  - 마이그레이션 `server/src/db/migrations` → postgres initdb 마운트 (현 dev compose와 동일, 001~017)
-- [ ] Caddy `Caddyfile` — 운영 도메인 + HTTPS. 인터넷 연결 시 자동 Let's Encrypt, 폐쇄망이면 사내 자체 CA 인증서
-- [ ] 파일 스토리지 — `UPLOAD_DIR`을 40TB 디스크 경로(예: `/srv/hanmir-talk/uploads`)로 설정, compose에서 마운트. **앱 코드 변경 불필요** — `config.uploadDir`가 이미 `UPLOAD_DIR`을 지원
+  - 마이그레이션 `server/src/db/migrations` → postgres initdb 마운트 (001~017)
+  - dev compose와 볼륨 충돌 방지용 별도 프로젝트명 `name: hanmir-talk-prod`
+- [x] Caddy `Caddyfile` — 운영 도메인 + HTTPS. 인터넷 연결 시 자동 Let's Encrypt, 폐쇄망이면 사내 자체 CA 인증서 (`tls` / `tls internal` 안내 주석 포함)
+- [x] 파일 스토리지 — `UPLOAD_DIR`을 40TB 디스크 경로로 설정, compose에서 bind mount. **앱 코드 변경 불필요** — `config.uploadDir`가 이미 `UPLOAD_DIR`을 지원
 - [ ] Proxmox — Ubuntu Server VM 생성, 가상 디스크를 40TB 풀에서 넉넉히 할당(또는 전용 데이터셋 마운트), CPU/RAM 적정 산정
-- [ ] `.env` 운영값 작성 — `DATABASE_URL` / `CORS_ORIGIN`(운영 도메인, https) / `SMTP_*` / `VAPID_*` / `ANTHROPIC_API_KEY` / `UPLOAD_DIR`. 파일 권한 제한 + git 미포함
+- [ ] `.env.prod` 운영값 작성 — 템플릿 `.env.prod.example` 작성 완료(2026-05-21). 이를 `.env.prod`로 복사해 실값 입력: `PUBLIC_DOMAIN`/`PUBLIC_ORIGIN`(https) · `POSTGRES_*` · `UPLOAD_DIR_HOST` · `DEFAULT_PASSWORD` · `SMTP_*` · `VAPID_*` · `ANTHROPIC_API_KEY`. 파일 권한 600 + git 미포함(`.gitignore` 적용)
 - [ ] 배포 runbook — VM 세팅 ~ `docker compose up`까지 단계별 절차를 본 문서 **R절(배포 runbook)** 에 작성 (별도 파일 없음, 배포 준비 시점에 상세화)
 
 ### N-2. 보안 최종 점검
@@ -590,9 +596,9 @@
 
 ### N-4. 데이터
 
-- [ ] 시드 사용자 이메일을 실제 운영 직원으로 마이그레이션 또는 별도 운영 시드
-- [ ] 부서 6개를 실제 한미르 조직도에 맞춰 갱신
-- [ ] 더미 채팅방/메시지 시드 제거 또는 별도 환경 분리
+- [x] 시드 사용자를 실제 운영 직원으로 교체 — `003_seed_minimum.sql` 을 실제 22명으로 재작성(2026-05-21), 입력 출처 `직원데이터_입력양식.md`
+- [x] 부서를 실제 한미르 조직도에 맞춰 갱신 — 12개 부서로 재작성
+- [x] 더미 채팅방/메시지 — PG 어댑터 시드(003)에는 채팅방/메시지가 없음(부서·사용자만). 더미 룸/메시지는 메모리 어댑터(dev 전용)에만 존재 → 운영(PG)엔 미반영, 별도 제거 불필요
 
 ### N-5. 백업 / 복원
 

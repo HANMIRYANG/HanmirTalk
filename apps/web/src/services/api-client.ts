@@ -1,11 +1,17 @@
 const DEFAULT_BASE = "http://localhost:4000/api/v1";
 
 function resolveBaseUrl(): string {
-  if (typeof process !== "undefined") {
-    const fromEnv =
-      process.env.NEXT_PUBLIC_API_BASE_URL ?? process.env.API_BASE_URL ?? undefined;
-    if (fromEnv && fromEnv.trim()) return fromEnv.trim().replace(/\/$/, "");
-  }
+  if (typeof process === "undefined") return DEFAULT_BASE;
+  const publicUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+  const internalUrl = process.env.API_BASE_URL?.trim();
+  // 서버 사이드(웹 컨테이너의 SSR)는 컨테이너 네트워크로 API 에 직접 도달할
+  // 수 있다 — API_BASE_URL 이 있으면 우선 사용해 리버스 프록시 hairpin 과
+  // (폐쇄망) 자체 CA 인증서 검증을 피한다. 브라우저는 빌드 시 인라인된
+  // 공개 URL(NEXT_PUBLIC_API_BASE_URL)을 사용한다. 둘 다 없으면 dev 기본값.
+  const isServer = typeof window === "undefined";
+  if (isServer && internalUrl) return internalUrl.replace(/\/$/, "");
+  if (publicUrl) return publicUrl.replace(/\/$/, "");
+  if (internalUrl) return internalUrl.replace(/\/$/, "");
   return DEFAULT_BASE;
 }
 

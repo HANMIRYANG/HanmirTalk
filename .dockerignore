@@ -1,0 +1,32 @@
+# Docker 빌드 컨텍스트 제외 — 이미지·빌드 캐시 오염 방지, 컨텍스트 전송 단축.
+# Dockerfile 들은 packages/shared·server·apps/web 소스를 COPY 하므로 그 안의
+# node_modules/.next/dist 등 빌드 산출물을 반드시 걸러야 한다.
+node_modules
+**/node_modules
+.next
+**/.next
+**/dist
+build
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# VCS·로컬 설정
+.git
+.gitignore
+.claude
+.turbo
+.vercel
+.vscode
+
+# 환경변수 — 시크릿이 이미지에 구워지지 않도록 (.example 템플릿만 무관)
+.env
+.env.*
+!.env.example
+!.env.prod.example
+
+# 로그·업로드물·문서 (런타임/빌드에 불필요)
+*.log
+**/*.log
+server/uploads
+docs
+design-reference
