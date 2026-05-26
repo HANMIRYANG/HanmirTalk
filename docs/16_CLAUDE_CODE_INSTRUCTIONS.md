@@ -16,15 +16,23 @@ Claude Code는 한미르톡 프로젝트의 실제 구현 담당이다.
 8. 작업 후 변경 파일 목록, 구현 내용, 테스트 방법을 출력한다.
 9. Codex가 검토할 수 있도록 구조를 명확하게 유지한다.
 
-## 기술 스택 권장
+## 기술 스택 (현재 구현 기준)
 
-- Frontend: Next.js, TypeScript, Tailwind CSS
-- Backend: NestJS, TypeScript
-- DB: PostgreSQL
-- Realtime: Socket.IO 또는 NestJS WebSocket Gateway
-- Cache/Queue: Redis optional
-- File Storage: MinIO/S3 compatible storage or local storage for MVP
-- Deploy: Docker
+> 본 문서 초안에는 NestJS·Redis·MinIO가 권장으로 적혀 있었으나, 실제 구현은
+> 사내 단일 VM 운영 전제(N-0 결정)에 맞춰 더 단순한 스택으로 굳어졌다.
+> 신규 합류자는 아래를 기준으로 코드를 읽고 작업한다.
+
+- Frontend: Next.js 14 (app router) · TypeScript · CSS Modules (Tailwind 미사용)
+- Backend: **Express 4** · TypeScript · `express-async-errors` 중앙 에러 핸들러
+- Realtime: **socket.io 4.x** (Express http 서버에 attach)
+- DB: PostgreSQL 16 (`pg` driver 직접 사용, ORM 없음). 메모리 어댑터는 dev 기본
+- Auth: 자체 세션 (in-memory access + DB refresh_tokens 회전), bcryptjs
+- Cache/Queue: **없음**. 단일 VM 전제 — Redis 도입은 다중 인스턴스로 갈 때만
+- File Storage: **호스트 디스크 bind mount** (`UPLOAD_DIR`). S3/MinIO 미사용
+- Mail: nodemailer (dev: mailhog 컨테이너 / 운영: 사내 SMTP)
+- LLM: Anthropic Claude (`@anthropic-ai/sdk`) — `/ai/*` 5종 명령
+- Push: web-push (VAPID) — HTTPS 환경에서만 실 동작
+- Deploy: Docker Compose (`docker-compose.prod.yml`) + Caddy 리버스 프록시
 
 ## 디자인 기준
 

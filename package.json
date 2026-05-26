@@ -21,7 +21,8 @@
     "db:down": "docker compose down",
     "db:reset": "docker compose down -v && docker compose up -d",
     "db:migrate": "docker compose exec -T postgres sh -c \"for f in /docker-entrypoint-initdb.d/*.sql; do echo \\\"== applying $f ==\\\"; psql -U hanmir -d hanmir_talk -v ON_ERROR_STOP=1 -f $f || exit 1; done\"",
-    "db:psql": "docker compose exec postgres psql -U hanmir -d hanmir_talk"
+    "db:psql": "docker compose exec postgres psql -U hanmir -d hanmir_talk",
+    "smoke:prod": "npx tsx server/scripts/smoke-prod.ts"
   },
   "engines": {
     "node": ">=18.18.0"

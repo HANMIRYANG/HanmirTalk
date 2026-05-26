@@ -210,6 +210,124 @@ export async function notifyProjectUpdated(
   }
 }
 
+// Phase 6 I-2 — 마감 임박 알림. 매일 KST 09:00 1회 in-process scheduler 가
+// 호출 (server/src/index.ts 참조). status != "done" AND dueDate <= today
+// (KST) 인 task 를 스캔해 assignee 들에게 task:due_soon 알림 발송.
+//
+// Codex 검수 strong-concern #1 반영: tasks.list 는 cancelled 프로젝트의
+// task 도 반환하므로 project 존재+비취소 + assignee 가 여전히 활성+멤버
+// 인지 다시 검증한다.
+//
+// 중복 방지는 in-memory Set — Codex 검수 strong-concern #3 / D4 결정대로
+// "중복 손해 = 알림 1개 더" 수준만 보장 (재시작 시 같은 날 발사된 알림이
+// 한 번 더 갈 수 있음). 영속 dedup 이 필요해지면 별도 로그 테이블 도입.
+const dueSoonSentToday = new Set<string>();
+let dueSoonSetDay: string | undefined;
+
+function ensureDueSoonSetForToday(today: string): void {
+  if (dueSoonSetDay !== today) {
+    dueSoonSentToday.clear();
+    dueSoonSetDay = today;
+  }
+}
+
+// KST(UTC+9) 의 "오늘" 을 YYYY-MM-DD 로 반환. 서버 클럭이 UTC 일 수 있어
+// 명시 계산 — `Date#toLocaleDateString("ko-KR")` 에 의존하지 않고 offset
+// 만으로 계산해 OS 로케일 영향 제거.
+export function kstTodayString(now: Date = new Date()): string {
+  const kstMs = now.getTime() + 9 * 60 * 60 * 1000;
+  const kst = new Date(kstMs);
+  const y = kst.getUTCFullYear();
+  const m = String(kst.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(kst.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function daysFromTo(dueDate: string, today: string): number {
+  // 둘 다 YYYY-MM-DD 가정. Date.parse 로 UTC 자정 기준 차이를 일 단위로.
+  const due = Date.parse(`${dueDate}T00:00:00Z`);
+  const td = Date.parse(`${today}T00:00:00Z`);
+  if (!Number.isFinite(due) || !Number.isFinite(td)) return 0;
+  return Math.round((due - td) / (24 * 60 * 60 * 1000));
+}
+
+export async function notifyTaskDueSoonForAll(repos: Repositories): Promise<void> {
+  const today = kstTodayString();
+  ensureDueSoonSetForToday(today);
+  let scanned = 0;
+  let dispatched = 0;
+  try {
+    if (!(await repos.orgNotifications.isCategoryEnabled("task"))) {
+      // 카테고리 자체가 꺼져 있으면 스캔도 건너뛴다 (PG 부하 절감).
+      return;
+    }
+    const tasks = await repos.tasks.list();
+    // project 캐시 — 같은 프로젝트 task 가 여러 건일 때 반복 조회 회피.
+    const projectCache = new Map<string, Project | undefined>();
+    const getProject = async (projectId: string) => {
+      if (projectCache.has(projectId)) return projectCache.get(projectId);
+      const p = await repos.projects.findById(projectId);
+      projectCache.set(projectId, p);
+      return p;
+    };
+
+    for (const task of tasks) {
+      scanned += 1;
+      if (!task.dueDate) continue;
+      if (task.status === "done") continue;
+      const delta = daysFromTo(task.dueDate, today);
+      if (delta > 0) continue; // 미래는 알림 안 보냄 (오늘 또는 지남만)
+      const project = await getProject(task.projectId);
+      if (!project) continue;
+      if (project.status === "cancelled") continue;
+
+      const overdueDays = -delta; // 0 = today, 1+ = overdue
+      const subject = `${task.code ?? "T"} ${task.title}`;
+      const title =
+        overdueDays === 0 ? "오늘 마감 업무" : `마감 지남 업무 (D+${overdueDays})`;
+      const body = `${subject} — ${
+        overdueDays === 0 ? "오늘 마감" : `${overdueDays}일 지남`
+      }`;
+
+      const allowed: string[] = [];
+      for (const uid of task.assigneeIds) {
+        // 같은 날 같은 사용자×task 에는 한 번만 — 부팅 직후 재발사도 방지.
+        const dedupKey = `${uid}-${task.id}-${today}`;
+        if (dueSoonSentToday.has(dedupKey)) continue;
+        // 멤버십·활성 재검증 (project_members 에서 빠졌거나 휴직 처리된
+        // 사용자에게 알림이 가지 않도록).
+        if (!project.memberIds.includes(uid)) continue;
+        const user = await repos.users.findById(uid);
+        if (!user || user.isActive === false) continue;
+        if (!(await shouldNotify(repos, uid, { projectId: project.id }))) continue;
+        allowed.push(uid);
+        dueSoonSentToday.add(dedupKey);
+      }
+      if (allowed.length === 0) continue;
+      const created = await repos.notifications.createMany(allowed, {
+        kind: "task:due_soon",
+        title,
+        body,
+        link: `/projects/${project.id}/tasks`,
+        payload: {
+          projectId: project.id,
+          taskId: task.id,
+          overdueDays
+        }
+      });
+      await dispatchAll(repos, created);
+      dispatched += created.length;
+    }
+    // eslint-disable-next-line no-console
+    console.log(
+      `[hanmir-server] notifyTaskDueSoonForAll: scanned=${scanned} dispatched=${dispatched} day=${today}`
+    );
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("[hanmir-server] notifyTaskDueSoonForAll failed:", err);
+  }
+}
+
 // 결정사항 등록 — 프로젝트 멤버 (decided_by 제외)
 export async function notifyDecisionNew(
   repos: Repositories,

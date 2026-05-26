@@ -28,3 +28,8 @@ server/uploads/*
 # Stray duplicated upload root from earlier when the dev server's cwd was
 # `server/` (config.uploadDir then resolved to server/server/uploads).
 server/server/
+
+# Bare git mirror occasionally created when pulling/pushing the repo locally
+# from a separate working tree. Should never be committed back into the main
+# repository.
+HanmirTalk.git/

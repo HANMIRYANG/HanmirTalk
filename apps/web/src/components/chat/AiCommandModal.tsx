@@ -114,10 +114,16 @@ export function AiCommandModal({ roomId, command, onClose }: Props) {
     setBusy(true);
     setError(null);
     try {
-      // sendMessage doesn't carry aiGenerated/aiCommand. Add a small
-      // extension via the API client below — for now we just send the
-      // body. (Future: extend sendMessage to forward those fields.)
-      await chatService.sendMessage(roomId, result.trim());
+      // Phase 5 H-5 — AI 메타 영속화. 서버가 source_message_ids 를 UUID[]
+      // 컬럼에 INSERT 하므로 PG mode 에서는 sourceIds 가 UUID 가 아닌
+      // 경우 (예: 메모리 어댑터의 m-<hex>) 라우트 sanitize 가 silent drop
+      // 한다. aiGenerated/aiCommand 만이라도 통과되어 "AI 초안" 뱃지가
+      // 표시되도록 두 값은 항상 전달.
+      await chatService.sendMessage(roomId, result.trim(), {
+        aiGenerated: true,
+        aiCommand: command,
+        sourceMessageIds: sourceIds
+      });
       onClose();
       router.refresh();
     } catch (err) {

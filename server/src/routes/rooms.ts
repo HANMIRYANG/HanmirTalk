@@ -198,6 +198,13 @@ export function createRoomsRouter(repos: Repositories): Router {
     // entity label이 일치하는지까지 강제하면 UI 마찰이 크니 위치 범위만.
     const rawEntities = Array.isArray(req.body?.entities) ? req.body.entities : [];
     const entities = sanitizeEntities(rawEntities, body);
+    // Phase 5 H-5 — AI 메시지 영속화. AiCommandModal 의 [채팅에 삽입] 가
+    // 보내는 메타데이터. source_message_ids 컬럼이 UUID[] 이라(마이그 013)
+    // 임의 문자열을 그대로 INSERT 하면 PG 가 500 을 던지므로 라우트
+    // 레이어에서 엄격 검증한다. aiCommand 도 5종 화이트리스트.
+    const aiGenerated = req.body?.aiGenerated === true;
+    const aiCommand = sanitizeAiCommand(req.body?.aiCommand);
+    const sourceMessageIds = sanitizeSourceMessageIds(req.body?.sourceMessageIds);
     // Allow attachment-only messages (empty body) so users can share a file
     // without writing text.
     if (!body.trim() && !attachmentId) {
@@ -235,7 +242,13 @@ export function createRoomsRouter(repos: Repositories): Router {
       createdAt: new Date().toISOString(),
       isMine: true,
       attachment,
-      entities: entities.length > 0 ? entities : undefined
+      entities: entities.length > 0 ? entities : undefined,
+      // aiGenerated 만 단독으로 들어와도 그대로 마킹 — aiCommand 가
+      // 화이트리스트 통과 못 한 경우엔 undefined 로 떨어진다.
+      aiGenerated: aiGenerated || undefined,
+      aiCommand,
+      sourceMessageIds:
+        sourceMessageIds.length > 0 ? sourceMessageIds : undefined
     };
     const saved = await repos.messages.append(req.params.roomId, message, {
       attachmentId
@@ -512,6 +525,42 @@ const VALID_ENTITY_TYPES: MessageEntity["type"][] = [
   "task_ref",
   "file_ref"
 ];
+
+// Phase 5 H-5 — AI 명령 5종 화이트리스트. 그 외 값은 silent drop 되어
+// 메시지가 일반 메시지로 저장된다 (강제 400 보다 UX 친화적).
+const VALID_AI_COMMANDS = new Set([
+  "chat-summary",
+  "extract-tasks",
+  "extract-decisions",
+  "draft-notice",
+  "minutes"
+]);
+
+function sanitizeAiCommand(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  return VALID_AI_COMMANDS.has(value) ? value : undefined;
+}
+
+// 마이그 013 의 source_message_ids 컬럼은 UUID[]. 임의 문자열이 들어가면
+// PG 가 invalid_text_representation (22P02) 으로 500 을 던지므로 라우트에서
+// 막는다. 메시지 id 패턴(m-<hex>)은 메모리 어댑터용이고 PG insert 시점엔
+// row 의 PK 가 별개 UUID 로 발급되므로, 여기선 표준 UUID v1~v5 패턴만 허용.
+// 한 메시지에 200개 이상 source 가 붙는 시나리오는 비현실적 — DoS 방지를
+// 겸해 상한 cap.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MAX_SOURCE_IDS = 200;
+
+function sanitizeSourceMessageIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const v of value) {
+    if (typeof v !== "string") continue;
+    if (!UUID_RE.test(v)) continue;
+    out.push(v.toLowerCase());
+    if (out.length >= MAX_SOURCE_IDS) break;
+  }
+  return out;
+}
 
 function sanitizeEntities(raw: unknown[], body: string): MessageEntity[] {
   const len = body.length;

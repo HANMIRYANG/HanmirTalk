@@ -39,6 +39,14 @@ const SLASH_COMMANDS: { trigger: string; command: AiCommand; description: string
   { trigger: "/회의록", command: "minutes", description: "회의록 형식으로 정리" }
 ];
 
+// Phase 10 — 큐레이션 이모지. 외부 라이브러리 없이 사내 메신저 맥락에
+// 자주 쓸 만한 것만. 3그룹으로 묶어 popover 한 화면에 들어오는 크기 유지.
+const EMOJI_GROUPS: { label: string; items: string[] }[] = [
+  { label: "업무", items: ["👍", "✅", "🙏", "🎉", "🔥", "👀", "💬", "📌"] },
+  { label: "감정", items: ["😀", "😄", "😂", "😊", "😮", "😢", "😡"] },
+  { label: "자료", items: ["📎", "📄", "📊", "🧪", "🏭", "🚚", "⚠️"] }
+];
+
 interface MessageComposerProps {
   roomId: string;
   roomName: string;
@@ -75,6 +83,11 @@ export function MessageComposer({ roomId, roomName, projectId }: MessageComposer
   const [slashPicker, setSlashPicker] = useState<{ start: number; query: string } | null>(null);
   const [slashIndex, setSlashIndex] = useState(0);
   const [aiCommand, setAiCommand] = useState<AiCommand | null>(null);
+  // Phase 10 — emoji picker popover. 단일 boolean toggle. picker가 열려도
+  // textarea 포커스를 유지하기 위해 mousedown 에서 preventDefault.
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const emojiBtnRef = useRef<HTMLButtonElement>(null);
+  const emojiPopoverRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -98,6 +111,30 @@ export function MessageComposer({ roomId, roomName, projectId }: MessageComposer
     }, 80);
     return () => clearTimeout(t);
   }, [picker]);
+
+  // Phase 10 — close emoji picker on outside click or Escape.
+  // NOTE: KeyboardEvent 는 위에서 React 타입으로 import 했기 때문에
+  // DOM 의 native KeyboardEvent 가 필요한 곳은 globalThis.KeyboardEvent
+  // 로 명시 — 그렇지 않으면 addEventListener 오버로드와 충돌.
+  useEffect(() => {
+    if (!emojiOpen) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (emojiPopoverRef.current?.contains(target)) return;
+      if (emojiBtnRef.current?.contains(target)) return;
+      setEmojiOpen(false);
+    };
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") setEmojiOpen(false);
+    };
+    document.addEventListener("mousedown", onDocMouseDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocMouseDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [emojiOpen]);
 
   const pickAttachment = () => {
     if (uploading || sending) return;
@@ -137,6 +174,129 @@ export function MessageComposer({ roomId, roomName, projectId }: MessageComposer
       const slice = newValue.slice(e.offset, e.offset + e.length);
       return slice === `@${e.label}` || slice === e.label;
     });
+  };
+
+  // Phase 10 — entity offsets 를 텍스트 변환 결과에 맞춰 조정한다.
+  // rangeStart..rangeEnd 가 변환된 영역(원본 인덱스 기준), shift 가 길이 변화.
+  // 정책:
+  //   - 영역 이전(end <= rangeStart) entity 는 그대로
+  //   - 영역 이후(offset >= rangeEnd) entity 는 offset += shift
+  //   - 영역과 겹치는 entity 는 drop (safe 조정 어려움 — Codex 검수와 일치)
+  // 마지막에 reconcileEntities 로 텍스트-라벨 일치를 재확인.
+  const shiftEntities = (
+    list: MessageEntity[],
+    rangeStart: number,
+    rangeEnd: number,
+    shift: number
+  ): MessageEntity[] => {
+    const out: MessageEntity[] = [];
+    for (const e of list) {
+      const eEnd = e.offset + e.length;
+      if (eEnd <= rangeStart) {
+        out.push(e);
+      } else if (e.offset >= rangeEnd) {
+        out.push({ ...e, offset: e.offset + shift });
+      }
+      // else: overlap → drop
+    }
+    return out;
+  };
+
+  // Apply a transform to the textarea: replace [start, end) in `value`
+  // with `replacement`, update state, restore focus + put caret at
+  // newCaret (relative to the new value), and reconcile entities.
+  const applyTextEdit = (
+    start: number,
+    end: number,
+    replacement: string,
+    newCaretStart: number,
+    newCaretEnd?: number
+  ) => {
+    const oldLen = end - start;
+    const newLen = replacement.length;
+    const shift = newLen - oldLen;
+    const newValue = value.slice(0, start) + replacement + value.slice(end);
+    setValue(newValue);
+    setEntities((prev) => {
+      const shifted = shiftEntities(prev, start, end, shift);
+      return reconcileEntities(newValue, shifted);
+    });
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      ta.focus();
+      const a = newCaretStart;
+      const b = newCaretEnd ?? newCaretStart;
+      ta.setSelectionRange(a, b);
+    });
+  };
+
+  // Wrap the current selection with `prefix` + `suffix`. If nothing is
+  // selected, inserts the pair and places the caret between them so the
+  // user can type immediately.
+  const wrapSelection = (prefix: string, suffix: string) => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart ?? 0;
+    const end = ta.selectionEnd ?? start;
+    const selected = value.slice(start, end);
+    const replacement = `${prefix}${selected}${suffix}`;
+    if (selected) {
+      // Keep the original text selected (now wrapped) so the next click
+      // can toggle again, and so the markdown wrapper is visually obvious.
+      applyTextEdit(
+        start,
+        end,
+        replacement,
+        start + prefix.length,
+        start + prefix.length + selected.length
+      );
+    } else {
+      // Empty selection — drop caret between the markers.
+      applyTextEdit(start, end, replacement, start + prefix.length);
+    }
+  };
+
+  // Prefix every non-empty line in [start, end] with `linePrefix`. The
+  // selection is expanded to cover full lines first so partial-line
+  // selections still affect the right lines.
+  const prefixLines = (linePrefix: string) => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const selStart = ta.selectionStart ?? 0;
+    const selEnd = ta.selectionEnd ?? selStart;
+    // Expand to full lines.
+    const lineStart = value.lastIndexOf("\n", selStart - 1) + 1;
+    let lineEnd = value.indexOf("\n", selEnd);
+    if (lineEnd === -1) lineEnd = value.length;
+    const block = value.slice(lineStart, lineEnd);
+    const transformed = block
+      .split("\n")
+      .map((line) => (line.length === 0 ? line : `${linePrefix}${line}`))
+      .join("\n");
+    const newCaret = lineStart + transformed.length;
+    applyTextEdit(lineStart, lineEnd, transformed, lineStart, newCaret);
+  };
+
+  // Insert text at the current caret, replacing any selection. Used by
+  // the emoji picker. Caret lands right after the inserted text.
+  const insertAtCaret = (text: string) => {
+    const ta = textareaRef.current;
+    if (!ta) {
+      // No textarea yet — append.
+      const newValue = value + text;
+      setValue(newValue);
+      setEntities((prev) => reconcileEntities(newValue, prev));
+      return;
+    }
+    const start = ta.selectionStart ?? value.length;
+    const end = ta.selectionEnd ?? start;
+    applyTextEdit(start, end, text, start + text.length);
+  };
+
+  const onPickEmoji = (emoji: string) => {
+    insertAtCaret(emoji);
+    setEmojiOpen(false);
   };
 
   const onValueChange = (nextValue: string) => {
@@ -311,13 +471,42 @@ export function MessageComposer({ roomId, roomName, projectId }: MessageComposer
     <div className={styles.composer}>
       <div className={styles.box}>
         <div className={styles.toolbar}>
-          <button className={styles.tbBtn} title="굵게" type="button">
+          <button
+            className={styles.tbBtn}
+            title="굵게 (선택한 텍스트를 **로 감싸기)"
+            type="button"
+            onMouseDown={(e) => {
+              // mousedown + preventDefault — textarea 포커스 유지로
+              // selectionStart/End 가 살아있게 함.
+              e.preventDefault();
+              wrapSelection("**", "**");
+            }}
+            disabled={sending}
+          >
             <BoldIcon size={14} />
           </button>
-          <button className={styles.tbBtn} title="기울임" type="button">
+          <button
+            className={styles.tbBtn}
+            title="기울임 (선택한 텍스트를 *로 감싸기)"
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              wrapSelection("*", "*");
+            }}
+            disabled={sending}
+          >
             <ItalicIcon size={14} />
           </button>
-          <button className={styles.tbBtn} title="목록" type="button">
+          <button
+            className={styles.tbBtn}
+            title="목록 (각 줄 앞에 - 추가)"
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              prefixLines("- ");
+            }}
+            disabled={sending}
+          >
             <ListIcon size={14} />
           </button>
           <span className={styles.divider} />
@@ -356,13 +545,54 @@ export function MessageComposer({ roomId, roomName, projectId }: MessageComposer
           >
             <MentionIcon size={14} />
           </button>
-          <button className={styles.tbBtn} title="이모지" type="button">
+          <button
+            ref={emojiBtnRef}
+            className={cn(styles.tbBtn, emojiOpen && styles.tbBtnActive)}
+            title="이모지 삽입"
+            type="button"
+            aria-expanded={emojiOpen}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              setEmojiOpen((o) => !o);
+            }}
+            disabled={sending}
+          >
             <EmojiIcon size={14} />
           </button>
           <span className={styles.divider} />
           <button className={styles.tbBtn} title="업무 만들기" type="button">
             <TaskIcon size={14} />
           </button>
+          {emojiOpen ? (
+            <div
+              ref={emojiPopoverRef}
+              className={styles.emojiPopover}
+              role="dialog"
+              aria-label="이모지 선택"
+            >
+              {EMOJI_GROUPS.map((group) => (
+                <div key={group.label} className={styles.emojiGroup}>
+                  <div className={styles.emojiGroupLabel}>{group.label}</div>
+                  <div className={styles.emojiGrid}>
+                    {group.items.map((emoji) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        className={styles.emojiBtn}
+                        title={emoji}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          onPickEmoji(emoji);
+                        }}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
         <div className={styles.inputWrap}>
           <textarea

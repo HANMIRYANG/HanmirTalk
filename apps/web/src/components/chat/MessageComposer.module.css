@@ -16,6 +16,7 @@
   box-shadow: 0 0 0 3px rgba(31, 79, 168, 0.10);
 }
 .toolbar {
+  position: relative; /* emojiPopover 의 anchor */
   display: flex;
   align-items: center;
   gap: 2px;
@@ -33,7 +34,62 @@
   color: var(--text-3);
 }
 .tbBtn:hover { background: var(--bg-soft); color: var(--text-1); }
+.tbBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+.tbBtnActive {
+  background: var(--brand-blue-50);
+  color: var(--brand-blue);
+}
 .divider { width: 1px; height: 16px; background: var(--border); margin: 0 6px; }
+
+/* Phase 10 — emoji picker popover. toolbar 아래쪽에 떠서 textarea 위로
+   레이아웃 shift 없이 표시. 고정 dimensions 라 그리드 줄바꿈도 안 생김. */
+.emojiPopover {
+  position: absolute;
+  top: calc(100% + 4px);
+  /* mention popover 가 left:12px 라 충돌 회피용으로 살짝 오른쪽 */
+  left: 8px;
+  z-index: 60;
+  width: 256px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.emojiGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.emojiGroupLabel {
+  font-size: 11px;
+  color: var(--text-4);
+  padding: 0 2px;
+}
+.emojiGrid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+}
+.emojiBtn {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--r-xs);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+.emojiBtn:hover {
+  background: var(--bg-soft);
+}
 
 .input {
   border: none;

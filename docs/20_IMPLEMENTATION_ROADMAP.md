@@ -361,7 +361,11 @@
 - [x] 선택 → 입력 텍스트의 `/명령` 토큰 제거 + `AiCommandModal` 띄움
 - [x] `AiCommandModal` — 범위 선택 (recent20 / today) + [생성] → AI 호출 → textarea 미리보기 (편집 가능) + [복사] / [채팅에 삽입] / [취소]. **자동 전송 없음** — 사용자가 [채팅에 삽입] 클릭해야만 전송
 - [x] `MessageItem` body 앞에 "AI 초안" 뱃지 (gradient purple→blue, aiGenerated 시)
-- [ ] (후속) 삽입 시 aiGenerated=true / aiCommand / sourceMessageIds도 메시지 row에 같이 영속화 — 현재는 일반 메시지로 전송. chatService.sendMessage 시그니처 확장 필요
+- [x] 삽입 시 aiGenerated=true / aiCommand / sourceMessageIds 도 메시지 row 에
+      같이 영속화. `chatService.sendMessage` 옵션 확장 + `routes/rooms.ts`
+      엄격 sanitize (aiCommand 5종 화이트리스트, sourceMessageIds 는 UUID
+      정규식 검증 + 200개 cap — `source_message_ids UUID[]` 컬럼 22P02 회피).
+      `AiCommandModal` 이 직접 옵션 전달. PG 어댑터는 이미 INSERT 처리됨
 
 ---
 
@@ -381,9 +385,13 @@
 - [x] `server/src/notify.ts` 중앙 dispatch. settings 존중 (allEnabled / perRoom / perProject)
 - 알림 생성 트리거:
   - [x] 메시지 append → 같은 방 멤버 (본인 + 멘션된 사용자 제외) — `message:new`
-  - [x] 공지 생성 → 모든 활성 사용자 (본인 제외) — `notice:new` / `notice:mandatory`
+  - [x] 공지 생성 → 모든 활성 사용자 (본인 제외) → `notice:new` / `notice:mandatory`
   - [x] 업무 배정 (task 생성/수정 시 새 assignee) → 새 assignee — `task:assigned`
-  - [ ] 마감 임박 — 미구현 (cron 별도 도입 시점)
+  - [x] 마감 임박 — `notifyTaskDueSoonForAll` + KST 09:00 in-process recursive
+        setTimeout 스케줄러 (`server/src/index.ts`). status != "done" AND
+        dueDate <= KST today. cancelled 프로젝트·비활성 사용자·비멤버 제외.
+        in-memory Set 중복 방지(재시작 시 같은 날 중복 발사 가능 — 알림 1개
+        더 수준 허용)
   - [x] 프로젝트 상태 변경 → 멤버 — `project:updated`
   - [x] 멘션 (entities 의 사용자) → 멘션된 사용자 — `mention` (별도 kind, 더 강한 신호)
   - [x] 결정사항 등록 → 프로젝트 멤버 (decided_by 제외) — `decision:new`
@@ -572,20 +580,40 @@
 - [x] Caddy `Caddyfile` — 운영 도메인 + HTTPS. 인터넷 연결 시 자동 Let's Encrypt, 폐쇄망이면 사내 자체 CA 인증서 (`tls` / `tls internal` 안내 주석 포함)
 - [x] 파일 스토리지 — `UPLOAD_DIR`을 40TB 디스크 경로로 설정, compose에서 bind mount. **앱 코드 변경 불필요** — `config.uploadDir`가 이미 `UPLOAD_DIR`을 지원
 - [ ] Proxmox — Ubuntu Server VM 생성, 가상 디스크를 40TB 풀에서 넉넉히 할당(또는 전용 데이터셋 마운트), CPU/RAM 적정 산정
-- [ ] `.env.prod` 운영값 작성 — 템플릿 `.env.prod.example` 작성 완료(2026-05-21). 이를 `.env.prod`로 복사해 실값 입력: `PUBLIC_DOMAIN`/`PUBLIC_ORIGIN`(https) · `POSTGRES_*` · `UPLOAD_DIR_HOST` · `DEFAULT_PASSWORD` · `SMTP_*` · `VAPID_*` · `ANTHROPIC_API_KEY`. 파일 권한 600 + git 미포함(`.gitignore` 적용)
+- [ ] `.env.prod` 운영값 작성 — 템플릿 `.env.prod.example` 을 `.env.prod`
+      로 복사해 채움. **필수 4섹션**: `PUBLIC_ORIGIN` · `POSTGRES_*` ·
+      `UPLOAD_DIR_HOST` · `DEFAULT_PASSWORD`. **선택 3섹션**: `SMTP_*` ·
+      `ANTHROPIC_*` · `VAPID_*` (비워두면 해당 기능만 비활성).
+      `PUBLIC_ORIGIN` 단계별 예시:
+        - Phase 1 (admin/Tailscale): `http://100.x.y.z`
+        - Phase 2 (사내 직원 LAN):   `http://192.168.0.110`
+        - Phase 3 (도메인+HTTPS):    `https://talk.hanmirfe.com`  ← R-9 진입 시
+      HTTPS/도메인은 **Phase 3 진입 조건이며 Phase 1·2 의 가동을 막지 않는다.**
+      파일 권한 600 + `git check-ignore .env.prod` 로 무시 확인
 - [ ] 배포 runbook — VM 세팅 ~ `docker compose up`까지 단계별 절차를 본 문서 **R절(배포 runbook)** 에 작성 (별도 파일 없음, 배포 준비 시점에 상세화)
 
 ### N-2. 보안 최종 점검
 
-- [ ] bcrypt 적용 + `DEFAULT_PASSWORD` 운영서 제거(또는 무의미화)
-- [ ] httpOnly + Secure 쿠키 (`CORS_ORIGIN`이 https:// 면 자동)
-- [ ] refresh token rotation 동작
-- [ ] `CORS_ORIGIN` 운영 도메인으로 한정
+> Phase 1·2 (사내 HTTP, R-0 모델) 와 Phase 3 (도메인+HTTPS) 에서 적용
+> 시점이 다른 항목이 있다. 각 줄 끝의 [Phase X] 표시 참고.
+
+- [ ] bcrypt 적용 + `DEFAULT_PASSWORD` 운영서 변경 [Phase 1+]
+- [ ] httpOnly 쿠키 — 항상 적용. Secure 플래그는 `PUBLIC_ORIGIN` 이
+      https:// 면 서버가 자동 부착 [Phase 1+: httpOnly / Phase 3+: Secure]
+- [ ] refresh token rotation 동작 [Phase 1+]
+- [ ] `CORS_ORIGIN` 이 실제 접속 origin 과 일치 — Phase 1·2 는 LAN/
+      Tailscale IP, Phase 3 는 운영 도메인 [Phase 1+]
 - [ ] 모든 사용자가 `must_change_password` 처리 완료 (초기 시드 사용자 포함)
-- [ ] 감사 로그가 관리자 action을 캡처 (Phase 8 K-5에서 페이지·검색 점검 완료)
-- [ ] 파일 업로드 화이트리스트 + MIME 검사 동작
-- [ ] HTTPS 강제 (Caddy)
-- [ ] VAPID / ANTHROPIC / SMTP 키를 운영 시크릿으로 분리, 리포지토리 미포함 확인
+      — `/admin/status` 의 "초기 비밀번호 변경" 카드(#5)가 활성 사용자 중
+      미해결 인원과 신원(이름·부서·직급·이메일, 최대 8명 + 더보기 카운트)을
+      노출하므로 admin 이 한 화면에서 확인 가능. 0명일 때 카드가 "완료"
+      태그로 전환되면 본 체크박스를 ✅ 처리 [Phase 2+]
+- [ ] 감사 로그가 관리자 action 을 캡처 (Phase 8 K-5 에서 페이지·검색 점검 완료) [Phase 1+]
+- [ ] 파일 업로드 화이트리스트 + MIME 검사 동작 [Phase 1+]
+- [ ] HTTPS 활성화 (Caddy 도메인 + 인증서) — **Phase 3 진입 조건이며
+      Phase 1·2 가동을 막지 않는다.** R-9 절차로 별도 수행 [Phase 3]
+- [ ] VAPID / ANTHROPIC / SMTP 키를 운영 시크릿으로 분리, 리포지토리
+      미포함 확인 (필요한 항목만 — Phase 1·2 는 VAPID 비워둬도 무방) [Phase 1+]
 
 ### N-3. 모바일/PWA
 
@@ -602,11 +630,20 @@
 
 ### N-5. 백업 / 복원
 
-- [ ] PostgreSQL — `pg_dump` daily cron, 14일 보관
-- [ ] 업로드 디렉터리 — daily 백업 (rsync 또는 스냅샷). DB 백업과 동일 세트로 관리
-- [ ] Proxmox VM 스냅샷 weekly
-- [ ] 복원 리허설 — `pg_dump` → 빈 DB 복원 + 업로드 디렉터리 복원 → `docker compose up` → 정상 부팅 + 파일 다운로드 1회 검증
-- [ ] (선택) 오프사이트 백업 — 화재/도난 대비, DB 덤프 + 업로드를 사외(기 생성한 R2 버킷 등)로 주기 복제. **1차 저장소가 아닌 백업 사본 용도**
+> 실 스크립트·복원 가이드·cron 등록 예시는 R-7 에 통합되었다. 본 절은
+> 운영 체크리스트만 유지.
+
+- [ ] `ops/backup/backup-prod.sh` 한 번 수동 실행해 산출물 3개
+      (`db.sql.gz`·`uploads.tar.gz`·`manifest.txt`) 생성 확인
+- [ ] root cron 등록 (R-7 의 한 줄) — 매일 02:30 daily 실행 + 14일 보관
+- [ ] `/var/log/hanmir-talk-backup.log` 첫 실행 후 1주 관찰 — 매일 PASS
+      라인이 보이는지
+- [ ] Proxmox VM 스냅샷 weekly (Proxmox UI 또는 별도 cron — 본 스크립트
+      와 독립적인 안전망)
+- [ ] 복원 리허설 — `ops/backup/RESTORE_REHEARSAL.md` 7단계 + 성공 기준
+      체크리스트. **월 1회 또는 주요 릴리스 직전**
+- [ ] (선택) 오프사이트 백업 — 화재/도난 대비. DB 덤프 + 업로드를
+      사외(R2 버킷 등)로 주기 복제. **1차 저장소가 아닌 백업 사본 용도**
 
 ---
 
@@ -664,41 +701,322 @@
 
 ## R. 배포 runbook
 
-> 별도 `21_DEPLOYMENT_GUIDE.md`를 만들지 않고 배포 절차는 본 절에 통합한다.
-> 아래는 N절 계획을 실행 단계로 풀어낸 **골격** — 실제 배포 준비 시점에
-> 각 단계의 명령어·설정값을 채워 상세화한다.
+> 별도 `21_DEPLOYMENT_GUIDE.md` 는 만들지 않고 배포 절차는 본 절에 통합한다.
+> 본 runbook 은 "사내 망 분리 + Tailscale 로 관리자 우선 접근" 결정(2026-05-26)을
+> 전제로 한다. 도메인/HTTPS 는 외부 의존성이라 1단계 사내 검증을 지연시키지
+> 않는다 — R-9 가 별도 단계로 분리됨.
 
-### R-1. Proxmox VM 준비
+### R-0. 접근 모델 — 3단계 단계적 출시
 
-- [ ] Ubuntu Server VM 생성 (CPU/RAM/디스크 산정)
-- [ ] 40TB 풀에서 가상 디스크 또는 전용 데이터셋 할당, 마운트
-- [ ] Docker Engine + Docker Compose 설치, 방화벽/시간대(KST) 설정
+운영 가동은 한 번에 외부 공개로 가지 않고, 다음 3단계로 점진 출시한다.
+각 단계는 앞 단계의 검증이 끝나야 진행한다.
 
-### R-2. 소스 배치 · 환경설정
+| Phase | 대상 | 접근 경로 | HTTPS | 본 단계에서 풀어야 할 것 |
+|---|---|---|---|---|
+| **Phase 1 — admin 검증** | 운영 담당자(본인) | Tailscale `100.x.y.z` | 불필요 | VM 부팅, 컴포즈 기동, 마이그 적용, 스모크 |
+| **Phase 2 — 사내 직원 사용** | 한미르 직원 22명 | LAN IP(예: `http://192.168.0.110`) 또는 Tailscale IP | 불필요 | 시드 사용자 비밀번호 변경, 1~2주 운영 안정성 관찰 |
+| **Phase 3 — 도메인 + SSL** | 동일 직원 + 외부 영업 출장 | `https://talk.hanmirfe.com` 등 | 필수 | 사내 DNS 또는 외부 DNS 결정, 인증서 조달, Caddyfile 갱신, PWA install·Web Push 활성화 |
 
-- [ ] 리포지토리 클론
-- [ ] `.env` 운영값 작성 (N-1 참고 — `DATABASE_URL`·`CORS_ORIGIN`·`UPLOAD_DIR`·`SMTP_*`·`VAPID_*`·`ANTHROPIC_API_KEY`)
-- [ ] 업로드 디렉터리 생성 (`UPLOAD_DIR`, 예: `/srv/hanmir-talk/uploads`)
+**중요한 분리 원칙**: Phase 3 의 도메인·SSL·DNS 는 외부 협조(IT팀,
+도메인 등록자, 인증서 발급)에 의존하므로 **Phase 1/2 진입을 절대
+가로막지 않는다.** 운영 도구의 가치는 Phase 1·2 에서 90% 확보된다.
 
-### R-3. 빌드 · 기동
+### R-1. IP 토폴로지 (운영 가동 직전 채워둘 표)
 
-- [ ] `Dockerfile`로 web / server 이미지 빌드
-- [ ] `docker-compose.prod.yml` up — `caddy` + `web` + `server` + `postgres`
-- [ ] 마이그레이션 001~017 적용 확인 (initdb 또는 `db:migrate`)
-- [ ] `UPLOAD_DIR` 바인드 마운트 정상 확인
+배포 직전 IT 담당자와 다음 값을 확정해 표를 채운 뒤 본 문서에 남긴다.
 
-### R-4. 도메인 · HTTPS
+| 구분 | 위치 | LAN IP | Tailscale IP | 비고 |
+|---|---|---|---|---|
+| Proxmox host (pve01) | 사내 물리 | `192.168.0.100` | (선택) | 관리자 Web UI :8006 — Tailscale 전용 |
+| Ubuntu VM (hanmir-dev) | Proxmox 게스트 | `192.168.0.111` | `100.x.x.x` | 빌드/마이그/스모크 검증 |
+| Ubuntu VM (hanmir-prod) | Proxmox 게스트 | `192.168.0.110` | `100.y.y.y` | 운영 본 가동 |
+| Docker 내부 네트워크 | 위 VM 내 | compose 관리(외부 비노출) | — | postgres/server/web 서로 통신 전용 |
 
-- [ ] `Caddyfile` 운영 도메인 설정
-- [ ] 인증서 발급 — 인터넷 연결 시 자동 LE, 폐쇄망이면 사내 자체 CA
+- **Postgres** 는 어떤 경우에도 LAN/Tailscale 에 노출하지 않는다 — Docker
+  컴포즈 내부망 안에서만 server 컨테이너가 접근.
+- **Caddy** 는 초기엔 :80 만 노출 (R-9 에서 :443 추가).
+- **SSH/관리자 작업** 은 가능한 한 Tailscale 경로로만 도달하도록 ACL 구성.
 
-### R-5. 기동 검증
+### R-2. 포트 정책
 
-- [ ] N-2(보안) · N-3(PWA) · N-4(데이터) 체크리스트 수행
-- [ ] 스모크 — 로그인 → 메시지 송수신 → 파일 업로드/다운로드 → 알림 1회
+| 포트 | 방향 | LAN | Tailscale | 외부 인터넷 |
+|---|---|---|---|---|
+| 80 (HTTP) | inbound → caddy | ✅ (Phase 1·2) | ✅ | ❌ |
+| 443 (HTTPS) | inbound → caddy | (Phase 3 이후) | ✅ | (Phase 3 이후) |
+| 22 (SSH) | inbound → VM | ⚠️ Tailscale 외 차단 권장 | ✅ | ❌ |
+| 8006 (Proxmox UI) | inbound → host | ⚠️ Tailscale 외 차단 권장 | ✅ | ❌ |
+| 5432 (PostgreSQL) | — | ❌ 노출 안 함 | ❌ | ❌ |
+| 4000 (server API) | — | ❌ 컴포즈 내부 전용 | ❌ | ❌ |
+| 3000 (Next.js) | — | ❌ 컴포즈 내부 전용 | ❌ | ❌ |
 
-### R-6. 백업 · 운영
+ufw 또는 Proxmox 방화벽으로 인바운드를 명시적으로 좁힐 것.
 
-- [ ] `pg_dump` daily cron + 업로드 디렉터리 daily 백업 등록
-- [ ] Proxmox VM 스냅샷 weekly
-- [ ] N-5 복원 리허설 1회
+### R-3. Proxmox VM 준비 명령
+
+운영 VM(hanmir-prod) 가정. dev VM(hanmir-dev) 도 동일 절차.
+
+```bash
+# 1) Ubuntu 패키지 최신화
+sudo apt update && sudo apt upgrade -y
+
+# 2) 시간대 KST
+sudo timedatectl set-timezone Asia/Seoul
+
+# 3) Docker Engine + Compose 플러그인
+sudo apt install -y ca-certificates curl gnupg
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
+  sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+  https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# 4) 본인 계정을 docker 그룹에 (로그아웃 후 재로그인 필요)
+sudo usermod -aG docker $USER
+
+# 5) Tailscale (관리자 접근 경로)
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up --ssh                 # --ssh 로 Tailscale SSH 도 활성화
+# 출력된 URL 로 어드민이 본인 계정에 노드 등록
+
+# 6) 업로드 디렉터리 생성 (UPLOAD_DIR_HOST 와 일치)
+sudo mkdir -p /srv/hanmir-talk/uploads
+# 컨테이너의 node 사용자(uid 1000) 가 쓸 수 있도록 소유권 조정
+sudo chown -R 1000:1000 /srv/hanmir-talk/uploads
+sudo chmod 750 /srv/hanmir-talk/uploads
+
+# 7) 리포지토리 clone (또는 git pull 로 최신화)
+cd /srv && sudo git clone <repo-url> hanmir-talk
+sudo chown -R $USER:$USER /srv/hanmir-talk
+cd /srv/hanmir-talk
+
+# 8) .env.prod 준비
+cp .env.prod.example .env.prod
+$EDITOR .env.prod                       # 섹션 1~4 필수 채우기
+chmod 600 .env.prod
+git check-ignore .env.prod              # 출력에 ".env.prod" 가 보이면 정상
+```
+
+### R-4. `.env.prod` 작성 가이드 (Tailscale 우선)
+
+`.env.prod.example` 본문에 섹션별 상세 안내가 있다 — 본 R-4 는 배포 단계별
+지름길만 정리.
+
+**Phase 1 (admin 검증, Tailscale)**:
+```
+PUBLIC_ORIGIN=http://100.x.y.z          # 본 VM 의 Tailscale IP
+```
+- `http://` 이므로 서버가 쿠키에 `Secure` 플래그를 부착하지 않는다 (의도된
+  동작 — HTTP 환경에서 `Secure` 가 붙으면 브라우저가 쿠키를 전송 안 함).
+
+**Phase 2 (사내 직원 사용, LAN IP)**:
+```
+PUBLIC_ORIGIN=http://192.168.0.110      # 본 VM 의 LAN IP
+```
+- 위와 동일 — HTTP, Secure 미부착.
+- PWA install / Web Push 는 **여전히 비활성** (브라우저가 HTTPS 요구).
+
+**Phase 3 (도메인 + HTTPS, R-9 에서)**:
+```
+PUBLIC_ORIGIN=https://talk.hanmirfe.com
+```
+- 서버가 자동으로 Secure 쿠키 부착. Caddyfile / 포트 :443 / 인증서 마운트
+  추가 필요 — R-9 절차 참고. 본 한 줄만 바꿔도 server 코드는 무변경.
+
+필수 4개 섹션(접속 주소, Postgres, 업로드 경로, 시드 비밀번호) 만 채우면
+부팅 가능하다. SMTP·AI·Web Push 는 비워둬도 동작(해당 기능만 비활성).
+
+### R-5. Compose 기동 + 로그 검증
+
+```bash
+cd /srv/hanmir-talk
+
+# 1) 빌드 + 백그라운드 기동
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+
+# 2) 컨테이너 상태 확인 (4개 모두 healthy 까지 ~30s)
+docker compose -f docker-compose.prod.yml ps
+
+# 3) 서버 로그 — 다음 두 줄이 보여야 정상
+#    [hanmir-server] repository adapter: postgres
+#    [hanmir-server] listening on http://localhost:4000/api/v1
+docker compose -f docker-compose.prod.yml logs -f server
+
+# 4) 마이그레이션 적용 — 빈 PG 볼륨일 때만 initdb 가 001~017 을 자동 적용.
+#    이후 새 마이그(018+) 는 수동. 호스트 쉘에 POSTGRES_USER/DB 를 export
+#    할 필요 없도록, 컨테이너 내부 sh -c 안에서 변수 참조:
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T postgres \
+  sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
+         -f /docker-entrypoint-initdb.d/018_xxx.sql'
+```
+
+빌드 중 에러가 나면 `docker compose logs <service>` 로 개별 컨테이너
+로그를 본다. 가장 자주 보는 실패:
+- `chown` 실패 → R-3 의 업로드 디렉터리 권한 점검
+- `password authentication failed` → `.env.prod` 의 POSTGRES_PASSWORD 와
+  볼륨에 이미 박힌 비밀번호 불일치 (운영 첫 가동이면 `docker compose down -v`
+  로 볼륨 초기화 후 재기동)
+
+### R-6. 스모크 검증 — `npm run smoke:prod`
+
+#6 에서 추가된 운영 스모크 스크립트(8단계 PASS/FAIL). **개발자/관리자
+머신에서 Tailscale 경유로 운영 VM 을 찌르는 방식이 가장 자연스럽다**
+(운영 VM 안에서 `npm install` 하지 않아도 됨).
+
+전제:
+- 리포지토리가 clone 된 환경에서 `npm install` 또는 `npm ci` 가 한 번
+  실행됐어야 함 (`tsx` 등이 node_modules 에 있어야 동작).
+
+```bash
+# 옵션 1: 인자로 전달
+npm run smoke:prod -- \
+  --base-url=http://100.x.y.z \
+  --email=kang.eunhye@hanmir.co.kr \
+  --password=hanmir1234
+
+# 옵션 2: 환경변수로 전달
+SMOKE_BASE_URL=http://100.x.y.z \
+SMOKE_EMAIL=kang.eunhye@hanmir.co.kr \
+SMOKE_PASSWORD=hanmir1234 \
+  npm run smoke:prod
+```
+
+기대 결과:
+```
+결과: 8 PASS / 0 FAIL
+```
+
+8 단계:
+1. `GET /health`
+2. `POST /auth/login` (HTTPS 환경이면 Secure 쿠키 검증까지)
+3. `GET /auth/me`
+4. `GET /system/health` (adapter=postgres, db.ok=true)
+5. `GET /system/version`
+6. `GET /notifications/unread-count`
+7. `GET /search?q=한미르`
+8. `POST /auth/logout`
+
+⚠️ 첫 로그인 시 `must_change_password` 가 강제되므로, **스모크 계정의
+비밀번호를 한 번 변경한 뒤** 변경된 값으로 다시 스모크하거나, 변경 후
+값을 SMOKE_PASSWORD 에 반영. CI 등 자동화에 쓸 때는 전용 "스모크 계정"
+하나를 별도 운영하는 게 깔끔.
+
+### R-7. 백업 / 복원 — 실행 절차
+
+#8 에서 운영 백업 스크립트와 복원 리허설 가이드가 추가됐다.
+
+**파일**:
+- `ops/backup/backup-prod.sh` — DB + uploads 묶음 백업 + retention.
+  사람이 직접 호출해도 되고, cron 으로 매일 1회 등록해도 동작.
+- `ops/backup/RESTORE_REHEARSAL.md` — 별도 VM 에서 7단계 복원 리허설.
+  운영 긴급 복원 절차도 마지막 절에 포함.
+
+#### 한 번 수동 실행 (가동 직후 검증)
+
+```bash
+cd /srv/hanmir-talk
+sudo bash ./ops/backup/backup-prod.sh
+ls -lh /srv/hanmir-talk/backups/$(ls -1t /srv/hanmir-talk/backups | head -1)
+# db.sql.gz / uploads.tar.gz / manifest.txt 3개 파일과 합리적 크기 확인
+```
+
+> `bash` 명시 호출이 권장되는 이유: Windows 에서 clone 한 리포지토리는
+> `core.filemode=false` 라 실행 비트(chmod +x)가 보존되지 않을 수 있어
+> 직접 호출(`./ops/backup/backup-prod.sh`) 이 Permission denied 로 실패할
+> 가능성이 있다. `bash <path>` 는 실행 비트가 없어도 동작한다. 편의상
+> `chmod +x` 한 번 해두는 건 OK 지만 절차상 의존하지 말 것.
+
+#### cron 등록 (운영 VM 의 root cron, 매일 02:30)
+
+```cron
+30 2 * * * cd /srv/hanmir-talk && BACKUP_ROOT=/srv/hanmir-talk/backups RETENTION_DAYS=14 bash ./ops/backup/backup-prod.sh >> /var/log/hanmir-talk-backup.log 2>&1
+```
+
+설치:
+```bash
+sudo crontab -e
+# 위 한 줄 붙여넣고 저장
+sudo touch /var/log/hanmir-talk-backup.log
+sudo chmod 640 /var/log/hanmir-talk-backup.log
+```
+
+#### 백업 산출물 (한 세트당)
+
+| 파일 | 내용 |
+|---|---|
+| `db.sql.gz` | `pg_dump --clean --if-exists --no-owner --no-acl` → gzip. 스키마+데이터 전체. `--clean --if-exists` 라 빈 컨테이너 부팅(initdb 마이그 적용된 상태) 위에 그대로 복원해도 충돌 없이 덮어쓴다 |
+| `uploads.tar.gz` | `UPLOAD_DIR_HOST` 통째 tar.gz (디렉터리 이름 보존) |
+| `manifest.txt` | 타임스탬프 / git commit / compose·env 파일명 / artifact 크기 |
+| `.failed` | 실패 시 자동 생성되는 마커 (운영자 식별용) |
+
+비밀번호·시크릿은 manifest 에 쓰지 않는다.
+
+#### 보존 정책 (Retention)
+
+- `RETENTION_DAYS=14` 기본 — 14일 경과한 타임스탬프 디렉터리 자동 삭제
+- 안전 가드: `BACKUP_ROOT` 가 `/`·`/home`·`/etc` 등이면 삭제 단계 자체를
+  거부 (스크립트 내장)
+- **삭제 대상 패턴**: 스크립트가 `find ... -name "20??????-??????"` 로
+  정확한 타임스탬프 형식(YYYYMMDD-HHMMSS) 디렉터리만 매칭한다.
+- **영구 보관 방법**: 운영자가 디렉터리 이름을 `20260526-103045` →
+  `20260526-103045-keep` 같이 suffix 를 붙여두면 위 패턴에 매치되지 않아
+  retention 에서 자연스럽게 제외된다. 분기 1회 영구 보관 등에 사용.
+
+#### 복원 리허설 주기
+
+- **월 1회** 또는 **주요 릴리스(스키마 변경 포함) 직전** — 별도 VM
+  (hanmir-dev 또는 일회용 restore VM) 에서 `RESTORE_REHEARSAL.md` 7단계
+  + 성공 기준 체크리스트.
+- "백업이 있어도 한 번도 복원해 보지 않으면 백업이 아니다" — 리허설
+  결과를 운영 노트에 짧게라도 기록 (`pass`/`fail` + 일자).
+
+#### Proxmox 스냅샷 (별개 안전망)
+
+- 위 스크립트는 docker compose 데이터 백업.
+- Proxmox 자체의 **VM 스냅샷 weekly** 도 병행 — VM 부팅 직전 상태 통째.
+  Proxmox UI 또는 cron 으로 등록.
+
+### R-8. 보안 경고 (운영 가동 직전 점검)
+
+다음 항목들은 사고가 가장 잦은 실수다. 가동 전 반드시 확인.
+
+- [ ] **`.env.prod` 커밋 금지** — `git check-ignore .env.prod` 가
+      `.env.prod` 를 출력해야 정상. 출력이 비면 `.gitignore` 점검.
+- [ ] **Postgres 포트 비공개** — `docker compose -f docker-compose.prod.yml ps`
+      에서 postgres 의 PORTS 컬럼이 비어 있어야 함(컨테이너 내부 전용).
+- [ ] **`DEFAULT_PASSWORD` 교체** — 운영 첫 가동 전 강한 값으로 변경.
+      가동 직후 `/admin/status` 의 "초기 비밀번호 변경" 카드(#5)가 "완료"
+      태그로 전환되었는지 직원 전체에게 안내·확인.
+- [ ] **Tailscale ACL 제한** — Proxmox UI/SSH 가 Tailscale 의 admin
+      tag 사용자만 접근 가능하도록 ACL 명시.
+- [ ] **백업 = DB + uploads 둘 다** — 둘 중 하나만 백업하면 메시지 첨부
+      파일이 죽거나 메타데이터만 살아남는다. 항상 같은 시점·같은 세트로.
+- [ ] **HTTP 운영은 1·2단계 한정** — Phase 3 직원 전체 사용 전에는
+      반드시 HTTPS 로 전환. 평문 HTTP 로 외부 직원에게 배포 금지.
+- [ ] **VAPID/Web Push 는 HTTPS 필수** — Phase 1·2 에선 자연스럽게 비활성.
+      Phase 3 도메인 적용 시 함께 `npx tsx server/scripts/generate-vapid.ts`
+      로 키 생성 후 `.env.prod` 에 반영.
+- [ ] **운영/개발 .env 분리 유지** — dev 는 `.env`, 운영은 `.env.prod`.
+      서로 섞어서 dev 모드에서 운영 secret 이 콘솔에 나오지 않도록.
+
+### R-9. (Phase 3) 도메인 + HTTPS 전환 — 외부 의존성
+
+본 단계는 R-0 의 Phase 3 진입 조건. **사내 IT 와 DNS/인증서 협의가
+끝난 시점에 별도로 수행** — 여기 코드/문서를 미리 만들지 말고, 이행 시점에
+다음만 변경하면 끝나도록 설계되어 있다.
+
+1. `.env.prod` 의 `PUBLIC_ORIGIN` 을 `https://<도메인>` 으로 변경.
+   - server 가 자동으로 Secure 쿠키 부착으로 전환.
+2. `Caddyfile` 상단의 `:80` 사이트 블록을 도메인 블록으로 교체.
+   - 인터넷 도달 가능 도메인 → Caddy 자동 LE 발급
+   - 사내 자체 CA → `tls /path/fullchain.pem /path/privkey.pem` 마운트
+3. `docker-compose.prod.yml` 의 caddy 서비스에 `"443:443"` 포트 추가, 인증서
+   디렉터리를 bind mount.
+4. `docker compose -f docker-compose.prod.yml up -d caddy` 로 caddy 만 재기동
+   (web/server 재빌드 불필요 — API base URL 이 상대경로).
+5. PWA install 안내 + Web Push VAPID 키 생성·등록(`.env.prod` 의 VAPID_*
+   섹션 채우기 + 컨테이너 재기동).
+6. 외부 도메인을 쓰는 경우 사용자(직원) 가 처음 접속할 때 PWA 설치 안내.
+7. 스모크 재실행 — `npm run smoke:prod` 이 Secure 쿠키 플래그까지 검증.

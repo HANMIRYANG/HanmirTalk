@@ -53,6 +53,25 @@
   border-radius: 3px;
 }
 
+/* Phase 10 — markdown rendering. <strong>/<em> 는 브라우저 기본 스타일에
+   살짝 톤만 보강. list line 은 bullet+text 가 한 라인을 형성하도록 inline.
+   원본 줄바꿈은 .body 의 white-space: pre-wrap 이 그대로 보존. */
+.body strong {
+  font-weight: 700;
+  color: var(--text-1);
+}
+.body em {
+  font-style: italic;
+}
+.listLine {
+  display: inline;
+}
+.bullet {
+  display: inline-block;
+  width: 1.25em;
+  color: var(--text-3);
+}
+
 .file {
   margin-top: 8px;
   display: inline-flex;

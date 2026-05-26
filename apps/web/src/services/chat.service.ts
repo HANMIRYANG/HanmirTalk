@@ -29,12 +29,34 @@ export const chatService = {
   async sendMessage(
     roomId: string,
     body: string,
-    opts: AuthOptions & { attachmentId?: string; entities?: MessageEntity[] } = {}
+    opts: AuthOptions & {
+      attachmentId?: string;
+      entities?: MessageEntity[];
+      // Phase 5 H-5 — AI provenance forwarding. Only AiCommandModal sets these
+      // when the user clicks [채팅에 삽입]. Server-side sanitize rejects bad
+      // values (rooms.ts), so the worst the client can do is fail to mark
+      // its own message as AI.
+      aiGenerated?: boolean;
+      aiCommand?: string;
+      sourceMessageIds?: string[];
+    } = {}
   ): Promise<ChatMessage> {
-    const { token, attachmentId, entities } = opts;
-    const payload: { body: string; attachmentId?: string; entities?: MessageEntity[] } = { body };
+    const { token, attachmentId, entities, aiGenerated, aiCommand, sourceMessageIds } = opts;
+    const payload: {
+      body: string;
+      attachmentId?: string;
+      entities?: MessageEntity[];
+      aiGenerated?: boolean;
+      aiCommand?: string;
+      sourceMessageIds?: string[];
+    } = { body };
     if (attachmentId) payload.attachmentId = attachmentId;
     if (entities && entities.length > 0) payload.entities = entities;
+    if (aiGenerated) payload.aiGenerated = true;
+    if (aiCommand) payload.aiCommand = aiCommand;
+    if (sourceMessageIds && sourceMessageIds.length > 0) {
+      payload.sourceMessageIds = sourceMessageIds;
+    }
     return apiRequest<ChatMessage>(`/rooms/${encodeURIComponent(roomId)}/messages`, {
       method: "POST",
       body: payload,
