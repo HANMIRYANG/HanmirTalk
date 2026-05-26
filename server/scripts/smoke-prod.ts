@@ -5,15 +5,16 @@
 // 만 끝나 있으면 바로 돌릴 수 있다.
 //
 // 사용:
-//   # 1) 운영 VM 에서:
-//   npm run smoke:prod -- --base-url=http://192.168.0.110 \
-//                         --email=kang.eunhye@hanmir.co.kr \
-//                         --password=hanmir1234
+//   # 1) 운영 VM 에서 (실제 비밀번호는 .env.prod 의 DEFAULT_PASSWORD 또는
+//   #    변경 후 값):
+//   npm run smoke:prod -- --base-url=http://<운영-VM-IP> \
+//                         --email=<시드-관리자-이메일> \
+//                         --password=<시드-비밀번호>
 //
 //   # 2) 환경변수로도 가능:
-//   SMOKE_BASE_URL=http://192.168.0.110 \
-//   SMOKE_EMAIL=kang.eunhye@hanmir.co.kr \
-//   SMOKE_PASSWORD=hanmir1234 \
+//   SMOKE_BASE_URL=http://<운영-VM-IP> \
+//   SMOKE_EMAIL=<시드-관리자-이메일> \
+//   SMOKE_PASSWORD=<시드-비밀번호> \
 //     npm run smoke:prod
 //
 //   # 3) 상세 응답 보기:

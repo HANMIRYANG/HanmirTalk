@@ -870,16 +870,17 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T postgres 
   실행됐어야 함 (`tsx` 등이 node_modules 에 있어야 동작).
 
 ```bash
-# 옵션 1: 인자로 전달
+# 옵션 1: 인자로 전달 (실제 비밀번호는 .env.prod 의 DEFAULT_PASSWORD
+# 또는 변경 후 값을 사용)
 npm run smoke:prod -- \
-  --base-url=http://100.x.y.z \
-  --email=kang.eunhye@hanmir.co.kr \
-  --password=hanmir1234
+  --base-url=http://<Tailscale-또는-LAN-IP> \
+  --email=<시드-관리자-이메일> \
+  --password=<시드-비밀번호>
 
 # 옵션 2: 환경변수로 전달
-SMOKE_BASE_URL=http://100.x.y.z \
-SMOKE_EMAIL=kang.eunhye@hanmir.co.kr \
-SMOKE_PASSWORD=hanmir1234 \
+SMOKE_BASE_URL=http://<Tailscale-또는-LAN-IP> \
+SMOKE_EMAIL=<시드-관리자-이메일> \
+SMOKE_PASSWORD=<시드-비밀번호> \
   npm run smoke:prod
 ```
 
