@@ -59,6 +59,7 @@ import type {
 } from "@hanmir/shared";
 import { NOTIFICATION_CATEGORIES } from "@hanmir/shared";
 import { hashPassword, seedPasswordHash, verifyPassword } from "../auth/password";
+import { restoreMojibakeFilename } from "../files/filename";
 import { seedUsers } from "../seed/users";
 import { seedDepartments } from "../seed/departments";
 import { seedRooms } from "../seed/rooms";
@@ -1180,10 +1181,14 @@ class MemoryFileRepository implements FileRepository {
     ).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(
       now.getMinutes()
     ).padStart(2, "0")}`;
+    // routes/files.ts 가 이미 normalizeUploadOriginalName 을 통과시킨
+    // 값을 넘기지만, 본 적용은 idempotent 이므로 한 번 더 호출해도 정상
+    // 한글에 무영향이다. PG 어댑터와 일관된 정책.
+    const safeName = restoreMojibakeFilename(input.fileName);
     const entry: FileEntry = {
       id: newId("f"),
-      kind: deriveFileKind(input.fileName, input.fileType),
-      name: input.fileName,
+      kind: deriveFileKind(safeName, input.fileType),
+      name: safeName,
       scope,
       scopeTone: input.projectId ? "blue" : "default",
       size: formatBytes(input.fileSize),
@@ -1196,7 +1201,7 @@ class MemoryFileRepository implements FileRepository {
     };
     this.files.unshift(entry);
     this.storage.set(entry.id, {
-      fileName: input.fileName,
+      fileName: safeName,
       fileUrl: input.fileUrl,
       fileType: input.fileType
     });

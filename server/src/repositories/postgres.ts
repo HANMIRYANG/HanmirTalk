@@ -18,6 +18,7 @@
 import { createHash, randomBytes } from "crypto";
 import type { Pool } from "pg";
 import { hashPassword, seedPasswordHash, verifyPassword } from "../auth/password";
+import { restoreMojibakeFilename } from "../files/filename";
 import type {
   AuditEntry,
   AuditLogPage,
@@ -1139,10 +1140,13 @@ function rowToMessage(row: MessageRow): ChatMessage {
     sourceMessageIds: row.source_message_ids ?? undefined
   };
   if (!isDeleted && row.attachment_id && row.attachment_name) {
+    // 이미 깨진 채로 저장된 legacy row 의 사후 보정. ASCII / 정상 한글에는
+    // 무영향 (idempotent).
+    const restoredName = restoreMojibakeFilename(row.attachment_name);
     message.attachment = {
       id: row.attachment_id,
-      kind: deriveFileKind(row.attachment_name, row.attachment_type),
-      name: row.attachment_name,
+      kind: deriveFileKind(restoredName, row.attachment_type),
+      name: restoredName,
       meta: row.attachment_size ? `${formatBytes(Number(row.attachment_size))}` : ""
     };
   }
@@ -1802,13 +1806,14 @@ const PRODUCT_DOC_SELECT = `
 `;
 
 function rowToProductDoc(row: ProductDocRow): ProductDocument {
+  const restoredName = restoreMojibakeFilename(row.file_name);
   return {
     id: row.id,
     productId: row.product_id,
     attachmentId: row.attachment_id,
     documentType: row.document_type as ProductDocumentType,
-    fileName: row.file_name,
-    fileKind: deriveFileKind(row.file_name, row.file_type),
+    fileName: restoredName,
+    fileKind: deriveFileKind(restoredName, row.file_type),
     sizeLabel: row.file_size != null ? formatBytes(Number(row.file_size)) : "",
     uploadedById: row.uploaded_by,
     uploadedByName: row.uploaded_by_name ?? undefined,
@@ -1928,10 +1933,12 @@ function rowToFile(row: AttachmentRow): FileEntry {
     : row.task_id
     ? "업무"
     : "공유";
+  // legacy row 사후 보정 — ASCII / 정상 한글은 무영향.
+  const restoredName = restoreMojibakeFilename(row.file_name);
   return {
     id: row.id,
-    kind: deriveFileKind(row.file_name, row.file_type),
-    name: row.file_name,
+    kind: deriveFileKind(restoredName, row.file_type),
+    name: restoredName,
     scope,
     size: row.file_size != null ? formatBytes(Number(row.file_size)) : "",
     uploaderId: row.uploaded_by,
@@ -2034,7 +2041,10 @@ class PgFileRepository implements FileRepository {
     );
     if (!rows[0]) return undefined;
     return {
-      fileName: rows[0].file_name,
+      // legacy row 사후 보정. 다운로드 응답 헤더(`res.download(abs, fileName)`)
+      // 가 이 값을 그대로 사용하므로, 깨진 이름이 그대로 클라이언트에 노출
+      // 되지 않도록 같은 헬퍼를 통과시킨다.
+      fileName: restoreMojibakeFilename(rows[0].file_name),
       fileUrl: rows[0].file_url,
       fileType: rows[0].file_type ?? undefined
     };
@@ -3128,7 +3138,9 @@ class PgScheduledMessageRepository implements ScheduledMessageRepository {
       content: r.content,
       entities,
       attachmentId: r.attachment_id ?? undefined,
-      attachmentName: r.attachment_name ?? undefined,
+      attachmentName: r.attachment_name
+        ? restoreMojibakeFilename(r.attachment_name)
+        : undefined,
       scheduledAt:
         r.scheduled_at instanceof Date
           ? r.scheduled_at.toISOString()
