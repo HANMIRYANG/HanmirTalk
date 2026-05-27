@@ -42,16 +42,25 @@ export function ChatRoomMounter({ roomId, latestMessageId }: ChatRoomMounterProp
     // covers other tab/users.)
     const onEdit = () => router.refresh();
     const onDelete = () => router.refresh();
+    // Phase 11 — 답글 chip / 반응 갱신. drawer 가 열려 있는 경우 drawer
+    // 가 자체 socket 리스너로 patch 하고, 본 mounter 는 timeline 의
+    // chip / reactions 만 refresh 한다.
+    const onThreadUpdated = () => router.refresh();
+    const onReactionUpdated = () => router.refresh();
     socket.on("message:new", onMessage);
     socket.on("message:updated", onEdit);
     socket.on("message:deleted", onDelete);
     socket.on("room:pin", onPin);
+    socket.on("message:thread:updated", onThreadUpdated);
+    socket.on("message:reaction:updated", onReactionUpdated);
     return () => {
       socket.emit("room:leave", roomId);
       socket.off("message:new", onMessage);
       socket.off("message:updated", onEdit);
       socket.off("message:deleted", onDelete);
       socket.off("room:pin", onPin);
+      socket.off("message:thread:updated", onThreadUpdated);
+      socket.off("message:reaction:updated", onReactionUpdated);
     };
   }, [roomId, router]);
 

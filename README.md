@@ -130,7 +130,7 @@ npm run build:server # 백엔드 컴파일
 
 성공 시 access token이 응답으로 내려오고 프론트는 `hanmir_token` 쿠키(`SameSite=Lax`)에 저장합니다. 서버 컴포넌트는 `cookies()`를 통해, 클라이언트 `fetch`는 `credentials: "include"`를 통해 같은 쿠키를 사용합니다. 무토큰 상태로 `/chat` 등에 접근하면 `/login`으로 redirect됩니다.
 
-## 기능 구현 현황 요약 (2026-05-27 기준)
+## 기능 구현 현황 요약 (2026-05-27 기준, Phase 11 반영)
 
 docs `15_DEVELOPMENT_PHASES.md` 기준 진척도. 백엔드 라우트와 프론트 UI는 별도로 평가합니다.
 
@@ -167,6 +167,8 @@ docs `15_DEVELOPMENT_PHASES.md` 기준 진척도. 백엔드 라우트와 프론�
 | 10 | 이모지 picker | — | ✅ `MessageComposer` 커스텀 popover (3그룹 큐레이션, 외부 라이브러리 미사용) |
 | 10 | 메시지 → 업무 만들기 | ✅ (기존 task create API 재사용) | ✅ `MessageItem` hover "업무" 버튼 (writer + 프로젝트 방 한정) + `TaskCreateModal` prefill |
 | 10 | 예약 전송 | ✅ (마이그 018 + `ScheduledMessageRepository` + 1분 주기 poller) | ✅ `MessageComposer` "예약 전송" → `ScheduleSendModal` (datetime-local) |
+| 11 | 스레드 답글 (영속) | ✅ (마이그 019 인덱스 + `messages.parent_message_id` 재사용 + `listReplies`/`appendReply` + `notify.notifyReplyNew`) | ✅ `MessageItem` "답글 N개" → `ThreadDrawer` (우측 패널 + 텍스트 composer) |
+| 11 | 이모지 반응 (영속) | ✅ (마이그 019 `message_reactions` PK 테이블 + `MessageReactionRepository` 배치 lookup) | ✅ `MessageItem` reaction chip 토글 + `+` popover (`REACTION_EMOJI_ALLOWLIST` 6종) |
 | - | PostgreSQL 어댑터 | ✅ (코드/마이그레이션/실DB smoke 모두 완료) | — |
 
 기호: ✅ 구현 완료, ⚠️ 부분 구현 / UI 미연결, ❌ 미착수

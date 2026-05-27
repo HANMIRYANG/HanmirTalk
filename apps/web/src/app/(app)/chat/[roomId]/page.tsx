@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { IconButton } from "@/components/ui/IconButton";
 import { PinIcon, UsersIcon } from "@/components/ui/icons";
-import { MessageItem } from "@/components/chat/MessageItem";
+import { ChatRoomMessages } from "@/components/chat/ChatRoomMessages";
 import { MessageComposer } from "@/components/chat/MessageComposer";
 import { RoomInfoPane } from "@/components/chat/RoomInfoPane";
 import { PinnedBanner } from "@/components/chat/PinnedBanner";
@@ -102,27 +102,23 @@ export default async function ChatRoomPage({ params }: Props) {
 
         <div className={styles.msgs}>
           <div className={styles.daySep}>2026년 5월 13일 수요일</div>
-          {messages.map((m) => (
-            <MessageItem
-              key={m.id}
-              message={m}
-              roomId={room.id}
-              isPinned={m.id === room.pinnedMessageId}
-              canPin
-              currentUserId={me.id}
-              isAdmin={me.role === "admin" || me.role === "super_admin"}
-              canCreateDecision={
-                !!room.projectId &&
-                ["admin", "super_admin", "manager", "project_owner"].includes(me.role)
-              }
-              canCreateTask={
-                !!room.projectId &&
-                ["admin", "super_admin", "manager", "project_owner"].includes(me.role)
-              }
-              users={room.projectId ? users : undefined}
-              projectId={room.projectId}
-            />
-          ))}
+          <ChatRoomMessages
+            roomId={room.id}
+            messages={messages}
+            currentUserId={me.id}
+            isAdmin={me.role === "admin" || me.role === "super_admin"}
+            pinnedMessageId={room.pinnedMessageId}
+            canCreateDecision={
+              !!room.projectId &&
+              ["admin", "super_admin", "manager", "project_owner"].includes(me.role)
+            }
+            canCreateTask={
+              !!room.projectId &&
+              ["admin", "super_admin", "manager", "project_owner"].includes(me.role)
+            }
+            users={room.projectId ? users : undefined}
+            projectId={room.projectId}
+          />
         </div>
 
         <MessageComposer

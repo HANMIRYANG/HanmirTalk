@@ -116,7 +116,12 @@ export function createRoomsRouter(repos: Repositories): Router {
   router.get("/:roomId/messages", async (req, res) => {
     const access = await ensureRoomAccess(repos, req, res, req.params.roomId);
     if (!access.allowed) return;
-    const messages = await repos.messages.listByRoom(req.params.roomId);
+    // Phase 11 — viewerUserId 를 넘겨 reactedByMe 가 채워지도록.
+    // listByRoom 은 자동으로 top-level 만 반환 + thread aggregate 포함.
+    const messages = await repos.messages.listByRoom(
+      req.params.roomId,
+      req.currentUser!.id
+    );
     res.json(messages);
   });
 

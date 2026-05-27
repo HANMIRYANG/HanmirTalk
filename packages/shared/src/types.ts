@@ -222,7 +222,22 @@ export interface MessageAttachment {
 export interface MessageReaction {
   emoji: string;
   count: number;
+  // Phase 11 — 본인이 이 이모지를 박았는지. 토글 UX 의 active 스타일·정렬
+  // 기준. 서버 측에서 viewer userId 기준으로 채워준다. 인증 없는 경로
+  // 에서는 undefined / false 가 그대로 전달돼도 안전.
+  reactedByMe?: boolean;
 }
+
+// Phase 11 — 서버 측 화이트리스트. 사내 메신저 맥락에서 자주 쓸 6종.
+// 라우트의 ALLOWED_REACTION_EMOJIS 와 동일하다 — single source of truth.
+export const REACTION_EMOJI_ALLOWLIST: readonly string[] = [
+  "👍",
+  "✅",
+  "🙏",
+  "🎉",
+  "👀",
+  "📌"
+];
 
 // Phase 5 H-1 — structured entity reference inside a message body.
 // Tracks @mentions, project/task/file pointers, etc. The body is plain
@@ -283,6 +298,10 @@ export interface ChatMessage {
   // with a placeholder ("삭제된 메시지입니다") and strips `attachment`
   // before returning. UI shows a muted tombstone row.
   isDeleted?: boolean;
+  // Phase 11 — 스레드 답글 식별자. top-level 메시지는 undefined, 답글은
+  // 부모 메시지 id. 검색이 답글까지 포함할 때 결과의 parent 라우팅에
+  // 사용한다.
+  parentMessageId?: string;
 }
 
 // Phase 5 H-1 — payload type for /mentions/search results.
@@ -986,4 +1005,30 @@ export interface CreateScheduledMessageInput {
   scheduledAt: string;
   entities?: MessageEntity[];
   attachmentId?: string;
+}
+
+// Phase 11 — 답글 생성 입력. attachment 는 첫 버전에서 미지원이라 옵션
+// 으로 두되 route 에서 거절한다 (필요할 때 손쉽게 풀 수 있도록).
+export interface CreateReplyInput {
+  body: string;
+  entities?: MessageEntity[];
+}
+
+// Phase 11 — 답글 추가/삭제로 부모 메시지의 스레드 chip 만 갱신할 때
+// emit. drawer 가 열린 상태가 아닐 때도 부모 라인의 N개 / 마지막 시각이
+// 업데이트되도록 가벼운 payload.
+export interface ThreadSummary {
+  parentMessageId: string;
+  roomId: string;
+  replyCount: number;
+  lastReplyAt?: string;
+  replyAvatars: { initials: string; tone?: User["avatarTone"] }[];
+}
+
+// Phase 11 — 이모지 반응 토글 emit payload. messageId + 집계된 reactions
+// 만 보내면 클라이언트가 자기 ChatMessage 를 patch 할 수 있다.
+export interface ReactionUpdate {
+  roomId: string;
+  messageId: string;
+  reactions: MessageReaction[];
 }
