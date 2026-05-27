@@ -32,6 +32,7 @@ import type {
   CreateProductInput,
   CreateProjectInput,
   CreateRoomInput,
+  CreateScheduledMessageInput,
   CreateTaskInput,
   CreateUserInput,
   Decision,
@@ -60,6 +61,8 @@ import type {
   RoomType,
   SalesStatus,
   SalesStatusEvent,
+  ScheduledMessage,
+  ScheduledMessageStatus,
   TaskItem,
   TaskPriority,
   TaskStatus,
@@ -101,6 +104,7 @@ import type {
   Repositories,
   ResolvedRefreshToken,
   RoomRepository,
+  ScheduledMessageRepository,
   TaskRepository,
   UserRepository
 } from "./types";
@@ -3075,6 +3079,186 @@ class PgOrgNotificationRepository implements OrgNotificationRepository {
   }
 }
 
+// Phase 10 M-4 — 예약 메시지. status 는 row 컬럼 조합에서 파생.
+class PgScheduledMessageRepository implements ScheduledMessageRepository {
+  constructor(private readonly pool: Pool) {}
+
+  private rowToDto(r: {
+    id: string;
+    room_id: string;
+    user_id: string;
+    content: string;
+    entities: unknown;
+    attachment_id: string | null;
+    scheduled_at: Date | string;
+    sent_at: Date | string | null;
+    cancelled_at: Date | string | null;
+    error: string | null;
+    created_at: Date | string;
+    room_name?: string | null;
+    author_name?: string | null;
+    attachment_name?: string | null;
+  }): ScheduledMessage {
+    const sentAt = r.sent_at
+      ? r.sent_at instanceof Date
+        ? r.sent_at.toISOString()
+        : String(r.sent_at)
+      : undefined;
+    const cancelledAt = r.cancelled_at
+      ? r.cancelled_at instanceof Date
+        ? r.cancelled_at.toISOString()
+        : String(r.cancelled_at)
+      : undefined;
+    const status: ScheduledMessageStatus = sentAt
+      ? "sent"
+      : cancelledAt
+      ? "cancelled"
+      : r.error
+      ? "failed"
+      : "pending";
+    const entities = Array.isArray(r.entities)
+      ? (r.entities as MessageEntity[])
+      : [];
+    return {
+      id: r.id,
+      roomId: r.room_id,
+      roomName: r.room_name ?? undefined,
+      userId: r.user_id,
+      authorName: r.author_name ?? undefined,
+      content: r.content,
+      entities,
+      attachmentId: r.attachment_id ?? undefined,
+      attachmentName: r.attachment_name ?? undefined,
+      scheduledAt:
+        r.scheduled_at instanceof Date
+          ? r.scheduled_at.toISOString()
+          : String(r.scheduled_at),
+      sentAt,
+      cancelledAt,
+      error: r.error ?? undefined,
+      status,
+      createdAt:
+        r.created_at instanceof Date
+          ? r.created_at.toISOString()
+          : String(r.created_at)
+    };
+  }
+
+  // Common JOIN for list/find — pulls room/author/attachment name in one shot.
+  private readonly SELECT_BASE = `
+    SELECT s.id, s.room_id, s.user_id, s.content, s.entities, s.attachment_id,
+           s.scheduled_at, s.sent_at, s.cancelled_at, s.error, s.created_at,
+           r.name AS room_name,
+           u.name AS author_name,
+           a.file_name AS attachment_name
+      FROM scheduled_messages s
+      LEFT JOIN rooms r ON r.id = s.room_id
+      LEFT JOIN users u ON u.id = s.user_id
+      LEFT JOIN attachments a ON a.id = s.attachment_id
+  `;
+
+  async create(
+    input: CreateScheduledMessageInput,
+    author: { id: string }
+  ): Promise<ScheduledMessage> {
+    const { rows } = await this.pool.query<{ id: string }>(
+      `INSERT INTO scheduled_messages
+         (room_id, user_id, content, entities, attachment_id, scheduled_at)
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6)
+       RETURNING id`,
+      [
+        input.roomId,
+        author.id,
+        input.content,
+        JSON.stringify(input.entities ?? []),
+        input.attachmentId ?? null,
+        new Date(input.scheduledAt)
+      ]
+    );
+    const created = await this.findById(rows[0].id);
+    return created!;
+  }
+
+  async findById(id: string): Promise<ScheduledMessage | undefined> {
+    const { rows } = await this.pool.query(
+      `${this.SELECT_BASE} WHERE s.id = $1`,
+      [id]
+    );
+    return rows[0] ? this.rowToDto(rows[0]) : undefined;
+  }
+
+  async listForUser(
+    userId: string,
+    opts: { roomId?: string; includeAll?: boolean } = {}
+  ): Promise<ScheduledMessage[]> {
+    const wheres: string[] = ["s.user_id = $1"];
+    const params: unknown[] = [userId];
+    if (opts.roomId) {
+      params.push(opts.roomId);
+      wheres.push(`s.room_id = $${params.length}`);
+    }
+    if (!opts.includeAll) {
+      wheres.push("s.sent_at IS NULL AND s.cancelled_at IS NULL");
+    }
+    const { rows } = await this.pool.query(
+      `${this.SELECT_BASE} WHERE ${wheres.join(" AND ")} ORDER BY s.scheduled_at ASC`,
+      params
+    );
+    return rows.map((r) => this.rowToDto(r));
+  }
+
+  async listDue(now: Date): Promise<ScheduledMessage[]> {
+    const { rows } = await this.pool.query(
+      `${this.SELECT_BASE}
+         WHERE s.scheduled_at <= $1
+           AND s.sent_at IS NULL
+           AND s.cancelled_at IS NULL
+           AND s.error IS NULL
+         ORDER BY s.scheduled_at ASC
+         LIMIT 200`,
+      [now]
+    );
+    return rows.map((r) => this.rowToDto(r));
+  }
+
+  async markSent(id: string, now: Date): Promise<boolean> {
+    // Pending-only guard — 동시 호출이 같은 row 를 잡아도 한 번만 true.
+    // listDue 이후 사용자가 취소한 row 는 여기서 claim 되면 안 된다.
+    const { rowCount } = await this.pool.query(
+      `UPDATE scheduled_messages
+          SET sent_at = $2
+        WHERE id = $1
+          AND sent_at IS NULL
+          AND cancelled_at IS NULL
+          AND error IS NULL`,
+      [id, now]
+    );
+    return (rowCount ?? 0) > 0;
+  }
+
+  async markFailed(id: string, error: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE scheduled_messages
+          SET error = $2
+        WHERE id = $1
+          AND sent_at IS NULL
+          AND cancelled_at IS NULL
+          AND error IS NULL`,
+      [id, error.slice(0, 500)]
+    );
+  }
+
+  async cancel(id: string, now: Date): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      `UPDATE scheduled_messages
+          SET cancelled_at = $2
+        WHERE id = $1 AND sent_at IS NULL AND cancelled_at IS NULL`,
+      [id, now]
+    );
+    return (rowCount ?? 0) > 0;
+  }
+}
+
 export function createPostgresRepositories(pool: Pool): Repositories {
   const users = new PgUserRepository(pool);
   return {
@@ -3093,6 +3277,7 @@ export function createPostgresRepositories(pool: Pool): Repositories {
     audit: new PgAuditRepository(pool),
     refreshTokens: new PgRefreshTokenRepository(pool),
     invitations: new PgInvitationRepository(pool),
-    orgNotifications: new PgOrgNotificationRepository(pool)
+    orgNotifications: new PgOrgNotificationRepository(pool),
+    scheduledMessages: new PgScheduledMessageRepository(pool)
   };
 }

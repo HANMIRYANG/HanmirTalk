@@ -1,9 +1,49 @@
 import { Router, type Request, type Response } from "express";
-import type { CreateDecisionInput } from "@hanmir/shared";
+import type { CreateDecisionInput, MessageEntity } from "@hanmir/shared";
 import type { Repositories } from "../repositories/types";
 import { requireRole } from "../auth/middleware";
 import { realtime } from "../realtime";
 import { auditLog } from "../audit";
+
+// Phase 10 M-4 — entity 형태 검증. rooms.ts 와 동일 규칙이지만 import
+// 경계를 깨지 않기 위해 작게 재구현.
+const VALID_ENTITY_TYPES: MessageEntity["type"][] = [
+  "mention",
+  "project_ref",
+  "task_ref",
+  "file_ref"
+];
+
+function sanitizeEntities(raw: unknown, body: string): MessageEntity[] {
+  if (!Array.isArray(raw)) return [];
+  const len = body.length;
+  const out: MessageEntity[] = [];
+  for (const e of raw) {
+    if (!e || typeof e !== "object") continue;
+    const o = e as Record<string, unknown>;
+    if (
+      typeof o.type !== "string" ||
+      !VALID_ENTITY_TYPES.includes(o.type as MessageEntity["type"])
+    ) {
+      continue;
+    }
+    if (typeof o.id !== "string" || !o.id.trim()) continue;
+    if (typeof o.label !== "string") continue;
+    if (typeof o.offset !== "number" || !Number.isInteger(o.offset)) continue;
+    if (typeof o.length !== "number" || !Number.isInteger(o.length)) continue;
+    if (o.offset < 0 || o.length <= 0) continue;
+    if (o.offset + o.length > len) continue;
+    out.push({
+      type: o.type as MessageEntity["type"],
+      id: o.id.trim(),
+      label: o.label,
+      offset: o.offset,
+      length: o.length
+    });
+  }
+  out.sort((a, b) => a.offset - b.offset);
+  return out;
+}
 
 // Phase 2 E-1 — single-message endpoints. Mounted at /api/v1/messages by
 // app.ts. Append (POST) lives under /rooms/:roomId/messages because it's
@@ -148,6 +188,168 @@ export function createMessagesRouter(repos: Repositories): Router {
         meta: { roomId: access.message.roomId, originalAuthorId: access.message.authorId }
       });
     }
+    res.json({ ok: true });
+  });
+
+  // ── Phase 10 M-4 — 예약 전송 ─────────────────────────────────────────
+  //
+  // POST /messages/schedule        본인 예약 생성
+  // GET  /messages/scheduled       본인 예약 목록 (sent/cancelled 제외)
+  // DELETE /messages/scheduled/:id 작성자 또는 admin 만 취소
+  //
+  // 모든 path 가 1~2 segment 이라 PATCH /:id / DELETE /:id 패턴과 충돌
+  // 없음. 단, /:id PATCH 가 "schedule" 같은 id 를 그대로 받지 않도록
+  // 본 라우트들을 먼저 등록한다 (Express 는 등록 순서대로 매칭).
+
+  router.post("/schedule", async (req, res) => {
+    const me = req.currentUser!;
+    const body = req.body as
+      | {
+          roomId?: unknown;
+          content?: unknown;
+          scheduledAt?: unknown;
+          entities?: unknown;
+          attachmentId?: unknown;
+        }
+      | undefined;
+    const roomId =
+      typeof body?.roomId === "string" && body.roomId.trim() ? body.roomId.trim() : "";
+    const content =
+      typeof body?.content === "string" ? body.content : "";
+    const scheduledAtRaw =
+      typeof body?.scheduledAt === "string" ? body.scheduledAt : "";
+    const attachmentId =
+      typeof body?.attachmentId === "string" && body.attachmentId.trim()
+        ? body.attachmentId.trim()
+        : undefined;
+
+    if (!roomId) {
+      res.status(400).json({ error: "roomId_required" });
+      return;
+    }
+    if (!content.trim() && !attachmentId) {
+      res.status(400).json({ error: "empty_message" });
+      return;
+    }
+    const scheduledAt = scheduledAtRaw ? new Date(scheduledAtRaw) : null;
+    if (!scheduledAt || Number.isNaN(scheduledAt.getTime())) {
+      res.status(400).json({ error: "scheduledAt_invalid" });
+      return;
+    }
+    // 클라이언트가 보낸 시각이 이미 과거면 거부. 약간의 clock skew 를
+    // 허용 (5초) — 사용자가 "지금 + 1초" 같은 즉시 예약을 시도해도
+    // 친절하게 받아준다.
+    if (scheduledAt.getTime() < Date.now() - 5_000) {
+      res.status(400).json({ error: "scheduledAt_in_past" });
+      return;
+    }
+
+    // 멤버십 검증 — rooms.ts ensureRoomAccess 와 동일 규칙.
+    const room = await repos.rooms.findById(roomId, me.id);
+    if (!room) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    const isAdmin = me.role === "admin" || me.role === "super_admin";
+    if (!isAdmin && !room.members.some((m) => m.userId === me.id)) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+
+    // attachment 검증 — 본인이 업로드한 것이어야.
+    if (attachmentId) {
+      const file = await repos.files.findById(attachmentId);
+      if (!file) {
+        res.status(400).json({ error: "attachment_not_found" });
+        return;
+      }
+      if (file.uploaderId !== me.id) {
+        res.status(403).json({ error: "attachment_not_owned" });
+        return;
+      }
+    }
+
+    const entities = sanitizeEntities(body?.entities, content);
+    const created = await repos.scheduledMessages.create(
+      {
+        roomId,
+        content,
+        scheduledAt: scheduledAt.toISOString(),
+        entities,
+        attachmentId
+      },
+      { id: me.id }
+    );
+    await auditLog(repos, req, {
+      action: "message.schedule",
+      targetType: "scheduled_message",
+      targetId: created.id,
+      targetLabel: content.slice(0, 80),
+      meta: { roomId, scheduledAt: created.scheduledAt }
+    });
+    res.status(201).json(created);
+  });
+
+  router.get("/scheduled", async (req, res) => {
+    const me = req.currentUser!;
+    const roomIdFilter =
+      typeof req.query.roomId === "string" && req.query.roomId.trim()
+        ? req.query.roomId.trim()
+        : undefined;
+    // roomId 가 명시되면 멤버십 검증 (비멤버가 다른 방의 예약 목록을
+    // 비어 있는 응답으로 추측하는 것까지는 막지 않지만, 적어도 본인의
+    // 예약만 보여주므로 정보 누출은 없다).
+    if (roomIdFilter) {
+      const room = await repos.rooms.findById(roomIdFilter, me.id);
+      if (!room) {
+        res.json({ results: [] });
+        return;
+      }
+      const isAdmin = me.role === "admin" || me.role === "super_admin";
+      if (!isAdmin && !room.members.some((m) => m.userId === me.id)) {
+        res.json({ results: [] });
+        return;
+      }
+    }
+    const list = await repos.scheduledMessages.listForUser(me.id, {
+      roomId: roomIdFilter
+    });
+    res.json({ results: list });
+  });
+
+  router.delete("/scheduled/:id", async (req, res) => {
+    const me = req.currentUser!;
+    const target = await repos.scheduledMessages.findById(req.params.id);
+    if (!target) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    const isAdmin = me.role === "admin" || me.role === "super_admin";
+    if (target.userId !== me.id && !isAdmin) {
+      res.status(403).json({ error: "not_author_or_admin" });
+      return;
+    }
+    if (target.status === "sent") {
+      res.status(409).json({ error: "already_sent" });
+      return;
+    }
+    const ok = await repos.scheduledMessages.cancel(req.params.id, new Date());
+    if (!ok) {
+      // 이미 보낸 직후 race — 한 번 더 검사해서 409 로 떨어뜨림.
+      res.status(409).json({ error: "already_sent_or_cancelled" });
+      return;
+    }
+    await auditLog(repos, req, {
+      action:
+        target.userId === me.id
+          ? "message.schedule.cancel"
+          : "message.schedule.cancel.by_admin",
+      targetType: "scheduled_message",
+      targetId: req.params.id,
+      targetLabel: target.content.slice(0, 80),
+      level: target.userId === me.id ? "info" : "warn",
+      meta: { roomId: target.roomId, originalAuthorId: target.userId }
+    });
     res.json({ ok: true });
   });
 

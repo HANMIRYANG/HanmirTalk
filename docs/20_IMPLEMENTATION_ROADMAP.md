@@ -8,8 +8,8 @@
 
 ## A. 한 페이지 요약
 
-- **현재 위치**: Phase 0~9 완료 — 보안 코어 · 메시지 · 결정사항 · 채팅운영 · 멘션/AI · 알림 · 제품 부속 · 관리자 영역 · 통합 검색까지 구축 완료
-- **남은 작업**: Phase 10 (메시지 에디터 고급 — 후순위). 이후 N·R절 배포
+- **현재 위치**: Phase 0~10 완료 — 보안 코어 · 메시지 · 결정사항 · 채팅운영 · 멘션/AI · 알림 · 제품 부속 · 관리자 영역 · 통합 검색 · 메시지 에디터 고급(마크다운·이모지·메시지→업무·예약 전송)
+- **남은 작업**: N·R절 운영 배포 — Proxmox VM, .env.prod, 백업 cron 등록, 복원 리허설
 - **이 문서의 사용법**: 작업 완료 시 해당 phase의 체크박스 ✅ 처리 → commit message에 `[Phase N]` 태그 사용
 - **선행조건 원칙**: schema 변경이 필요한 작업이 같은 컬럼/테이블을 건드리는 다른 작업보다 먼저 와야 함. 보안 코어는 외부 배포 전 끝나야 함.
 
@@ -150,7 +150,7 @@
 - [x] `file.delete` — warn level (file.upload은 일반 사용자 액션이라 제외)
 - [x] `auth.login.success / failure` — admin / super_admin 한정. invalid_credentials 시 targeted user를 actor로 기록
 - [x] `auth.password.change` — 본인 비밀번호 변경 성공 시
-- [ ] (Phase 3) `decision.*` 결정사항 hook — Phase 3 구현 시 함께 추가
+- [x] `decision.*` 결정사항 hook — Phase 3 구현 시 함께 추가 (`decisions.ts` 의 decision.create/update/delete + `messages.ts` 의 decision.create.from_message)
 
 ### D-5. per-project ownership 검사 (doc/04) ✅
 
@@ -178,7 +178,7 @@
 - [x] `docker-compose.yml`에 mailhog 서비스 추가 (포트 1025 SMTP + 8025 Web UI)
 - [x] `.env.example`에 SMTP 블록 + mailhog 사용법 안내
 - [x] 부트 smoke: `[hanmir-server] mailer: SMTP ready at localhost:1025` 확인
-- [ ] 실제 `sendMail` 호출은 Phase 8 초대 흐름에서 처음 활성화
+- [x] 실제 `sendMail` 호출 활성화 — Phase 8 K-2 의 `routes/invitations.ts:80` 에서 초대 메일 발송 (best-effort, 실패해도 토큰 유효)
 
 ### D-8. 채팅방 멤버십 권한 검사 (긴급, 2026-05-19 추가) ✅
 
@@ -197,7 +197,7 @@
 - [x] `.env.example` `UPLOAD_MAX_BYTES` 주석 "25 MB" → "50 MB" + 화이트리스트 안내 추가 (D-6 코드 일치)
 - [x] `.env.example` `DEFAULT_PASSWORD` "bcrypt 도입 전까지의 임시 값" 문구 제거 → bcrypt+must_change_password 실제 동작 안내로 교체 (D-1, D-2 완료 반영)
 - [x] `docker-compose.yml` 마이그레이션 안내 "001 → 002 → 003" → "001~009 (alphabetical 순서)"
-- [ ] `docs/16_CLAUDE_CODE_INSTRUCTIONS.md` NestJS 권장 → Express 실태에 맞춰 갱신 (선택, 후속)
+- [x] `docs/16_CLAUDE_CODE_INSTRUCTIONS.md` NestJS 권장 → Express 실태에 맞춰 갱신 ("기술 스택 (현재 구현 기준)" 절이 Express/socket.io/메모리 세션/bcryptjs/Docker Compose 기준으로 재작성됨)
 
 ---
 
@@ -335,10 +335,10 @@
 - [x] entities reconcile — 본문 편집으로 토큰 텍스트가 깨지면 자동 drop
 - [x] `MessageItem.tsx` — `renderBodyWithMentions`가 entities offset/length 기반 정확한 토큰 렌더 (CJK 안전). mention은 파란 pill, project/task/file은 다른 톤. legacy `mentions: string[]`도 fallback 유지
 
-### H-3. 멘션 알림 (Phase 6 와 연동) ⏳
+### H-3. 멘션 알림 (Phase 6 와 연동) ✅
 
 - [x] entities에 user mention 들어가는 부분까지 완료 (H-1)
-- [ ] 메시지 append 시 entities를 보고 user_notifications에 row 추가 + socket emit — Phase 6 014 마이그레이션 후 연결
+- [x] 메시지 append 시 entities를 보고 user_notifications에 row 추가 + socket emit — `server/src/notify.ts:67~117` 에서 mention 추출 → 별도 `mention` kind 로 `createMany` + `dispatchAll` (Phase 6 014 마이그레이션 적용 후 결선)
 
 ### H-4. AI 명령 — 백엔드 LLM 어댑터 (doc/09) ✅
 
@@ -411,8 +411,7 @@
 - [x] Topbar `NotificationBell` client component — 종 아이콘 + 미확인 배지 + popover inbox (최근 20). socket `notification:new` 구독 → 실시간 배지 갱신
 - [x] 알림 클릭 → markRead + link 라우팅. [모두 읽음] / [설정] 버튼
 - [x] `/account/notifications` 페이지 — 전체 토글 + 브라우저 OS 알림 + 웹 푸시 + 채팅방별 + 프로젝트별 토글. 변경 즉시 PATCH
-- [x] 브라우저 Notification API — 권한 요청 + `notification:new` 수신 시 `new Notification(title, {body})` (settings.browserEnabled 시)
-- [ ] 브라우저 Notification API — 사용자 권한 요청 + permission granted 시 `notification:new` 수신 시 `new Notification(title)` 호출
+- [x] 브라우저 Notification API — 권한 요청 + `notification:new` 수신 시 `new Notification(title, {body})` (settings.browserEnabled 시). `NotificationBell.tsx:41~46` (granted 체크 + new Notification) + `NotificationSettingsForm.tsx:38` (requestPermission). 위와 동일 항목이라 1행으로 통합 — 중복 미체크 행 정리.
 
 ### I-5. Web Push (PWA 푸시) ✅
 
@@ -535,13 +534,48 @@
 ## M. Phase 10 — 메시지 에디터 고급 (doc/19 Group G)
 
 **의존성**: Phase 5 멘션 (포맷 토큰 형태 통일).
-**예상 작업량**: 1~2주. **후순위**
+**예상 작업량**: 1~2주.
+**진행 상황 (2026-05-27 기준)**: 마크다운 입력·렌더링·이모지 picker 완료 →
+메시지→업무 / 예약 전송까지 마무리해 **Phase 10 종결**.
 
-- [ ] 마크다운 입력 — 굵게/기울임/목록 버튼 활성화 (`**bold**`, `*italic*`, `- list` 토큰 삽입)
-- [ ] MessageItem 의 body 렌더링을 마크다운 → HTML (sanitize 필수)
-- [ ] 이모지 picker — `emoji-picker-react` 등 라이브러리
-- [ ] **예약 전송** — `POST /api/v1/messages/schedule` + 백엔드 cron (또는 setTimeout in-process). 단일 인스턴스라면 OK
-- [ ] 메시지 → 업무 만들기 — Phase 5의 entities + AI 명령에서 자동 가능. 또는 hover 메뉴
+> **2026-05-27 재분류**: 이전 미체크 5개 항목 중 실제로는 3개가 구현 완료
+> 상태였음(drift). 라이브러리 도입 없이 React node 트리 + 커스텀 emoji
+> popover 로 구현 → `dompurify` / `sanitize-html` 미도입 (HTML 문자열 렌더
+> 경로 자체가 없음). 남은 2개 항목(메시지→업무, 예약 전송) 을 본 Phase
+> 마무리로 구현.
+
+### M-1. 마크다운 입력·렌더링 ✅
+
+- [x] 굵게/기울임/목록 버튼 활성화 — `apps/web/src/components/chat/MessageComposer.tsx` 의 `wrapSelection("**","**")`, `wrapSelection("*","*")`, `prefixLines("- ")`. mousedown + preventDefault 로 textarea selection 보존.
+- [x] MessageItem body 렌더링 — `apps/web/src/components/chat/MessageItem.tsx` 의 `renderMessageBody` + `renderMarkdownSegment` + `parseInlineMarkdown`. **React node 트리 반환** (dangerouslySetInnerHTML 미사용 → sanitize 라이브러리 불필요). entities(멘션) 영역은 마크다운 파싱에서 제외해 토큰 깨짐 방지.
+- [x] 지원 토큰: `**bold**`, `*italic*`, 줄 시작 `- ` 만. backslash escape / 중첩 / link / code 미지원 (사내 메신저 본문에 필요한 최소만).
+
+### M-2. 이모지 picker ✅
+
+- [x] 외부 라이브러리(`emoji-picker-react` 등) 도입하지 않고 커스텀 popover 로 구현 — `apps/web/src/components/chat/MessageComposer.tsx` 의 `EMOJI_GROUPS` 3그룹(업무/감정/자료) 큐레이션 + popover.
+- [x] 외부 클릭/Esc 닫기, textarea 포커스 유지(mousedown preventDefault), 캐럿 위치에 삽입 후 caret 복원.
+
+### M-3. 메시지 → 업무 만들기 ✅
+
+- [x] `MessageItem` hover action 에 "업무" 버튼 추가 — 프로젝트 방(projectId 있음)에서 writer 권한 보유 시에만 노출.
+- [x] `TaskCreateModal` props 확장 — `initialTitle?` / `initialDescription?`. 메시지 첫 줄 80자가 제목, 본문 전체가 설명으로 prefill.
+- [x] 생성 성공 후 `router.refresh()`. 서버는 기존 task create API 의 project access 검사를 그대로 사용.
+- [x] `MessageComposer` 의 dead 한 "업무 만들기" 툴바 버튼 제거 (action 이 hover 로 이동).
+
+### M-4. 예약 전송 (DB 영속) ✅
+
+> **결정 (2026-05-27)**: in-process setTimeout 방식은 서버 재시작·배포 시
+> 예약 메시지가 증발하는 운영 리스크가 있어 **DB 영속 + 1분 주기 poller**
+> 로 구현. 단일 VM 전제라 row lock 은 최소화(`sent_at IS NULL` guard 만).
+
+- [x] **마이그레이션 018_scheduled_messages.sql** — `scheduled_messages(id, room_id, user_id, content, entities JSONB, attachment_id, scheduled_at, sent_at, cancelled_at, error, created_at)` + 3개 인덱스 (due / room_id / user_id).
+- [x] `ScheduledMessageRepository` (메모리 + PG) — `create` / `listForUser` / `listDue` / `findById` / `markSent` / `markFailed` / `cancel`.
+- [x] Routes (`server/src/routes/scheduled-messages.ts`):
+  - `POST /api/v1/messages/schedule` — 멤버십 + 미래 시각 검증. attachment 권한 검증.
+  - `GET /api/v1/messages/scheduled?roomId=` — 본인 예약만 (sent/cancelled 제외).
+  - `DELETE /api/v1/messages/scheduled/:id` — 작성자 또는 admin/super_admin. 이미 보낸 건은 409.
+- [x] Poller (`server/src/scheduled-poller.ts`) — boot 시 시작, 60초 주기 recursive setTimeout. due row 를 `sent_at IS NULL` guard 로 갱신 후 일반 메시지 append 경로(`appendUserMessage` 헬퍼) 재사용. 전송 시점 멤버십 재확인 — 탈퇴 사용자/archive 방은 `error` 로 마킹.
+- [x] 프론트 UI — `MessageComposer` 의 "예약 전송" 버튼 활성화 + `ScheduleSendModal.tsx`. 한국어 검증 메시지, datetime-local 최소값 = 현재 시각.
 
 ---
 

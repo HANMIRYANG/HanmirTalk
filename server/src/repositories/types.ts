@@ -13,6 +13,7 @@ import type {
   CreateProductSpecInput,
   CreateProjectInput,
   CreateRoomInput,
+  CreateScheduledMessageInput,
   CreateTaskInput,
   CreateUserInput,
   Decision,
@@ -36,6 +37,7 @@ import type {
   Project,
   Room,
   SalesStatusEvent,
+  ScheduledMessage,
   TaskItem,
   UpdateDecisionInput,
   UpdateNotificationSettingsInput,
@@ -385,6 +387,35 @@ export interface InvitationRepository {
   delete(id: string): Promise<boolean>;
 }
 
+// Phase 10 M-4 — 예약 메시지. DB 영속이라 server 재시작에도 살아남음.
+// 1분 주기 poller 가 listDue 로 due row 를 가져와 일반 메시지 append 경로
+// 로 발사한 뒤 markSent 로 마감한다. 동시 인스턴스 가정 X (단일 VM, N-0).
+export interface ScheduledMessageRepository {
+  create(
+    input: CreateScheduledMessageInput,
+    author: { id: string }
+  ): Promise<ScheduledMessage>;
+  findById(id: string): Promise<ScheduledMessage | undefined>;
+  // 본인이 만든 예약. 기본은 sent/cancelled 제외 (pending 만). roomId 필터
+  // 가 있으면 그 방의 예약만 반환.
+  listForUser(
+    userId: string,
+    opts?: { roomId?: string; includeAll?: boolean }
+  ): Promise<ScheduledMessage[]>;
+  // Poller scan — scheduled_at <= now AND sent_at IS NULL AND
+  // cancelled_at IS NULL AND error IS NULL.
+  listDue(now: Date): Promise<ScheduledMessage[]>;
+  // 발사 성공 → sent_at = now. sent_at IS NULL guard 로 중복 방지 — 이미
+  // 표시되어 있으면 false 반환.
+  markSent(id: string, now: Date): Promise<boolean>;
+  // 실패 마킹 — error 만 채우고 retry 는 하지 않음 (단일 instance 라
+  // 누락 가능성이 낮고, 잘못된 row 의 무한 retry 위험이 더 큼).
+  markFailed(id: string, error: string): Promise<void>;
+  // 작성자/관리자 취소. 이미 sent 된 건은 false (전송 후 회수는 일반
+  // 메시지 삭제 흐름으로).
+  cancel(id: string, now: Date): Promise<boolean>;
+}
+
 // Phase 8 K-4 — 전사 기본 알림 정책 (카테고리별 회사 전체 게이트).
 export interface OrgNotificationRepository {
   // 6개 카테고리 전체를 반환 — 행이 없는 카테고리는 enabled:true.
@@ -415,4 +446,5 @@ export interface Repositories {
   refreshTokens: RefreshTokenRepository;
   invitations: InvitationRepository;
   orgNotifications: OrgNotificationRepository;
+  scheduledMessages: ScheduledMessageRepository;
 }

@@ -39,15 +39,19 @@ interface FormState {
   description: string;
 }
 
-const emptyForm = (defaultStatus: TaskStatus): FormState => ({
-  title: "",
+const emptyForm = (
+  defaultStatus: TaskStatus,
+  initialTitle?: string,
+  initialDescription?: string
+): FormState => ({
+  title: initialTitle ?? "",
   code: "",
   status: defaultStatus,
   priority: "normal",
   assigneeIds: [],
   dueDate: "",
   progress: "0",
-  description: ""
+  description: initialDescription ?? ""
 });
 
 interface TaskCreateModalProps {
@@ -56,6 +60,10 @@ interface TaskCreateModalProps {
   projectId: string;
   users: User[];
   defaultStatus?: TaskStatus;
+  // Phase 10 M-3 — 메시지 → 업무 만들기 흐름에서 prefill 값. 모달이 열릴 때
+  // 매번 form 을 리셋하므로 같은 값을 다시 넘기면 그대로 채워진다.
+  initialTitle?: string;
+  initialDescription?: string;
   onCreated?: (task: TaskItem) => void;
 }
 
@@ -75,19 +83,23 @@ export function TaskCreateModal({
   projectId,
   users,
   defaultStatus = "todo",
+  initialTitle,
+  initialDescription,
   onCreated
 }: TaskCreateModalProps) {
   const router = useRouter();
-  const [form, setForm] = useState<FormState>(() => emptyForm(defaultStatus));
+  const [form, setForm] = useState<FormState>(() =>
+    emptyForm(defaultStatus, initialTitle, initialDescription)
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
-      setForm(emptyForm(defaultStatus));
+      setForm(emptyForm(defaultStatus, initialTitle, initialDescription));
       setError(null);
     }
-  }, [open, defaultStatus]);
+  }, [open, defaultStatus, initialTitle, initialDescription]);
 
   const close = () => {
     if (submitting) return;
