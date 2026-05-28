@@ -8,7 +8,7 @@ import styles from "./ProjectHeader.module.css";
 interface ProjectHeaderProps {
   project: Project;
   variant?: "detail" | "compact";
-  activeTab: "overview" | "tasks" | "gantt" | "chat" | "files" | "decisions" | "settings";
+  activeTab: "overview" | "tasks" | "gantt" | "files" | "decisions" | "settings";
   rightActions?: React.ReactNode;
   // Phase 3 F-2c follow-up — the "결정 기록" tab points to a member-only
   // route. When provided, the header hides tabs the viewer can't reach
@@ -33,8 +33,6 @@ const TABS: TabDef[] = [
   { key: "overview", label: "개요", href: (id) => `/projects/${id}` },
   { key: "tasks", label: "업무", href: (id) => `/projects/${id}/tasks`, num: (p) => String(p.taskCounts.total) },
   { key: "gantt", label: "간트", href: (id) => `/projects/${id}/gantt` },
-  // TODO(chat): map project → its room id when project rooms are introduced.
-  { key: "chat", label: "대화", href: () => "/chat/r-p2410" },
   { key: "files", label: "파일", href: (id) => `/projects/${id}/files` },
   {
     key: "decisions",

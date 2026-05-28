@@ -477,7 +477,7 @@ const PROJECT_SELECT = `
 `;
 
 class PgProjectRepository implements ProjectRepository {
-  constructor(private readonly pool: Pool, private readonly _users: PgUserRepository) {}
+  constructor(private readonly pool: Pool) {}
 
   async list(): Promise<Project[]> {
     const { rows } = await this.pool.query<ProjectRow>(
@@ -2979,11 +2979,10 @@ class PgInvitationRepository implements InvitationRepository {
     expiresAt: string;
     invitedBy: { id: string };
   }): Promise<UserInvitation> {
-    const { rows } = await this.pool.query<{ id: string }>(
+    await this.pool.query(
       `INSERT INTO user_invitations
          (email, role, department_id, token, invited_by, expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id`,
+       VALUES ($1, $2, $3, $4, $5, $6)`,
       [
         input.email,
         input.role,
@@ -3082,7 +3081,7 @@ export function createPostgresRepositories(pool: Pool): Repositories {
     departments: new PgDepartmentRepository(pool),
     rooms: new PgRoomRepository(pool),
     messages: new PgMessageRepository(pool),
-    projects: new PgProjectRepository(pool, users),
+    projects: new PgProjectRepository(pool),
     tasks: new PgTaskRepository(pool),
     products: new PgProductRepository(pool),
     files: new PgFileRepository(pool),

@@ -12,7 +12,6 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",
     "@hanmir/shared": "*",
-    "@types/web-push": "^3.6.4",
     "bcryptjs": "^2.4.3",
     "cors": "2.8.5",
     "dotenv": "^17.4.2",
@@ -32,6 +31,7 @@
     "@types/node": "20.12.7",
     "@types/nodemailer": "^6.4.17",
     "@types/pg": "8.11.6",
+    "@types/web-push": "^3.6.4",
     "tsx": "4.16.2",
     "typescript": "5.4.5"
   }
