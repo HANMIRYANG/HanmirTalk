@@ -6,7 +6,9 @@ import type {
   Notice,
   Notification,
   PinnedMessageRef,
-  Room
+  ReactionUpdate,
+  Room,
+  ThreadSummary
 } from "@hanmir/shared";
 import { sessionStore } from "./auth/session";
 import { SESSION_COOKIE } from "./auth/token";
@@ -165,6 +167,51 @@ class Realtime {
 
   emitRoomPinChanged(roomId: string, pinned: PinnedMessageRef | null): void {
     this.io?.to(`room:${roomId}`).emit("room:pin", { roomId, pinned });
+  }
+
+  // Phase 11 — 답글 / 스레드 / 이모지 반응 emit. drawer 가 열려 있지
+  // 않은 클라이언트도 thread chip(count + 마지막 시각 + avatars) 만은
+  // 패치되도록 message:thread:updated 를 별도로 보낸다. drawer 가 열린
+  // 클라이언트는 message:reply:new/updated/deleted 로 답글 리스트를
+  // 갱신한다.
+  emitMessageReplyNew(roomId: string, parentMessageId: string, reply: ChatMessage): void {
+    this.io?.to(`room:${roomId}`).emit("message:reply:new", {
+      roomId,
+      parentMessageId,
+      reply
+    });
+  }
+
+  emitMessageReplyUpdated(
+    roomId: string,
+    parentMessageId: string,
+    reply: ChatMessage
+  ): void {
+    this.io?.to(`room:${roomId}`).emit("message:reply:updated", {
+      roomId,
+      parentMessageId,
+      reply
+    });
+  }
+
+  emitMessageReplyDeleted(
+    roomId: string,
+    parentMessageId: string,
+    reply: ChatMessage
+  ): void {
+    this.io?.to(`room:${roomId}`).emit("message:reply:deleted", {
+      roomId,
+      parentMessageId,
+      reply
+    });
+  }
+
+  emitMessageThreadUpdated(summary: ThreadSummary): void {
+    this.io?.to(`room:${summary.roomId}`).emit("message:thread:updated", summary);
+  }
+
+  emitMessageReactionUpdated(update: ReactionUpdate): void {
+    this.io?.to(`room:${update.roomId}`).emit("message:reaction:updated", update);
   }
 
   emitNoticeNew(notice: Notice): void {

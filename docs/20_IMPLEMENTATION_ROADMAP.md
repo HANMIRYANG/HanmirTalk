@@ -8,7 +8,7 @@
 
 ## A. 한 페이지 요약
 
-- **현재 위치**: Phase 0~10 완료 — 보안 코어 · 메시지 · 결정사항 · 채팅운영 · 멘션/AI · 알림 · 제품 부속 · 관리자 영역 · 통합 검색 · 메시지 에디터 고급(마크다운·이모지·메시지→업무·예약 전송)
+- **현재 위치**: Phase 0~11 완료 — 보안 코어 · 메시지 · 결정사항 · 채팅운영 · 멘션/AI · 알림 · 제품 부속 · 관리자 영역 · 통합 검색 · 메시지 에디터 고급 · 스레드 답글 + 이모지 반응 영속화
 - **남은 작업**: N·R절 운영 배포 — Proxmox VM, .env.prod, 백업 cron 등록, 복원 리허설
 - **이 문서의 사용법**: 작업 완료 시 해당 phase의 체크박스 ✅ 처리 → commit message에 `[Phase N]` 태그 사용
 - **선행조건 원칙**: schema 변경이 필요한 작업이 같은 컬럼/테이블을 건드리는 다른 작업보다 먼저 와야 함. 보안 코어는 외부 배포 전 끝나야 함.
@@ -579,7 +579,70 @@
 
 ---
 
-## N. 운영 배포 계획 (Phase 9 완료 후)
+## Phase 11 — 채팅 댓글/이모지 반응 영속화 (신규 감사, 2026-05-27) ✅ **완료 (2026-05-27)**
+
+**의존성**: Phase 2 메시지 수정/삭제, Phase 4 채팅방 멤버십 권한, Phase 6 알림/소켓, Phase 10 메시지 에디터 완료.
+**예상 작업량**: 3~5일 / **실제**: 0.5일
+**현 상태**: 마이그 019 + repo + 라우트 + realtime + ThreadDrawer/반응 토글 UI 완료.
+
+> **결정 사항**:
+> - 검색은 답글도 포함한다 (기존 `search` 쿼리가 `parent_message_id` 필터 없음). 결과의 `parentMessageId` 가 채워져 있으므로 프론트에서 parent room/message 로 라우팅 가능.
+> - 답글 작성기는 **텍스트 전용** v1. mention popover 는 `MessageComposer` 와의 중복 회피를 위해 후속 PR 에서 공유 hook 으로 추출 예정. 서버 entities 통신 경로는 그대로 유지 (forward-compat).
+> - 중첩 답글 (depth ≥ 2) 은 본 버전에서 거부 (`POST /messages/:id/replies` 가 400 `nested_reply_not_supported`).
+
+> **감사 결과**: `ChatMessage` 타입에는 `reactions`, `threadReplyCount`,
+> `threadLastReplyAt`, `threadReplyAvatars` 필드가 있고, `MessageItem` 은
+> 반응 chip 과 답글 요약 영역을 렌더링할 수 있다. 그러나 `message_reactions`
+> 테이블, 댓글/답글 API, reaction API, repository 메서드, socket event 가 없다.
+> 현재 seed/mock 데이터에만 값이 있어 보이는 구조이며 실제 운영 데이터에서는
+> 클릭해도 동작하지 않는 UI 스텁이다.
+
+### 11-A. 스키마 / 타입 ✅
+
+- [x] **마이그레이션 019_chat_threads_reactions.sql** — `messages.parent_message_id` 재사용 + 인덱스 2개 (`idx_messages_parent_created`, `idx_messages_room_parent_created`) + `message_reactions(message_id, user_id, emoji)` PK 테이블 + 보조 인덱스. FK 모두 ON DELETE CASCADE.
+- [x] shared types — `MessageReaction.reactedByMe?`, `ChatMessage.parentMessageId?` (검색 결과 라우팅용), `CreateReplyInput`, `ThreadSummary`, `ReactionUpdate`, `REACTION_EMOJI_ALLOWLIST` (6종 화이트리스트 single source of truth).
+
+### 11-B. 백엔드 — 댓글/답글 ✅
+
+- [x] `MessageRepository` 확장 — `listByRoom(roomId, viewerUserId?)` 는 top-level 만 반환 + thread aggregate(count / lastReplyAt / 최근 작성자 avatars 최대 3명) batch 부착. PG 는 별도 GROUP BY 쿼리, 메모리는 in-process scan. `findById` / `listReplies` / `appendReply` 추가.
+- [x] API — `GET /messages/:id/replies`, `POST /messages/:id/replies`. parent 가 답글이면 `nested_reply_not_supported` 400, parent 가 soft-deleted 면 `parent_deleted` 409.
+- [x] 기존 `PATCH /messages/:id` / `DELETE /messages/:id` 가 `message.parentMessageId` 를 보고 `message:reply:updated` / `:deleted` 로 emit. 삭제 시 `buildThreadSummary` 로 부모의 `message:thread:updated` 동시 emit → timeline chip 즉시 갱신.
+- [x] 권한 — `loadAccessibleMessage` 재사용으로 일관. 비멤버 404 위장.
+- [x] 실시간 — `message:reply:new`, `message:reply:updated`, `message:reply:deleted`, `message:thread:updated` 4종 emit (`realtime.ts`).
+- [x] 알림 — `notify.notifyReplyNew(repos, roomId, parent, reply)` 신설. parent 작성자(본인 답글 제외, 멘션과 이중 dispatch 회피) + 멘션 대상자(`mention` kind). 일반 메시지처럼 방 전체에 broadcast 하지 않음.
+
+### 11-C. 백엔드 — 이모지 반응 ✅
+
+- [x] `MessageReactionRepository` (메모리 + PG) — `add` / `remove` 분리, `listForMessage` / `listForMessages` (배치 N+1 회피). PG 는 `INSERT … ON CONFLICT DO NOTHING` 으로 idempotent, viewer 기준 `reactedByMe` 는 `BOOL_OR(user_id = $2)` 로 같은 GROUP 쿼리 안에서 계산.
+- [x] API — `PUT /messages/:id/reactions/:emoji`, `DELETE …`. URL-encoded emoji 를 decodeURIComponent 후 `REACTION_EMOJI_ALLOWLIST` 화이트리스트 검증(`415 unsupported_emoji`).
+- [x] 권한 — `loadAccessibleMessage` 재사용. soft-deleted 메시지에는 신규 추가 거부(`409 message_deleted`), 제거는 허용.
+- [x] 실시간 — `message:reaction:updated` (roomId/messageId/reactions[]) emit.
+
+### 11-D. 프론트 UI ✅
+
+- [x] `MessageItem` reaction chip → `<button>` 토글 + `+` 작은 popover (`REACTION_EMOJI_ALLOWLIST` 6종). `reactedByMe` 활성 스타일(`.reactMine` — 파란 배경). 외부 클릭/Esc 닫기.
+- [x] 답글 chip → `<button>`. 답글 0건일 때도 "답글 달기" 로 노출(읽기 권한자가 첫 답글 시작 가능). hover 시 강조.
+- [x] `ThreadDrawer.tsx` — 우측 고정 드로어. 부모 메시지 + 답글 목록 + 텍스트 composer. Enter 전송 / Shift+Enter 줄바꿈 / Esc 닫기. 자체 socket 리스너로 `message:reply:*` patch (drawer-only local state).
+- [x] `ChatRoomMessages.tsx` (신규 client wrapper) — drawer state 보관, parent 가 삭제되면 자동 닫기.
+- [x] `ChatRoomMounter` 가 `message:thread:updated` / `message:reaction:updated` 수신 → `router.refresh()`. drawer 와 timeline 이 각각 patch / refresh 로 분리.
+
+### 11-E. QA / 문서 ✅
+
+- [x] 자동 검증 — `npm run typecheck` / `npm --workspace @hanmir/server run build` / `npm --workspace apps/web run lint` 모두 pass.
+- [x] 권한 — `loadAccessibleMessage` 재사용으로 일관, 비멤버 404. 작성자만 답글 PATCH, 작성자/admin 삭제, 삭제된 parent 에 답글 차단.
+- [x] 회귀 — 기존 메시지 전송/수정/삭제/핀/멘션/예약 전송 영향 없음 (typecheck/lint 통과). 검색은 reply 포함 (frontend 결과 카드에서 `parentMessageId` 채워진 경우 deep-link 활용 가능).
+- [x] README 기능 구현 현황 요약 갱신.
+- [x] 마이그레이션 예약표의 019 항목을 `(완료) Phase 11` 로 변경 (아래 P절 참조).
+
+### 11-F. 알려진 한계
+
+- 답글 composer 의 mention popover 는 첫 버전에서 미구현 (MessageComposer 의 @-picker 와의 코드 중복 회피). 본문에 raw `@이름` 을 적어도 entities 가 비어 있어 mention notification 은 발사되지 않는다. 후속 PR 에서 `useMentionPicker` 공유 hook 으로 추출 후 양쪽 적용 예정.
+- 중첩 답글(스레드 안의 스레드) 미지원. UI 가 depth 1 만 가정해 thread aggregate 가 정확하다.
+- 검색 결과 UI 에서 `parentMessageId` 가 채워진 결과를 별도 표기하지 않는다. 클릭 시 parent room 으로는 이동하지만 어떤 답글인지 시각적 hint 가 약함 — 후속 개선.
+
+---
+
+## N. 운영 배포 계획 (Phase 11 완료 후)
 
 ### N-0. 배포 아키텍처 (2026-05-20 확정)
 
@@ -708,6 +771,8 @@
 | 015 | product_specs / product_lots / sales_status_events | (완료) Phase 7 |
 | 016 | user_invitations | (완료) Phase 8 K-2 |
 | 017 | org_notification_defaults | (완료) Phase 8 K-4 |
+| 018 | scheduled_messages | (완료) Phase 10 M-4 |
+| 019 | chat threads + message_reactions | (완료) Phase 11 |
 
 ---
 

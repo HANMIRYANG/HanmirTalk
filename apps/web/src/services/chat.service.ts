@@ -1,10 +1,12 @@
 import type {
   ChatMessage,
+  CreateReplyInput,
   CreateRoomInput,
   CreateScheduledMessageInput,
   MentionSearchResult,
   MentionSearchScope,
   MessageEntity,
+  MessageReaction,
   PinnedMessageRef,
   Room,
   ScheduledMessage,
@@ -279,5 +281,60 @@ export const chatService = {
       `/messages/scheduled/${encodeURIComponent(id)}`,
       { method: "DELETE", token: opts.token }
     );
+  },
+
+  // ── Phase 11 — 스레드 답글 ─────────────────────────────────────────
+
+  async listReplies(
+    parentMessageId: string,
+    opts: AuthOptions = {}
+  ): Promise<ChatMessage[]> {
+    const response = await apiRequest<{ results: ChatMessage[] }>(
+      `/messages/${encodeURIComponent(parentMessageId)}/replies`,
+      { token: opts.token }
+    );
+    return response.results;
+  },
+
+  async createReply(
+    parentMessageId: string,
+    input: CreateReplyInput,
+    opts: AuthOptions = {}
+  ): Promise<ChatMessage> {
+    return apiRequest<ChatMessage>(
+      `/messages/${encodeURIComponent(parentMessageId)}/replies`,
+      {
+        method: "POST",
+        body: input,
+        token: opts.token,
+        expectStatus: [201]
+      }
+    );
+  },
+
+  // ── Phase 11 — 이모지 반응 ─────────────────────────────────────────
+
+  async addReaction(
+    messageId: string,
+    emoji: string,
+    opts: AuthOptions = {}
+  ): Promise<MessageReaction[]> {
+    const response = await apiRequest<{ ok: boolean; reactions: MessageReaction[] }>(
+      `/messages/${encodeURIComponent(messageId)}/reactions/${encodeURIComponent(emoji)}`,
+      { method: "PUT", token: opts.token }
+    );
+    return response.reactions;
+  },
+
+  async removeReaction(
+    messageId: string,
+    emoji: string,
+    opts: AuthOptions = {}
+  ): Promise<MessageReaction[]> {
+    const response = await apiRequest<{ ok: boolean; reactions: MessageReaction[] }>(
+      `/messages/${encodeURIComponent(messageId)}/reactions/${encodeURIComponent(emoji)}`,
+      { method: "DELETE", token: opts.token }
+    );
+    return response.reactions;
   }
 };

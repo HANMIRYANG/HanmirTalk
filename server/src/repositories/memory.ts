@@ -37,6 +37,7 @@ import type {
   ProductLot,
   ProductSpec,
   Project,
+  MessageReaction,
   Room,
   SalesStatusEvent,
   ScheduledMessage,
@@ -78,6 +79,7 @@ import type {
   FileRepository,
   InvitationRepository,
   IssuedRefreshToken,
+  MessageReactionRepository,
   MessageRepository,
   NoticeRepository,
   NotificationRepository,
@@ -461,6 +463,71 @@ class MemoryRoomRepository implements RoomRepository {
   }
 }
 
+// Phase 11 — 이모지 반응 (메모리). (messageId, userId, emoji) tuple 세트.
+class MemoryMessageReactionRepository implements MessageReactionRepository {
+  // messageId -> Map<userId, Set<emoji>>. 한 사용자가 같은 이모지를 두 번
+  // 누르면 두 번째 add 는 false (no-op).
+  private readonly rows = new Map<string, Map<string, Set<string>>>();
+
+  async add(messageId: string, userId: string, emoji: string): Promise<boolean> {
+    let byUser = this.rows.get(messageId);
+    if (!byUser) {
+      byUser = new Map();
+      this.rows.set(messageId, byUser);
+    }
+    let emojis = byUser.get(userId);
+    if (!emojis) {
+      emojis = new Set();
+      byUser.set(userId, emojis);
+    }
+    if (emojis.has(emoji)) return false;
+    emojis.add(emoji);
+    return true;
+  }
+
+  async remove(messageId: string, userId: string, emoji: string): Promise<boolean> {
+    const byUser = this.rows.get(messageId);
+    if (!byUser) return false;
+    const emojis = byUser.get(userId);
+    if (!emojis || !emojis.has(emoji)) return false;
+    emojis.delete(emoji);
+    if (emojis.size === 0) byUser.delete(userId);
+    if (byUser.size === 0) this.rows.delete(messageId);
+    return true;
+  }
+
+  async listForMessage(
+    messageId: string,
+    viewerUserId?: string
+  ): Promise<MessageReaction[]> {
+    const counts = new Map<string, { count: number; mine: boolean }>();
+    const byUser = this.rows.get(messageId);
+    if (!byUser) return [];
+    for (const [userId, emojis] of byUser) {
+      for (const emoji of emojis) {
+        const cur = counts.get(emoji) ?? { count: 0, mine: false };
+        cur.count += 1;
+        if (viewerUserId && userId === viewerUserId) cur.mine = true;
+        counts.set(emoji, cur);
+      }
+    }
+    return Array.from(counts.entries())
+      .map(([emoji, v]) => ({ emoji, count: v.count, reactedByMe: v.mine || undefined }))
+      .sort((a, b) => b.count - a.count);
+  }
+
+  async listForMessages(
+    messageIds: string[],
+    viewerUserId?: string
+  ): Promise<Map<string, MessageReaction[]>> {
+    const out = new Map<string, MessageReaction[]>();
+    for (const id of messageIds) {
+      out.set(id, await this.listForMessage(id, viewerUserId));
+    }
+    return out;
+  }
+}
+
 class MemoryMessageRepository implements MessageRepository {
   private readonly data: Record<string, ChatMessage[]> = clone(seedMessages);
   // userId -> roomId -> lastReadMessageId
@@ -468,6 +535,10 @@ class MemoryMessageRepository implements MessageRepository {
   // roomId -> messageId of the pinned message. Seeded so the demo chat
   // banner still has something to show on r-p2410.
   private readonly pinnedByRoom = new Map<string, string>();
+  // Phase 11 — reactions repo 주입. 리포 간 의존이 한 방향(messages →
+  // reactions) 이라 cycle 없음. listByRoom/listReplies/findById 에서
+  // 결과에 reactions[] 를 채울 때만 사용.
+  private reactionsRepo: MessageReactionRepository | undefined;
 
   constructor() {
     // Carry the seed "pinned" demo content over to the new structure by
@@ -481,17 +552,81 @@ class MemoryMessageRepository implements MessageRepository {
     }
   }
 
+  setReactionsRepo(repo: MessageReactionRepository): void {
+    this.reactionsRepo = repo;
+  }
+
+  // 모든 방 / 모든 자식에서 parent_message_id = parentId 인 메시지를 모은다.
+  private collectReplies(parentMessageId: string): ChatMessage[] {
+    const out: ChatMessage[] = [];
+    for (const list of Object.values(this.data)) {
+      for (const m of list) {
+        if (m.parentMessageId === parentMessageId) out.push(m);
+      }
+    }
+    out.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return out;
+  }
+
+  // 부모 메시지에 thread aggregate(count / lastReplyAt / avatars) 를 채워준다.
+  // soft-deleted 답글은 count/last/avatars 모두에서 제외.
+  private decorateThread(message: ChatMessage): ChatMessage {
+    if (message.parentMessageId) return message; // 답글 자체는 aggregate 없음
+    const replies = this.collectReplies(message.id).filter((r) => !r.isDeleted);
+    if (replies.length === 0) return message;
+    const last = replies[replies.length - 1];
+    // 최근 답글 작성자 기준으로 distinct, 최대 3명.
+    const seen = new Set<string>();
+    const avatars: { initials: string; tone?: User["avatarTone"] }[] = [];
+    for (let i = replies.length - 1; i >= 0 && avatars.length < 3; i -= 1) {
+      const r = replies[i];
+      if (seen.has(r.authorId)) continue;
+      seen.add(r.authorId);
+      avatars.push({ initials: r.initials, tone: r.avatarTone });
+    }
+    return {
+      ...message,
+      threadReplyCount: replies.length,
+      threadLastReplyAt: last.createdAt,
+      threadReplyAvatars: avatars
+    };
+  }
+
+  private async decorateReactions(
+    messages: ChatMessage[],
+    viewerUserId?: string
+  ): Promise<ChatMessage[]> {
+    if (!this.reactionsRepo || messages.length === 0) return messages;
+    const ids = messages.map((m) => m.id);
+    const map = await this.reactionsRepo.listForMessages(ids, viewerUserId);
+    return messages.map((m) => {
+      const list = map.get(m.id);
+      if (!list || list.length === 0) {
+        // seed 메시지의 hard-coded reactions[] 는 그대로 둔다 (역사적 더미
+        // 데이터 노출). 실제 add/remove 가 일어난 메시지는 위 map 결과로
+        // 덮어쓴다.
+        return m;
+      }
+      return { ...m, reactions: list };
+    });
+  }
+
   unreadCount(roomId: string, userId: string): number {
     const list = this.data[roomId];
     if (!list || list.length === 0) return 0;
+    // Phase 11 — ChatList unread 배지는 timeline(top-level) 만 카운트.
+    // 답글은 drawer 안에서만 보이고 알림(notification:new) 으로 따로 알려지
+    // 므로 ChatList 배지에 끼면 사용자가 timeline 만 보고 닫아도 배지가
+    // 사라지지 않는 잔류가 생긴다 (PG 어댑터와 동일 정책).
+    const topLevel = list.filter((m) => !m.parentMessageId);
     const lastId = this.lastRead.get(userId)?.get(roomId);
     if (!lastId) {
-      // Never marked read: every message not authored by this user counts.
-      return list.filter((m) => m.authorId !== userId).length;
+      // Never marked read: every top-level not authored by this user counts.
+      return topLevel.filter((m) => m.authorId !== userId).length;
     }
-    const idx = list.findIndex((m) => m.id === lastId);
-    if (idx === -1) return list.filter((m) => m.authorId !== userId).length;
-    return list.slice(idx + 1).filter((m) => m.authorId !== userId).length;
+    const idx = topLevel.findIndex((m) => m.id === lastId);
+    if (idx === -1) return topLevel.filter((m) => m.authorId !== userId).length;
+    return topLevel.slice(idx + 1).filter((m) => m.authorId !== userId).length;
   }
 
   getPinnedId(roomId: string): string | undefined {
@@ -508,18 +643,35 @@ class MemoryMessageRepository implements MessageRepository {
     return undefined;
   }
 
-  async listByRoom(roomId: string): Promise<ChatMessage[]> {
-    return (this.data[roomId] ?? []).map(maskIfDeleted);
+  async listByRoom(roomId: string, viewerUserId?: string): Promise<ChatMessage[]> {
+    // Phase 11 — top-level 만 반환 + thread aggregate. 답글은 listReplies.
+    const topLevel = (this.data[roomId] ?? [])
+      .filter((m) => !m.parentMessageId)
+      .map(maskIfDeleted)
+      .map((m) => this.decorateThread(m));
+    return this.decorateReactions(topLevel, viewerUserId);
   }
 
-  async findById(messageId: string): Promise<ChatMessage | undefined> {
+  async findById(messageId: string, viewerUserId?: string): Promise<ChatMessage | undefined> {
     // O(N) scan across all rooms is fine at MVP volume; PG adapter uses a
     // proper indexed lookup.
     for (const list of Object.values(this.data)) {
       const hit = list.find((m) => m.id === messageId);
-      if (hit) return maskIfDeleted(hit);
+      if (hit) {
+        const masked = this.decorateThread(maskIfDeleted(hit));
+        const [withReactions] = await this.decorateReactions([masked], viewerUserId);
+        return withReactions;
+      }
     }
     return undefined;
+  }
+
+  async listReplies(
+    parentMessageId: string,
+    viewerUserId?: string
+  ): Promise<ChatMessage[]> {
+    const replies = this.collectReplies(parentMessageId).map(maskIfDeleted);
+    return this.decorateReactions(replies, viewerUserId);
   }
 
   async append(
@@ -532,6 +684,17 @@ class MemoryMessageRepository implements MessageRepository {
     const list = this.data[roomId] ?? (this.data[roomId] = []);
     list.push(message);
     return clone(message);
+  }
+
+  async appendReply(
+    parentMessageId: string,
+    message: ChatMessage,
+    opts?: { attachmentId?: string }
+  ): Promise<ChatMessage> {
+    // 메모리: 부모의 roomId 를 찾아 같은 방에 저장하고 parentMessageId 만
+    // 박는다. 라우트가 이미 parent 존재 검증을 거쳤다.
+    const stored: ChatMessage = { ...message, parentMessageId };
+    return this.append(message.roomId, stored, opts);
   }
 
   async updateBody(messageId: string, body: string): Promise<ChatMessage | undefined> {
@@ -2143,6 +2306,10 @@ export function createMemoryRepositories(): Repositories {
   notices.setUserAccessor(() => users._data);
   const rooms = new MemoryRoomRepository();
   const messages = new MemoryMessageRepository();
+  // Phase 11 — 이모지 반응 repo. MessageRepository 가 listByRoom 결과에
+  // reactions[] 를 채울 때 사용 (배치 lookup).
+  const messageReactions = new MemoryMessageReactionRepository();
+  messages.setReactionsRepo(messageReactions);
   // Rooms decorate themselves with per-user unread + pinned message id from
   // the message repo; wire that here.
   rooms.setMessageAccessor(messages);
@@ -2215,6 +2382,7 @@ export function createMemoryRepositories(): Repositories {
     refreshTokens: new MemoryRefreshTokenRepository(),
     invitations,
     orgNotifications,
-    scheduledMessages
+    scheduledMessages,
+    messageReactions
   };
 }

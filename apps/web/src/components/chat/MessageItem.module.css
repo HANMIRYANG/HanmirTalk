@@ -101,19 +101,72 @@
 .fileMeta { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
 .fileActions { margin-left: auto; display: flex; gap: 4px; align-self: center; }
 
-.reactions { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+.reactions {
+  margin-top: 8px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  position: relative;
+}
 .react {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 2px 8px; font-size: 12px;
   background: var(--brand-blue-50); color: var(--brand-blue);
   border-radius: var(--r-pill); font-weight: 600;
   border: 1px solid transparent;
+  cursor: pointer;
+  font-family: inherit;
 }
+.react:hover:not(:disabled) {
+  filter: brightness(0.97);
+}
+.react:disabled { cursor: default; opacity: 0.6; }
+
+/* 본인이 박은 반응 — 윤곽을 강조해 토글 상태가 명확히 보이도록. */
+.reactMine {
+  border-color: var(--brand-blue);
+  background: var(--brand-blue);
+  color: white;
+}
+
 .reactPlain {
   background: var(--surface);
   color: var(--text-2);
   border-color: var(--border);
   font-weight: 500;
+}
+
+/* Phase 11 — + 클릭 시 떨어지는 작은 popover. 메시지 영역 안에 absolute
+ * 로 띄워 다른 메시지 위로 살짝 겹친다. emoji-picker-react 등 외부 라이브
+ * 러리는 도입하지 않고 화이트리스트 6종만 노출. */
+.reactPopover {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+.reactPopoverItem {
+  width: 28px;
+  height: 28px;
+  font-size: 16px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+.reactPopoverItem:hover {
+  background: var(--surface-muted);
+  border-color: var(--border);
 }
 
 .thread {
@@ -125,7 +178,16 @@
   border-radius: var(--r-sm);
   background: var(--surface);
   cursor: pointer;
+  font-family: inherit;
 }
+.thread:hover { background: var(--surface-muted); }
+/* 답글 0개일 때는 평소엔 살짝 가라앉아 있다가 hover 시 부각. */
+.threadEmpty {
+  color: var(--text-3);
+  font-weight: 500;
+  opacity: 0.72;
+}
+.threadEmpty:hover { opacity: 1; color: var(--brand-blue); font-weight: 600; }
 .threadAvatars { display: flex; }
 .threadAvatar {
   width: 16px; height: 16px; font-size: 8px;

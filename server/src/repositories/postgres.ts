@@ -44,6 +44,7 @@ import type {
   FileFolder,
   ListFilesFilter,
   MessageEntity,
+  MessageReaction,
   Notice,
   NoticeReadStatus,
   NoticeReadStatusEntry,
@@ -94,6 +95,7 @@ import type {
   FileRepository,
   InvitationRepository,
   IssuedRefreshToken,
+  MessageReactionRepository,
   MessageRepository,
   NoticeRepository,
   NotificationRepository,
@@ -845,15 +847,21 @@ const ROOM_SELECT = `
          FROM room_members rm WHERE rm.room_id = r.id),
       ARRAY[]::VARCHAR[]
     ) AS member_roles,
+    -- Phase 11 — ChatList 의 last_message_* 는 timeline(top-level) 만
+    -- 반영. 답글이 latest 면 사용자가 timeline 에서 같은 본문을 찾을 수
+    -- 없어 혼란스럽다. drawer 안의 활동은 별도 카운트/preview 없음.
     (SELECT m.created_at FROM messages m
        WHERE m.room_id = r.id AND NOT m.is_deleted
+         AND m.parent_message_id IS NULL
        ORDER BY m.created_at DESC LIMIT 1) AS last_message_at,
     (SELECT m.content FROM messages m
        WHERE m.room_id = r.id AND NOT m.is_deleted
+         AND m.parent_message_id IS NULL
        ORDER BY m.created_at DESC LIMIT 1) AS last_message_preview,
     (SELECT u.name FROM messages m
        JOIN users u ON u.id = m.user_id
        WHERE m.room_id = r.id AND NOT m.is_deleted
+         AND m.parent_message_id IS NULL
        ORDER BY m.created_at DESC LIMIT 1) AS last_message_author,
     -- Per-user mute. NULL when caller has no room_members row; UI treats
     -- NULL as "not muted" anyway. notification_enabled=false ⇒ muted.
@@ -862,6 +870,9 @@ const ROOM_SELECT = `
     -- Unread = messages newer than this user's last_read_message and not
     -- authored by them. last_read_message resolves via room_members; when
     -- the user has no row, we treat every foreign message as unread.
+    -- Phase 11 — 답글은 ChatList unread 배지에서 제외 (timeline 의 markRead
+    -- 가 latest top-level id 만 추적하기 때문 — preview 와 일관). 답글의
+    -- "안 봤음" 신호는 알림(notification:new) 으로 따로 전달된다.
     CASE
       WHEN $1::UUID IS NULL THEN 0
       ELSE (
@@ -869,6 +880,7 @@ const ROOM_SELECT = `
         WHERE mu.room_id = r.id
           AND NOT mu.is_deleted
           AND mu.user_id <> $1
+          AND mu.parent_message_id IS NULL
           AND mu.created_at > COALESCE(
             (SELECT mm.created_at FROM messages mm
               WHERE mm.id = (
@@ -1091,6 +1103,8 @@ interface MessageRow {
   attachment_name: string | null;
   attachment_size: string | number | null;
   attachment_type: string | null;
+  // Phase 11 — 답글 식별자.
+  parent_message_id: string | null;
 }
 
 function rowToMessage(row: MessageRow): ChatMessage {
@@ -1137,7 +1151,8 @@ function rowToMessage(row: MessageRow): ChatMessage {
     entities: entities && entities.length > 0 ? entities : undefined,
     aiGenerated: row.ai_generated || undefined,
     aiCommand: row.ai_command ?? undefined,
-    sourceMessageIds: row.source_message_ids ?? undefined
+    sourceMessageIds: row.source_message_ids ?? undefined,
+    parentMessageId: row.parent_message_id ?? undefined
   };
   if (!isDeleted && row.attachment_id && row.attachment_name) {
     // 이미 깨진 채로 저장된 legacy row 의 사후 보정. ASCII / 정상 한글에는
@@ -1157,7 +1172,7 @@ const MESSAGE_SELECT = `
   SELECT
     m.id, m.room_id, m.user_id, m.content, m.message_type, m.created_at,
     m.edited_at, m.is_deleted, m.entities, m.ai_generated, m.ai_command,
-    m.source_message_ids,
+    m.source_message_ids, m.parent_message_id,
     u.name AS author_name, u.position AS author_position,
     u.avatar_tone AS author_avatar_tone, u.initials AS author_initials,
     d.name AS author_department,
@@ -1176,24 +1191,148 @@ const MESSAGE_SELECT = `
 `;
 
 class PgMessageRepository implements MessageRepository {
-  constructor(private readonly pool: Pool) {}
+  // Phase 11 — reactions 배치 lookup + thread aggregate 가 가능하도록
+  // 같은 pool 을 공유한다. reactions repo 는 옵션 — 미주입 시 reactions
+  // decoration 만 생략 (테스트/마이그 미반영 환경 보호).
+  constructor(
+    private readonly pool: Pool,
+    private readonly reactions?: MessageReactionRepository
+  ) {}
 
-  async listByRoom(roomId: string): Promise<ChatMessage[]> {
-    // Phase 2 E-1 — include soft-deleted rows so the conversation flow
-    // stays intact (tombstone). rowToMessage masks the body.
-    const { rows } = await this.pool.query<MessageRow>(
-      `${MESSAGE_SELECT} WHERE m.room_id = $1 ORDER BY m.created_at ASC`,
-      [roomId]
+  // Phase 11 — top-level 메시지들에 thread aggregate (count / lastReplyAt /
+  // 최근 답글 작성자 avatars 최대 3명) 를 batch 로 채운다. soft-deleted 답글
+  // 은 제외. parent_message_id 인덱스(019_idx_messages_parent_created) 가
+  // 활용된다.
+  private async decorateThreads(messages: ChatMessage[]): Promise<ChatMessage[]> {
+    if (messages.length === 0) return messages;
+    const parentIds = messages.filter((m) => !m.parentMessageId).map((m) => m.id);
+    if (parentIds.length === 0) return messages;
+    // 1) count + last_reply_at 집계 + 최근 작성자 3명(distinct user_id, 최근순)
+    const { rows: aggRows } = await this.pool.query<{
+      parent_id: string;
+      reply_count: string | number;
+      last_reply_at: Date | null;
+      avatars_json: unknown;
+    }>(
+      // 최근 답글 작성자 3명 (distinct user_id, 가장 최근 답글 시각 순).
+      // 이전 버전은 DISTINCT ON (user_id) + ORDER BY user_id, created_at
+      // DESC + LIMIT 3 라서 user_id 정렬상 앞 3명이 뽑혔다. 사용자별 최신
+      // 시각을 먼저 GROUP BY 로 구한 뒤 바깥에서 ORDER BY max_at DESC LIMIT
+      // 3 로 정확히 "가장 최근에 답글 단 3명" 을 얻는다. json_agg 의
+      // ORDER BY 가 응답 배열 순서까지 보장한다.
+      `SELECT
+         r.parent_message_id AS parent_id,
+         COUNT(*) AS reply_count,
+         MAX(r.created_at) AS last_reply_at,
+         (
+           SELECT json_agg(
+                    json_build_object('initials', u2.initials, 'tone', u2.avatar_tone)
+                    ORDER BY recent.max_at DESC
+                  )
+           FROM (
+             SELECT r2.user_id, MAX(r2.created_at) AS max_at
+             FROM messages r2
+             WHERE r2.parent_message_id = r.parent_message_id
+               AND NOT r2.is_deleted
+             GROUP BY r2.user_id
+             ORDER BY max_at DESC
+             LIMIT 3
+           ) recent
+           JOIN users u2 ON u2.id = recent.user_id
+         ) AS avatars_json
+       FROM messages r
+       WHERE r.parent_message_id = ANY($1::uuid[])
+         AND NOT r.is_deleted
+       GROUP BY r.parent_message_id`,
+      [parentIds]
     );
-    return rows.map(rowToMessage);
+    const byParent = new Map<string, { count: number; lastAt: string; avatars: { initials: string; tone?: string }[] }>();
+    for (const r of aggRows) {
+      const avatars = Array.isArray(r.avatars_json) ? r.avatars_json : [];
+      byParent.set(r.parent_id, {
+        count: Number(r.reply_count) || 0,
+        lastAt: r.last_reply_at
+          ? r.last_reply_at instanceof Date
+            ? r.last_reply_at.toISOString()
+            : String(r.last_reply_at)
+          : "",
+        avatars: avatars
+          .filter((a): a is Record<string, unknown> => typeof a === "object" && a !== null)
+          .map((a) => ({
+            initials: String(a.initials ?? ""),
+            tone: a.tone ? String(a.tone) : undefined
+          }))
+      });
+    }
+    return messages.map((m) => {
+      const agg = byParent.get(m.id);
+      if (!agg || agg.count === 0) return m;
+      return {
+        ...m,
+        threadReplyCount: agg.count,
+        threadLastReplyAt: agg.lastAt || undefined,
+        threadReplyAvatars: agg.avatars.map((a) => ({
+          initials: a.initials,
+          tone: a.tone as ChatMessage["avatarTone"]
+        }))
+      };
+    });
   }
 
-  async findById(messageId: string): Promise<ChatMessage | undefined> {
+  private async decorateReactions(
+    messages: ChatMessage[],
+    viewerUserId?: string
+  ): Promise<ChatMessage[]> {
+    if (!this.reactions || messages.length === 0) return messages;
+    const ids = messages.map((m) => m.id);
+    const map = await this.reactions.listForMessages(ids, viewerUserId);
+    return messages.map((m) => {
+      const list = map.get(m.id);
+      if (!list || list.length === 0) return m;
+      return { ...m, reactions: list };
+    });
+  }
+
+  async listByRoom(roomId: string, viewerUserId?: string): Promise<ChatMessage[]> {
+    // Phase 2 E-1 — include soft-deleted rows so the conversation flow
+    // stays intact (tombstone). rowToMessage masks the body.
+    // Phase 11 — top-level only (parent_message_id IS NULL). 답글은
+    // listReplies 로 별도 조회.
+    const { rows } = await this.pool.query<MessageRow>(
+      `${MESSAGE_SELECT}
+       WHERE m.room_id = $1 AND m.parent_message_id IS NULL
+       ORDER BY m.created_at ASC`,
+      [roomId]
+    );
+    const messages = rows.map(rowToMessage);
+    const withThreads = await this.decorateThreads(messages);
+    return this.decorateReactions(withThreads, viewerUserId);
+  }
+
+  async findById(messageId: string, viewerUserId?: string): Promise<ChatMessage | undefined> {
     const { rows } = await this.pool.query<MessageRow>(
       `${MESSAGE_SELECT} WHERE m.id = $1`,
       [messageId]
     );
-    return rows[0] ? rowToMessage(rows[0]) : undefined;
+    if (!rows[0]) return undefined;
+    const msg = rowToMessage(rows[0]);
+    const [withThread] = await this.decorateThreads([msg]);
+    const [withReactions] = await this.decorateReactions([withThread], viewerUserId);
+    return withReactions;
+  }
+
+  async listReplies(
+    parentMessageId: string,
+    viewerUserId?: string
+  ): Promise<ChatMessage[]> {
+    const { rows } = await this.pool.query<MessageRow>(
+      `${MESSAGE_SELECT}
+       WHERE m.parent_message_id = $1
+       ORDER BY m.created_at ASC`,
+      [parentMessageId]
+    );
+    const messages = rows.map(rowToMessage);
+    return this.decorateReactions(messages, viewerUserId);
   }
 
   async updateBody(messageId: string, body: string): Promise<ChatMessage | undefined> {
@@ -1249,16 +1388,19 @@ class PgMessageRepository implements MessageRepository {
     return rows.map(rowToMessage);
   }
 
-  async append(
+  // Phase 11 — append 와 appendReply 가 같은 row INSERT 흐름을 공유한다.
+  // 둘 다 본 헬퍼로 위임하고, parent_message_id 만 다르게 박는다.
+  private async insertMessageRow(
     roomId: string,
     message: ChatMessage,
+    parentMessageId: string | null,
     opts?: { attachmentId?: string }
   ): Promise<ChatMessage> {
     const { rows } = await this.pool.query<{ id: string }>(
       `INSERT INTO messages
          (room_id, user_id, content, message_type, entities, ai_generated,
-          ai_command, source_message_ids)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)
+          ai_command, source_message_ids, parent_message_id)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)
        RETURNING id`,
       [
         roomId,
@@ -1268,7 +1410,8 @@ class PgMessageRepository implements MessageRepository {
         JSON.stringify(message.entities ?? []),
         message.aiGenerated ?? false,
         message.aiCommand ?? null,
-        message.sourceMessageIds ?? null
+        message.sourceMessageIds ?? null,
+        parentMessageId
       ]
     );
     const newId = rows[0].id;
@@ -1291,6 +1434,22 @@ class PgMessageRepository implements MessageRepository {
       throw new Error("[postgres] failed to read back appended message");
     }
     return rowToMessage(persisted[0]);
+  }
+
+  async append(
+    roomId: string,
+    message: ChatMessage,
+    opts?: { attachmentId?: string }
+  ): Promise<ChatMessage> {
+    return this.insertMessageRow(roomId, message, null, opts);
+  }
+
+  async appendReply(
+    parentMessageId: string,
+    message: ChatMessage,
+    opts?: { attachmentId?: string }
+  ): Promise<ChatMessage> {
+    return this.insertMessageRow(message.roomId, message, parentMessageId, opts);
   }
 
   async markRead(roomId: string, userId: string, lastMessageId: string): Promise<void> {
@@ -3270,13 +3429,85 @@ class PgScheduledMessageRepository implements ScheduledMessageRepository {
   }
 }
 
+// Phase 11 — 이모지 반응 (Postgres). 동일 emoji 의 중복 추가는 PK
+// (message_id, user_id, emoji) 충돌이므로 INSERT … ON CONFLICT DO NOTHING
+// 로 idempotent. 토글 UX 는 라우트가 PUT/DELETE 로 처리한다.
+class PgMessageReactionRepository implements MessageReactionRepository {
+  constructor(private readonly pool: Pool) {}
+
+  async add(messageId: string, userId: string, emoji: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      `INSERT INTO message_reactions (message_id, user_id, emoji)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (message_id, user_id, emoji) DO NOTHING`,
+      [messageId, userId, emoji]
+    );
+    return (rowCount ?? 0) > 0;
+  }
+
+  async remove(messageId: string, userId: string, emoji: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      `DELETE FROM message_reactions
+        WHERE message_id = $1 AND user_id = $2 AND emoji = $3`,
+      [messageId, userId, emoji]
+    );
+    return (rowCount ?? 0) > 0;
+  }
+
+  async listForMessage(
+    messageId: string,
+    viewerUserId?: string
+  ): Promise<MessageReaction[]> {
+    const map = await this.listForMessages([messageId], viewerUserId);
+    return map.get(messageId) ?? [];
+  }
+
+  async listForMessages(
+    messageIds: string[],
+    viewerUserId?: string
+  ): Promise<Map<string, MessageReaction[]>> {
+    const out = new Map<string, MessageReaction[]>();
+    if (messageIds.length === 0) return out;
+    const { rows } = await this.pool.query<{
+      message_id: string;
+      emoji: string;
+      count: string;
+      mine: boolean;
+    }>(
+      `SELECT
+         message_id,
+         emoji,
+         COUNT(*) AS count,
+         BOOL_OR(user_id = $2) AS mine
+       FROM message_reactions
+       WHERE message_id = ANY($1::uuid[])
+       GROUP BY message_id, emoji
+       ORDER BY message_id, COUNT(*) DESC, emoji ASC`,
+      [messageIds, viewerUserId ?? null]
+    );
+    for (const r of rows) {
+      const list = out.get(r.message_id) ?? [];
+      list.push({
+        emoji: r.emoji,
+        count: Number(r.count) || 0,
+        reactedByMe: r.mine ? true : undefined
+      });
+      out.set(r.message_id, list);
+    }
+    return out;
+  }
+}
+
 export function createPostgresRepositories(pool: Pool): Repositories {
   const users = new PgUserRepository(pool);
+  // Phase 11 — message repo 가 reactions 배치 lookup 을 사용하므로 reactions
+  // 를 먼저 만들어 주입한다.
+  const messageReactions = new PgMessageReactionRepository(pool);
   return {
     users,
     departments: new PgDepartmentRepository(pool),
     rooms: new PgRoomRepository(pool),
-    messages: new PgMessageRepository(pool),
+    messages: new PgMessageRepository(pool, messageReactions),
     projects: new PgProjectRepository(pool),
     tasks: new PgTaskRepository(pool),
     products: new PgProductRepository(pool),
@@ -3289,6 +3520,7 @@ export function createPostgresRepositories(pool: Pool): Repositories {
     refreshTokens: new PgRefreshTokenRepository(pool),
     invitations: new PgInvitationRepository(pool),
     orgNotifications: new PgOrgNotificationRepository(pool),
-    scheduledMessages: new PgScheduledMessageRepository(pool)
+    scheduledMessages: new PgScheduledMessageRepository(pool),
+    messageReactions
   };
 }
