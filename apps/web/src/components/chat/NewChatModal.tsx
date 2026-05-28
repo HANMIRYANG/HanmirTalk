@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import type { RoomType, User } from "@hanmir/shared";
+import type { User } from "@hanmir/shared";
 import { Avatar } from "@/components/ui/Avatar";
 import { chatService } from "@/services/chat.service";
 import { userService } from "@/services/user.service";

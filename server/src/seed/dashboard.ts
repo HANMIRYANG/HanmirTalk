@@ -1,4 +1,4 @@
-import type { ActivityEvent, AdminKpi, AuditEntry } from "@hanmir/shared";
+import type { ActivityEvent, AdminKpi } from "@hanmir/shared";
 
 export const seedAdminKpis: AdminKpi[] = [
   { label: "전체 사용자", value: "342", sub: "활성 318 · 휴직 18 · 퇴직 6" },
@@ -10,30 +10,6 @@ export const seedAdminKpis: AdminKpi[] = [
     value: "2",
     sub: "신규 로그인 위치 1건 · 권한 변경 1건",
     highlight: "warn"
-  }
-];
-
-export const seedAuditEntries: AuditEntry[] = [
-  {
-    id: "au-1",
-    title: "새로운 기기에서 로그인 — 정민호 팀장",
-    meta: "IP 211.45.xx.xx · Chrome / Windows · 서울",
-    time: "23분 전",
-    level: "warn"
-  },
-  {
-    id: "au-2",
-    title: "권한 변경 — 최도현 책임 에게 \"제품정보 편집자\" 부여",
-    meta: "관리자: 정민호 팀장",
-    time: "1시간 전",
-    level: "danger"
-  },
-  {
-    id: "au-3",
-    title: "전사 공지 발송 — \"7월 안전교육 이수 안내\"",
-    meta: "인사팀 · 발송 대상 342명 · 필독",
-    time: "3시간 전",
-    level: "info"
   }
 ];
 
