@@ -115,6 +115,11 @@ export default async function ChatRoomPage({ params }: Props) {
                 !!room.projectId &&
                 ["admin", "super_admin", "manager", "project_owner"].includes(me.role)
               }
+              canCreateTask={
+                !!room.projectId &&
+                ["admin", "super_admin", "manager", "project_owner"].includes(me.role)
+              }
+              users={room.projectId ? users : undefined}
               projectId={room.projectId}
             />
           ))}

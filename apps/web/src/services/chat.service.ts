@@ -1,11 +1,13 @@
 import type {
   ChatMessage,
   CreateRoomInput,
+  CreateScheduledMessageInput,
   MentionSearchResult,
   MentionSearchScope,
   MessageEntity,
   PinnedMessageRef,
   Room,
+  ScheduledMessage,
   UpdateRoomInput
 } from "@hanmir/shared";
 import { apiRequest, apiRequestOrNull } from "./api-client";
@@ -240,6 +242,42 @@ export const chatService = {
     return apiRequest<{ ok: boolean; archived: boolean }>(
       `/rooms/${encodeURIComponent(roomId)}/leave`,
       { method: "POST", token: opts.token }
+    );
+  },
+
+  // ── Phase 10 M-4 — 예약 전송 ───────────────────────────────────────
+
+  async scheduleMessage(
+    input: CreateScheduledMessageInput,
+    opts: AuthOptions = {}
+  ): Promise<ScheduledMessage> {
+    return apiRequest<ScheduledMessage>("/messages/schedule", {
+      method: "POST",
+      body: input,
+      token: opts.token,
+      expectStatus: [201]
+    });
+  },
+
+  async listScheduledMessages(
+    opts: AuthOptions & { roomId?: string } = {}
+  ): Promise<ScheduledMessage[]> {
+    const query: Record<string, string> = {};
+    if (opts.roomId) query.roomId = opts.roomId;
+    const response = await apiRequest<{ results: ScheduledMessage[] }>(
+      "/messages/scheduled",
+      { query, token: opts.token }
+    );
+    return response.results;
+  },
+
+  async cancelScheduledMessage(
+    id: string,
+    opts: AuthOptions = {}
+  ): Promise<{ ok: boolean }> {
+    return apiRequest<{ ok: boolean }>(
+      `/messages/scheduled/${encodeURIComponent(id)}`,
+      { method: "DELETE", token: opts.token }
     );
   }
 };

@@ -14,6 +14,7 @@ import type {
   CreateProductInput,
   CreateProjectInput,
   CreateRoomInput,
+  CreateScheduledMessageInput,
   CreateTaskInput,
   CreateUserInput,
   Decision,
@@ -38,6 +39,8 @@ import type {
   Project,
   Room,
   SalesStatusEvent,
+  ScheduledMessage,
+  ScheduledMessageStatus,
   CreateProductLotInput,
   CreateProductSpecInput,
   UpdateProductLotInput,
@@ -56,6 +59,7 @@ import type {
 } from "@hanmir/shared";
 import { NOTIFICATION_CATEGORIES } from "@hanmir/shared";
 import { hashPassword, seedPasswordHash, verifyPassword } from "../auth/password";
+import { restoreMojibakeFilename } from "../files/filename";
 import { seedUsers } from "../seed/users";
 import { seedDepartments } from "../seed/departments";
 import { seedRooms } from "../seed/rooms";
@@ -86,6 +90,7 @@ import type {
   Repositories,
   ResolvedRefreshToken,
   RoomRepository,
+  ScheduledMessageRepository,
   TaskRepository,
   UserRepository
 } from "./types";
@@ -1176,10 +1181,14 @@ class MemoryFileRepository implements FileRepository {
     ).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(
       now.getMinutes()
     ).padStart(2, "0")}`;
+    // routes/files.ts 가 이미 normalizeUploadOriginalName 을 통과시킨
+    // 값을 넘기지만, 본 적용은 idempotent 이므로 한 번 더 호출해도 정상
+    // 한글에 무영향이다. PG 어댑터와 일관된 정책.
+    const safeName = restoreMojibakeFilename(input.fileName);
     const entry: FileEntry = {
       id: newId("f"),
-      kind: deriveFileKind(input.fileName, input.fileType),
-      name: input.fileName,
+      kind: deriveFileKind(safeName, input.fileType),
+      name: safeName,
       scope,
       scopeTone: input.projectId ? "blue" : "default",
       size: formatBytes(input.fileSize),
@@ -1192,7 +1201,7 @@ class MemoryFileRepository implements FileRepository {
     };
     this.files.unshift(entry);
     this.storage.set(entry.id, {
-      fileName: input.fileName,
+      fileName: safeName,
       fileUrl: input.fileUrl,
       fileType: input.fileType
     });
@@ -1917,6 +1926,161 @@ class MemoryInvitationRepository implements InvitationRepository {
   }
 }
 
+// Phase 10 M-4 — 예약 메시지 (메모리 어댑터).
+class MemoryScheduledMessageRepository implements ScheduledMessageRepository {
+  // 행은 그대로 들고 다닌다 — author/room name 은 list 호출 시 accessor 로
+  // 채운다 (decision/invitation repo 와 동일 패턴).
+  private readonly rows = new Map<
+    string,
+    {
+      id: string;
+      roomId: string;
+      userId: string;
+      content: string;
+      entities: import("@hanmir/shared").MessageEntity[];
+      attachmentId?: string;
+      scheduledAt: string;
+      sentAt?: string;
+      cancelledAt?: string;
+      error?: string;
+      createdAt: string;
+    }
+  >();
+
+  private accessors: {
+    getRoomName: (id: string) => string | undefined;
+    getUserName: (id: string) => string | undefined;
+    getAttachmentName: (id: string) => string | undefined;
+  } = {
+    getRoomName: () => undefined,
+    getUserName: () => undefined,
+    getAttachmentName: () => undefined
+  };
+
+  setAccessors(a: typeof this.accessors): void {
+    this.accessors = a;
+  }
+
+  private toDto(
+    r: {
+      id: string;
+      roomId: string;
+      userId: string;
+      content: string;
+      entities: import("@hanmir/shared").MessageEntity[];
+      attachmentId?: string;
+      scheduledAt: string;
+      sentAt?: string;
+      cancelledAt?: string;
+      error?: string;
+      createdAt: string;
+    }
+  ): ScheduledMessage {
+    const status: ScheduledMessageStatus = r.sentAt
+      ? "sent"
+      : r.cancelledAt
+      ? "cancelled"
+      : r.error
+      ? "failed"
+      : "pending";
+    return {
+      id: r.id,
+      roomId: r.roomId,
+      roomName: this.accessors.getRoomName(r.roomId),
+      userId: r.userId,
+      authorName: this.accessors.getUserName(r.userId),
+      content: r.content,
+      entities: clone(r.entities),
+      attachmentId: r.attachmentId,
+      attachmentName: r.attachmentId
+        ? this.accessors.getAttachmentName(r.attachmentId)
+        : undefined,
+      scheduledAt: r.scheduledAt,
+      sentAt: r.sentAt,
+      cancelledAt: r.cancelledAt,
+      error: r.error,
+      status,
+      createdAt: r.createdAt
+    };
+  }
+
+  async create(
+    input: CreateScheduledMessageInput,
+    author: { id: string }
+  ): Promise<ScheduledMessage> {
+    const id = newId("sm");
+    const row = {
+      id,
+      roomId: input.roomId,
+      userId: author.id,
+      content: input.content,
+      entities: input.entities ?? [],
+      attachmentId: input.attachmentId,
+      scheduledAt: input.scheduledAt,
+      createdAt: new Date().toISOString()
+    };
+    this.rows.set(id, row);
+    return this.toDto(row);
+  }
+
+  async findById(id: string): Promise<ScheduledMessage | undefined> {
+    const r = this.rows.get(id);
+    return r ? this.toDto(r) : undefined;
+  }
+
+  async listForUser(
+    userId: string,
+    opts: { roomId?: string; includeAll?: boolean } = {}
+  ): Promise<ScheduledMessage[]> {
+    const out: ScheduledMessage[] = [];
+    for (const r of this.rows.values()) {
+      if (r.userId !== userId) continue;
+      if (opts.roomId && r.roomId !== opts.roomId) continue;
+      if (!opts.includeAll && (r.sentAt || r.cancelledAt)) continue;
+      out.push(this.toDto(r));
+    }
+    out.sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt));
+    return out;
+  }
+
+  async listDue(now: Date): Promise<ScheduledMessage[]> {
+    const cutoff = now.toISOString();
+    const out: ScheduledMessage[] = [];
+    for (const r of this.rows.values()) {
+      if (r.sentAt || r.cancelledAt || r.error) continue;
+      if (r.scheduledAt > cutoff) continue;
+      out.push(this.toDto(r));
+    }
+    return out;
+  }
+
+  async markSent(id: string, now: Date): Promise<boolean> {
+    const r = this.rows.get(id);
+    if (!r) return false;
+    // Pending-only guard — 이미 표시/취소/실패된 row 는 무시. listDue 이후
+    // 사용자가 취소한 예약을 poller 가 발사하지 않도록 한다.
+    if (r.sentAt || r.cancelledAt || r.error) return false;
+    r.sentAt = now.toISOString();
+    return true;
+  }
+
+  async markFailed(id: string, error: string): Promise<void> {
+    const r = this.rows.get(id);
+    if (!r) return;
+    if (r.sentAt || r.cancelledAt || r.error) return;
+    r.error = error.slice(0, 500);
+  }
+
+  async cancel(id: string, now: Date): Promise<boolean> {
+    const r = this.rows.get(id);
+    if (!r) return false;
+    if (r.sentAt) return false;
+    if (r.cancelledAt) return true; // idempotent
+    r.cancelledAt = now.toISOString();
+    return true;
+  }
+}
+
 // Phase 8 K-4 — 전사 기본 알림 정책.
 class MemoryOrgNotificationRepository implements OrgNotificationRepository {
   private readonly rows = new Map<
@@ -2012,6 +2176,28 @@ export function createMemoryRepositories(): Repositories {
   orgNotifications.setUserAccessor(
     (id) => users._data.find((u) => u.id === id)?.name ?? ""
   );
+  // Phase 10 M-4 — 예약 메시지. room/user/attachment 이름 채우기 위해
+  // 다른 repo 들이 다 만들어진 뒤 accessor 연결. accessor 가 sync 라야
+  // toDto 안에서 await 없이 쓸 수 있어, room 이름은 lazy cache 로 채운다
+  // (메모리 어댑터는 dev 전용이라 stale 1틱은 무해함).
+  const scheduledMessages = new MemoryScheduledMessageRepository();
+  let roomNameCache = new Map<string, string>();
+  void rooms.list().then((all) => {
+    roomNameCache = new Map(all.map((r) => [r.id, r.name]));
+  });
+  scheduledMessages.setAccessors({
+    getRoomName: (id) => {
+      const cached = roomNameCache.get(id);
+      if (!cached) {
+        void rooms.list().then((all) => {
+          roomNameCache = new Map(all.map((r) => [r.id, r.name]));
+        });
+      }
+      return cached;
+    },
+    getUserName: (id) => users._data.find((u) => u.id === id)?.name,
+    getAttachmentName: (id) => files.findByIdSync(id)?.name
+  });
   return {
     users,
     departments,
@@ -2028,6 +2214,7 @@ export function createMemoryRepositories(): Repositories {
     audit: new MemoryAuditRepository(),
     refreshTokens: new MemoryRefreshTokenRepository(),
     invitations,
-    orgNotifications
+    orgNotifications,
+    scheduledMessages
   };
 }

@@ -951,3 +951,39 @@ export interface OrgNotificationDefault {
 export interface UpdateOrgNotificationDefaultInput {
   enabled: boolean;
 }
+
+// Phase 10 M-4 — 예약 전송. setTimeout 기반이 아니라 DB 영속 + 1분 주기
+// poller. 서버 재시작/배포에도 살아남는다. status 는 row state 에서 파생:
+//   sent_at      → "sent"
+//   cancelled_at → "cancelled"
+//   error 존재   → "failed"
+//   둘 다 NULL   → "pending"
+export type ScheduledMessageStatus = "pending" | "sent" | "cancelled" | "failed";
+
+export interface ScheduledMessage {
+  id: string;
+  roomId: string;
+  roomName?: string;
+  userId: string;
+  authorName?: string;
+  content: string;
+  entities: MessageEntity[];
+  attachmentId?: string;
+  attachmentName?: string;
+  // ISO 8601 timestamp. 클라이언트는 사용자 로컬 시간을 datetime-local 로
+  // 받아 toISOString 으로 변환해 전송 — 서버는 UTC 로 저장하고 비교한다.
+  scheduledAt: string;
+  sentAt?: string;
+  cancelledAt?: string;
+  error?: string;
+  status: ScheduledMessageStatus;
+  createdAt: string;
+}
+
+export interface CreateScheduledMessageInput {
+  roomId: string;
+  content: string;
+  scheduledAt: string;
+  entities?: MessageEntity[];
+  attachmentId?: string;
+}

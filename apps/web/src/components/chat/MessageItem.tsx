@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
-import type { ChatMessage } from "@hanmir/shared";
+import type { ChatMessage, User } from "@hanmir/shared";
 import { Avatar } from "@/components/ui/Avatar";
 import { DownloadIcon, PinIcon } from "@/components/ui/icons";
 import { fileService } from "@/services/file.service";
@@ -12,6 +12,7 @@ import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
 import { cn } from "@/lib/classNames";
 import { MessagePinButton } from "./MessagePinButton";
+import { TaskCreateModal } from "@/app/(app)/projects/[id]/tasks/TaskCreateModal";
 import styles from "./MessageItem.module.css";
 
 interface MessageItemProps {
@@ -31,6 +32,11 @@ interface MessageItemProps {
   // role. Server enforces both too via /messages/:id/create-decision.
   canCreateDecision?: boolean;
   projectId?: string;
+  // Phase 10 M-3 — 메시지 → 업무 만들기. canCreateDecision 과 같은
+  // 게이트 (프로젝트 방 + writer 역할). users 가 같이 제공되어야
+  // TaskCreateModal 의 담당자 선택 목록을 채울 수 있다.
+  canCreateTask?: boolean;
+  users?: User[];
 }
 
 const fileColor: Record<string, string> = {
@@ -59,7 +65,9 @@ export function MessageItem({
   currentUserId,
   isAdmin = false,
   canCreateDecision = false,
-  projectId
+  projectId,
+  canCreateTask = false,
+  users
 }: MessageItemProps) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -67,6 +75,7 @@ export function MessageItem({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [decisionModalOpen, setDecisionModalOpen] = useState(false);
+  const [taskModalOpen, setTaskModalOpen] = useState(false);
 
   if (message.isSystem) {
     return (
@@ -197,8 +206,23 @@ export function MessageItem({
               isPinned={isPinned}
             />
           ) : null}
-          {(canEdit || canDelete || (canCreateDecision && !message.isDeleted)) && !editing ? (
+          {(canEdit ||
+            canDelete ||
+            (canCreateDecision && !message.isDeleted) ||
+            (canCreateTask && !message.isDeleted && projectId && users)) &&
+          !editing ? (
             <span className={styles.actions}>
+              {canCreateTask && !message.isDeleted && projectId && users ? (
+                <button
+                  type="button"
+                  className={styles.actionBtn}
+                  onClick={() => setTaskModalOpen(true)}
+                  aria-label="업무로 만들기"
+                  title="이 메시지를 프로젝트 업무로 추가"
+                >
+                  업무
+                </button>
+              ) : null}
               {canCreateDecision && !message.isDeleted && projectId ? (
                 <button
                   type="button"
@@ -340,6 +364,17 @@ export function MessageItem({
           messageBody={message.body}
           projectId={projectId}
           onClose={() => setDecisionModalOpen(false)}
+        />
+      ) : null}
+      {taskModalOpen && projectId && users ? (
+        <TaskCreateModal
+          open
+          onClose={() => setTaskModalOpen(false)}
+          projectId={projectId}
+          users={users}
+          defaultStatus="todo"
+          initialTitle={message.body.split("\n")[0]?.slice(0, 80) ?? ""}
+          initialDescription={message.body}
         />
       ) : null}
     </div>

@@ -17,8 +17,7 @@ import {
   ItalicIcon,
   ListIcon,
   MentionIcon,
-  PaperclipIcon,
-  TaskIcon
+  PaperclipIcon
 } from "@/components/ui/icons";
 import { chatService } from "@/services/chat.service";
 import { fileService } from "@/services/file.service";
@@ -26,6 +25,7 @@ import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
 import { cn } from "@/lib/classNames";
 import { AiCommandModal } from "./AiCommandModal";
+import { ScheduleSendModal } from "./ScheduleSendModal";
 import type { AiCommand } from "@/services/ai.service";
 import styles from "./MessageComposer.module.css";
 
@@ -83,6 +83,9 @@ export function MessageComposer({ roomId, roomName, projectId }: MessageComposer
   const [slashPicker, setSlashPicker] = useState<{ start: number; query: string } | null>(null);
   const [slashIndex, setSlashIndex] = useState(0);
   const [aiCommand, setAiCommand] = useState<AiCommand | null>(null);
+  // Phase 10 M-4 — 예약 전송 모달. 본문/첨부/entities 가 비면 toolbar
+  // 버튼이 비활성. 성공 시 onScheduled() 가 composer state 를 초기화.
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   // Phase 10 — emoji picker popover. 단일 boolean toggle. picker가 열려도
   // textarea 포커스를 유지하기 위해 mousedown 에서 preventDefault.
   const [emojiOpen, setEmojiOpen] = useState(false);
@@ -559,10 +562,6 @@ export function MessageComposer({ roomId, roomName, projectId }: MessageComposer
           >
             <EmojiIcon size={14} />
           </button>
-          <span className={styles.divider} />
-          <button className={styles.tbBtn} title="업무 만들기" type="button">
-            <TaskIcon size={14} />
-          </button>
           {emojiOpen ? (
             <div
               ref={emojiPopoverRef}
@@ -723,7 +722,13 @@ export function MessageComposer({ roomId, roomName, projectId }: MessageComposer
             <span className="kbd">/</span> AI 명령
           </div>
           <div className={styles.send}>
-            <button className="btn btn--outline btn--sm" type="button" disabled={sending}>
+            <button
+              className="btn btn--outline btn--sm"
+              type="button"
+              disabled={sending || uploading || (!value.trim() && !attachment)}
+              onClick={() => setScheduleOpen(true)}
+              title="지정한 시각에 자동 전송"
+            >
               예약 전송
             </button>
             <button
@@ -744,6 +749,20 @@ export function MessageComposer({ roomId, roomName, projectId }: MessageComposer
           onClose={() => setAiCommand(null)}
         />
       ) : null}
+      <ScheduleSendModal
+        open={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
+        roomId={roomId}
+        body={value}
+        entities={entities}
+        attachment={attachment}
+        onScheduled={() => {
+          // 예약 성공 → composer 입력 초기화. 일반 전송 직후와 동일.
+          setValue("");
+          setEntities([]);
+          setAttachment(null);
+        }}
+      />
     </div>
   );
 }
