@@ -328,6 +328,83 @@ export async function notifyTaskDueSoonForAll(repos: Repositories): Promise<void
   }
 }
 
+// Phase 11 — 스레드 답글. 부모 메시지 작성자 + 본문 멘션 대상자만 알린다.
+// 일반 메시지처럼 방 전체에 알리지는 않는다 (스레드 내부 잡담이 모든
+// 멤버에게 노이즈가 되지 않도록).
+//
+//   - parent.authorId !== reply.authorId 일 때만 parent 작성자에게 1건
+//     ("회신:" kind = "message:reply:new")
+//   - mention entities 가 있으면 같은 mention kind (Phase 5 H-3 과 동일
+//     dispatch) 로 추가 알림
+//   - settings 존중 + 카테고리 게이트(message / mention) 적용
+export async function notifyReplyNew(
+  repos: Repositories,
+  roomId: string,
+  parentMessage: ChatMessage,
+  reply: ChatMessage
+): Promise<void> {
+  try {
+    const room = await repos.rooms.findById(roomId);
+    if (!room) return;
+    const [messageEnabled, mentionEnabled] = await Promise.all([
+      repos.orgNotifications.isCategoryEnabled("message"),
+      repos.orgNotifications.isCategoryEnabled("mention")
+    ]);
+
+    const mentionedIds = (reply.entities ?? [])
+      .filter((e: MessageEntity) => e.type === "mention")
+      .map((e) => e.id)
+      .filter((uid) => uid !== reply.authorId);
+    const mentionSet = new Set(mentionedIds);
+
+    // 부모 작성자 알림 — 단, 멘션 대상에 이미 포함돼 있으면 멘션 알림
+    // 한 건만 가도록 (이중 노이즈 회피).
+    if (
+      messageEnabled &&
+      parentMessage.authorId !== reply.authorId &&
+      !mentionSet.has(parentMessage.authorId)
+    ) {
+      if (await shouldNotify(repos, parentMessage.authorId, { roomId })) {
+        const created = await repos.notifications.createMany([parentMessage.authorId], {
+          kind: "message:reply:new",
+          title: `${reply.authorName}님이 회신했습니다`,
+          body: reply.body.slice(0, 120),
+          link: `/chat/${roomId}#m-${parentMessage.id}`,
+          payload: {
+            roomId,
+            parentMessageId: parentMessage.id,
+            messageId: reply.id,
+            roomName: room.name
+          }
+        });
+        await dispatchAll(repos, created);
+      }
+    }
+
+    if (mentionEnabled && mentionedIds.length > 0) {
+      const allowed: string[] = [];
+      for (const uid of mentionedIds) {
+        // 멤버십 강화 — 비멤버에게는 alert 가지 않음.
+        if (!room.members.some((m) => m.userId === uid)) continue;
+        if (await shouldNotify(repos, uid, { roomId })) allowed.push(uid);
+      }
+      if (allowed.length > 0) {
+        const created = await repos.notifications.createMany(allowed, {
+          kind: "mention",
+          title: `${reply.authorName}님이 회원님을 언급했습니다`,
+          body: reply.body.slice(0, 120),
+          link: `/chat/${roomId}#m-${parentMessage.id}`,
+          payload: { roomId, parentMessageId: parentMessage.id, messageId: reply.id }
+        });
+        await dispatchAll(repos, created);
+      }
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("[hanmir-server] notifyReplyNew failed:", err);
+  }
+}
+
 // 결정사항 등록 — 프로젝트 멤버 (decided_by 제외)
 export async function notifyDecisionNew(
   repos: Repositories,

@@ -137,16 +137,31 @@ export interface RoomRepository {
 }
 
 export interface MessageRepository {
-  listByRoom(roomId: string): Promise<ChatMessage[]>;
+  // Phase 11 — `viewerUserId` 가 주어지면 reactions[].reactedByMe 가
+  // 본인 기준으로 채워지고, listByRoom 은 top-level 만 반환 + thread
+  // aggregate 가 함께 붙는다. 답글은 listReplies 로 별도 조회.
+  listByRoom(roomId: string, viewerUserId?: string): Promise<ChatMessage[]>;
   // Returns a single message regardless of room. Required by the
   // /messages/:id PATCH/DELETE routes to perform ownership checks before
   // mutating. Returns undefined for missing or hard-deleted rows.
-  findById(messageId: string): Promise<ChatMessage | undefined>;
+  findById(messageId: string, viewerUserId?: string): Promise<ChatMessage | undefined>;
+  // Phase 11 — 답글 목록. parent_message_id = parentMessageId 인 메시지를
+  // 시간순(오래된 → 최근) 으로. soft-deleted 도 포함 (tombstone), reactions
+  // 도 같이 채워진다.
+  listReplies(parentMessageId: string, viewerUserId?: string): Promise<ChatMessage[]>;
   // `opts.attachmentId` links a previously-uploaded file (via POST
   // /files/upload) to the new message. PG: UPDATE attachments SET
   // message_id = ... after INSERT. Memory: already embedded in `message`.
   append(
     roomId: string,
+    message: ChatMessage,
+    opts?: { attachmentId?: string }
+  ): Promise<ChatMessage>;
+  // Phase 11 — 답글 append. parent_message_id 컬럼만 다르고 나머지는
+  // 일반 append 와 동일 흐름. 본 메서드는 parent 의 존재/삭제 여부 검증
+  // 책임은 라우트에 위임한다 (이미 loadAccessibleMessage 가 검증함).
+  appendReply(
+    parentMessageId: string,
     message: ChatMessage,
     opts?: { attachmentId?: string }
   ): Promise<ChatMessage>;
@@ -173,6 +188,28 @@ export interface MessageRepository {
   pin(roomId: string, messageId: string): Promise<"ok" | "room_not_found" | "message_not_in_room">;
   unpin(roomId: string): Promise<"ok" | "room_not_found">;
   getPinned(roomId: string): Promise<PinnedMessageRef | undefined>;
+}
+
+// Phase 11 — 이모지 반응. (message_id, user_id, emoji) PK 라 한 사용자가
+// 같은 메시지에 같은 이모지를 두 번 박지 못한다.
+//
+// listForMessages 는 messages 목록(top-level 또는 replies) 을 받았을 때
+// N+1 회피용 배치 lookup. Map<messageId, MessageReaction[]> 반환.
+export interface MessageReactionRepository {
+  // Idempotent — 이미 존재하면 false (no-op). 새로 추가되면 true.
+  add(messageId: string, userId: string, emoji: string): Promise<boolean>;
+  // Idempotent — 존재하지 않아도 false (no-op).
+  remove(messageId: string, userId: string, emoji: string): Promise<boolean>;
+  // 단일 메시지의 reaction aggregate. 토글 직후 응답 + emit payload 에 사용.
+  listForMessage(
+    messageId: string,
+    viewerUserId?: string
+  ): Promise<import("@hanmir/shared").MessageReaction[]>;
+  // 배치 — listByRoom / listReplies 가 한 번에 채울 때.
+  listForMessages(
+    messageIds: string[],
+    viewerUserId?: string
+  ): Promise<Map<string, import("@hanmir/shared").MessageReaction[]>>;
 }
 
 export interface ProjectRepository {
@@ -447,4 +484,5 @@ export interface Repositories {
   invitations: InvitationRepository;
   orgNotifications: OrgNotificationRepository;
   scheduledMessages: ScheduledMessageRepository;
+  messageReactions: MessageReactionRepository;
 }
