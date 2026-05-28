@@ -98,5 +98,3 @@ export const seedUsers: User[] = [
     presence: "online"
   }
 ];
-
-export const defaultUserId = "u-kim-minjun";
