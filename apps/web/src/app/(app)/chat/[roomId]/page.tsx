@@ -26,8 +26,11 @@ export default async function ChatRoomPage({ params }: Props) {
   const room = await chatService.getRoom(params.roomId, { token });
   if (!room) notFound();
 
+  // 타임라인은 최신 100개 윈도우만 SSR — 과거 메시지는 클라이언트의
+  // "이전 메시지 보기" 가 ?before 커서로 추가 로드한다.
+  const MESSAGE_WINDOW = 100;
   const [messages, pinned, project, users, files] = await Promise.all([
-    chatService.listMessages(params.roomId, { token }),
+    chatService.listMessages(params.roomId, { token, limit: MESSAGE_WINDOW }),
     chatService.getPinnedMessage(params.roomId, { token }),
     room.projectId
       ? projectService.getProject(room.projectId, { token })
@@ -111,6 +114,7 @@ export default async function ChatRoomPage({ params }: Props) {
           <ChatRoomMessages
             roomId={room.id}
             messages={messages}
+            mayHaveOlder={messages.length >= MESSAGE_WINDOW}
             currentUserId={me.id}
             isAdmin={me.role === "admin" || me.role === "super_admin"}
             pinnedMessageId={room.pinnedMessageId}

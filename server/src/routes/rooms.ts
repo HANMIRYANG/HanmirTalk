@@ -116,11 +116,23 @@ export function createRoomsRouter(repos: Repositories): Router {
   router.get("/:roomId/messages", async (req, res) => {
     const access = await ensureRoomAccess(repos, req, res, req.params.roomId);
     if (!access.allowed) return;
+    // 페이지네이션 — ?limit=100 이면 최신 100개, ?before=<messageId> 는
+    // 그보다 오래된 윈도우 ("이전 메시지 보기"). 둘 다 없으면 기존처럼
+    // 전체 반환 (하위 호환).
+    const rawLimit = Number(req.query.limit);
+    const limit = Number.isFinite(rawLimit)
+      ? Math.min(Math.max(Math.floor(rawLimit), 1), 200)
+      : undefined;
+    const beforeId =
+      typeof req.query.before === "string" && req.query.before
+        ? req.query.before
+        : undefined;
     // Phase 11 — viewerUserId 를 넘겨 reactedByMe 가 채워지도록.
     // listByRoom 은 자동으로 top-level 만 반환 + thread aggregate 포함.
     const messages = await repos.messages.listByRoom(
       req.params.roomId,
-      req.currentUser!.id
+      req.currentUser!.id,
+      limit || beforeId ? { limit, beforeId } : undefined
     );
     res.json(messages);
   });

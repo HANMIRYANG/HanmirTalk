@@ -20,7 +20,14 @@ function describeError(err: unknown): string {
   return "업로드에 실패했습니다.";
 }
 
-export function FileUploadButton() {
+interface FileUploadButtonProps {
+  // 지정 시 해당 폴더로 업로드 (참여자/관리자만 — 서버에서도 재검증)
+  folderId?: string;
+  // 업로드 성공 직후 추가 갱신이 필요할 때 (폴더 내용 재조회 등)
+  onUploaded?: () => void;
+}
+
+export function FileUploadButton({ folderId, onUploaded }: FileUploadButtonProps = {}) {
   const router = useRouter();
   const [uploading, setUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -36,8 +43,9 @@ export function FileUploadButton() {
     if (!file) return;
     setUploading(true);
     try {
-      await fileService.uploadFile(file);
+      await fileService.uploadFile(file, folderId ? { folderId } : {});
       router.refresh();
+      onUploaded?.();
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         handleSessionExpired(router);

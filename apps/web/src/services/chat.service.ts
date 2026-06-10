@@ -25,9 +25,13 @@ export const chatService = {
   async getRoom(id: string, opts: AuthOptions = {}): Promise<Room | undefined> {
     return apiRequestOrNull<Room>(`/rooms/${encodeURIComponent(id)}`, { token: opts.token });
   },
-  async listMessages(roomId: string, opts: AuthOptions = {}): Promise<ChatMessage[]> {
+  async listMessages(
+    roomId: string,
+    opts: AuthOptions & { limit?: number; before?: string } = {}
+  ): Promise<ChatMessage[]> {
     return apiRequest<ChatMessage[]>(`/rooms/${encodeURIComponent(roomId)}/messages`, {
-      token: opts.token
+      token: opts.token,
+      query: { limit: opts.limit, before: opts.before }
     });
   },
   async sendMessage(

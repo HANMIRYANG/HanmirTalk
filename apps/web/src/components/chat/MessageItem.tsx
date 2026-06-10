@@ -1,20 +1,36 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { useRouter } from "next/navigation";
-import type { ChatMessage, MessageReaction, User } from "@hanmir/shared";
-import { REACTION_EMOJI_ALLOWLIST } from "@hanmir/shared";
+import { useState } from "react";
+import type { ChatMessage, User } from "@hanmir/shared";
 import { Avatar } from "@/components/ui/Avatar";
-import { DownloadIcon, PinIcon } from "@/components/ui/icons";
-import { fileService } from "@/services/file.service";
-import { chatService } from "@/services/chat.service";
-import { decisionService } from "@/services/decision.service";
-import { ApiError } from "@/services/api-client";
-import { handleSessionExpired } from "@/lib/client-auth";
+import { PinIcon } from "@/components/ui/icons";
 import { cn } from "@/lib/classNames";
+import dynamic from "next/dynamic";
 import { MessagePinButton } from "./MessagePinButton";
-import { TaskCreateModal } from "@/app/(app)/projects/[id]/tasks/TaskCreateModal";
+import { renderMessageBody } from "./message-item/MessageBody";
+import { MessageEditForm } from "./message-item/MessageEditForm";
+import { MessageAttachmentCard } from "./message-item/MessageAttachmentCard";
+import { ReactionBar } from "./message-item/ReactionBar";
+import { ThreadChip } from "./message-item/ThreadChip";
+import { useMessageActions } from "./message-item/useMessageActions";
 import styles from "./MessageItem.module.css";
+
+// 모달 2종은 열 때만 로드 — 메시지 1건마다 렌더되는 컴포넌트라 초기
+// 번들 절감 효과가 크다 (조건부 렌더이므로 클릭 시점에 청크 로드).
+const TaskCreateModal = dynamic(
+  () =>
+    import("@/app/(app)/projects/[id]/tasks/TaskCreateModal").then(
+      (m) => m.TaskCreateModal
+    ),
+  { ssr: false }
+);
+const CreateDecisionFromMessageModal = dynamic(
+  () =>
+    import("./message-item/CreateDecisionModal").then(
+      (m) => m.CreateDecisionFromMessageModal
+    ),
+  { ssr: false }
+);
 
 interface MessageItemProps {
   message: ChatMessage;
@@ -43,24 +59,6 @@ interface MessageItemProps {
   onOpenThread?: (message: ChatMessage) => void;
 }
 
-const fileColor: Record<string, string> = {
-  pdf: styles.icPdf,
-  xls: styles.icXls,
-  doc: styles.icDoc,
-  ppt: styles.icPpt,
-  img: styles.icImg,
-  zip: styles.icZip
-};
-
-const fileLabel: Record<string, string> = {
-  pdf: "PDF",
-  xls: "XLSX",
-  doc: "DOCX",
-  ppt: "PPTX",
-  img: "IMG",
-  zip: "ZIP"
-};
-
 export function MessageItem({
   message,
   roomId,
@@ -74,71 +72,20 @@ export function MessageItem({
   users,
   onOpenThread
 }: MessageItemProps) {
-  const router = useRouter();
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(message.body);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    editing,
+    draft,
+    setDraft,
+    busy,
+    error,
+    startEdit,
+    cancelEdit,
+    saveEdit,
+    onConfirmDelete,
+    onKeyDown
+  } = useMessageActions(message);
   const [decisionModalOpen, setDecisionModalOpen] = useState(false);
   const [taskModalOpen, setTaskModalOpen] = useState(false);
-  // Phase 11 — 반응 로컬 패치. props.message.reactions 가 SSR/refresh 로
-  // 채워지지만 본인의 토글은 즉시 반영하려면 local state 가 필요.
-  // 부모가 refresh 하면 useEffect 가 다시 동기화.
-  const [reactions, setReactions] = useState<MessageReaction[]>(message.reactions ?? []);
-  const [reactionBusy, setReactionBusy] = useState(false);
-  const [emojiPopoverOpen, setEmojiPopoverOpen] = useState(false);
-  const emojiPopoverRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    setReactions(message.reactions ?? []);
-  }, [message.reactions]);
-
-  // 외부 클릭 / Esc 로 popover 닫기.
-  useEffect(() => {
-    if (!emojiPopoverOpen) return;
-    const onDocDown = (e: MouseEvent) => {
-      const target = e.target as Node | null;
-      if (!target) return;
-      if (emojiPopoverRef.current?.contains(target)) return;
-      setEmojiPopoverOpen(false);
-    };
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === "Escape") setEmojiPopoverOpen(false);
-    };
-    document.addEventListener("mousedown", onDocDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDocDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [emojiPopoverOpen]);
-
-  const handleReactionToggle = async (emoji: string, currentlyMine: boolean) => {
-    if (reactionBusy || message.isDeleted) return;
-    setReactionBusy(true);
-    try {
-      const next = currentlyMine
-        ? await chatService.removeReaction(message.id, emoji)
-        : await chatService.addReaction(message.id, emoji);
-      setReactions(next);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        handleSessionExpired(router);
-        return;
-      }
-      // 실패 시에는 silent — 다른 탭/사용자의 socket 갱신이 결국 정확한
-      // 상태를 가져온다.
-    } finally {
-      setReactionBusy(false);
-    }
-  };
-
-  const handleAddNewReaction = async (emoji: string) => {
-    setEmojiPopoverOpen(false);
-    // 이미 본인이 박은 이모지인지 검사 — 토글 의미상 두 번 클릭은 remove.
-    const existing = reactions.find((r) => r.emoji === emoji);
-    await handleReactionToggle(emoji, !!existing?.reactedByMe);
-  };
 
   if (message.isSystem) {
     return (
@@ -151,86 +98,6 @@ export function MessageItem({
   const isMine = !!currentUserId && message.authorId === currentUserId;
   const canEdit = isMine && !message.isDeleted;
   const canDelete = (isMine || isAdmin) && !message.isDeleted;
-
-  const startEdit = () => {
-    setError(null);
-    setDraft(message.body);
-    setEditing(true);
-  };
-
-  const cancelEdit = () => {
-    setEditing(false);
-    setDraft(message.body);
-    setError(null);
-  };
-
-  const saveEdit = async () => {
-    const next = draft.trim();
-    if (!next) {
-      setError("내용을 입력해주세요.");
-      return;
-    }
-    if (next === message.body) {
-      // No-op edit; just exit edit mode.
-      setEditing(false);
-      return;
-    }
-    setBusy(true);
-    try {
-      await chatService.updateMessage(message.id, next);
-      setEditing(false);
-      // Server emits message:updated → other clients refresh via socket.
-      // For the actor we still router.refresh() so SSR re-renders with the
-      // new body / editedAt without waiting for socket round-trip.
-      router.refresh();
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        handleSessionExpired(router);
-        return;
-      }
-      if (err instanceof ApiError && err.status === 403) {
-        setError("본인이 작성한 메시지만 수정할 수 있습니다.");
-        return;
-      }
-      setError("저장에 실패했습니다.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const onConfirmDelete = async () => {
-    if (busy) return;
-    if (!window.confirm("이 메시지를 삭제하시겠습니까? (복구 불가)")) return;
-    setBusy(true);
-    try {
-      await chatService.deleteMessage(message.id);
-      router.refresh();
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        handleSessionExpired(router);
-        return;
-      }
-      if (err instanceof ApiError && err.status === 403) {
-        window.alert("삭제 권한이 없습니다.");
-        return;
-      }
-      window.alert("삭제에 실패했습니다.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    // Cmd/Ctrl+Enter saves; Esc cancels. Plain Enter inserts a newline
-    // (multi-line edits should be easy).
-    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-      e.preventDefault();
-      void saveEdit();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      cancelEdit();
-    }
-  };
 
   return (
     <div
@@ -323,39 +190,15 @@ export function MessageItem({
         </div>
 
         {editing ? (
-          <div className={styles.editor}>
-            <textarea
-              className={styles.editTextarea}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={onKeyDown}
-              rows={Math.min(8, Math.max(2, draft.split("\n").length))}
-              disabled={busy}
-              autoFocus
-            />
-            <div className={styles.editFoot}>
-              <span className={styles.editHint}>Ctrl+Enter 저장 · Esc 취소</span>
-              <div className={styles.editBtns}>
-                <button
-                  type="button"
-                  className="btn btn--ghost btn--sm"
-                  onClick={cancelEdit}
-                  disabled={busy}
-                >
-                  취소
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--primary btn--sm"
-                  onClick={() => void saveEdit()}
-                  disabled={busy}
-                >
-                  저장
-                </button>
-              </div>
-            </div>
-            {error ? <div className={styles.editError}>{error}</div> : null}
-          </div>
+          <MessageEditForm
+            draft={draft}
+            setDraft={setDraft}
+            busy={busy}
+            error={error}
+            onKeyDown={onKeyDown}
+            onCancel={cancelEdit}
+            onSave={saveEdit}
+          />
         ) : (
           <div className={styles.body}>
             {message.aiGenerated && !message.isDeleted ? (
@@ -368,112 +211,16 @@ export function MessageItem({
         )}
 
         {message.attachment && !message.isDeleted ? (
-          <div className={styles.file}>
-            <div className={cn(styles.fileIc, fileColor[message.attachment.kind])}>
-              {fileLabel[message.attachment.kind]}
-            </div>
-            <div>
-              <div className={styles.fileName}>{message.attachment.name}</div>
-              <div className={styles.fileMeta}>{message.attachment.meta}</div>
-            </div>
-            <div className={styles.fileActions}>
-              <a
-                href={fileService.downloadUrl(message.attachment.id)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn btn--outline btn--sm"
-                aria-label="다운로드"
-                title="다운로드"
-              >
-                <DownloadIcon size={14} />
-              </a>
-            </div>
-          </div>
+          <MessageAttachmentCard attachment={message.attachment} />
         ) : null}
 
-        {!message.isDeleted ? (
-          <div className={styles.reactions}>
-            {reactions.map((r) => (
-              <button
-                key={r.emoji}
-                type="button"
-                className={cn(styles.react, r.reactedByMe && styles.reactMine)}
-                onClick={() => handleReactionToggle(r.emoji, !!r.reactedByMe)}
-                disabled={reactionBusy}
-                aria-pressed={r.reactedByMe ? true : false}
-                title={r.reactedByMe ? "내 반응 — 클릭해 취소" : "반응 추가"}
-              >
-                {r.emoji} {r.count}
-              </button>
-            ))}
-            <button
-              type="button"
-              className={cn(styles.react, styles.reactPlain)}
-              onClick={() => setEmojiPopoverOpen((o) => !o)}
-              aria-label="반응 추가"
-              title="반응 추가"
-              aria-expanded={emojiPopoverOpen}
-            >
-              +
-            </button>
-            {emojiPopoverOpen ? (
-              <div
-                ref={emojiPopoverRef}
-                className={styles.reactPopover}
-                role="dialog"
-                aria-label="반응 선택"
-              >
-                {REACTION_EMOJI_ALLOWLIST.map((emoji) => (
-                  <button
-                    key={emoji}
-                    type="button"
-                    className={styles.reactPopoverItem}
-                    onClick={() => handleAddNewReaction(emoji)}
-                    disabled={reactionBusy}
-                  >
-                    {emoji}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
+        {!message.isDeleted ? <ReactionBar message={message} /> : null}
 
         {/* Phase 11 — 답글 chip. count 가 0 이어도 (작성자가 아니어도) 답글
             을 시작할 수 있도록 onOpenThread 가 있고 deleted 가 아니면 항상
             노출. 표시 텍스트는 count 에 따라 분기. */}
         {!message.isDeleted && onOpenThread ? (
-          <button
-            type="button"
-            className={cn(
-              styles.thread,
-              !message.threadReplyCount && styles.threadEmpty
-            )}
-            onClick={() => onOpenThread(message)}
-          >
-            {message.threadReplyAvatars && message.threadReplyAvatars.length > 0 ? (
-              <div className={styles.threadAvatars}>
-                {message.threadReplyAvatars.map((a, i) => (
-                  <Avatar
-                    key={i}
-                    initials={a.initials}
-                    tone={a.tone ?? "default"}
-                    className={styles.threadAvatar}
-                  />
-                ))}
-              </div>
-            ) : null}
-            <span>
-              {message.threadReplyCount
-                ? `답글 ${message.threadReplyCount}개`
-                : "답글 달기"}
-            </span>
-            {message.threadLastReplyAt ? (
-              <span className={styles.threadMuted}>
-                · 마지막 답글 {message.threadLastReplyAt}
-              </span>
-            ) : null}
-          </button>
+          <ThreadChip message={message} onOpenThread={onOpenThread} />
         ) : null}
       </div>
       {decisionModalOpen && projectId ? (
@@ -497,239 +244,4 @@ export function MessageItem({
       ) : null}
     </div>
   );
-}
-
-// Phase 3 F-2c — modal launched from MessageItem's hover menu. Pre-fills
-// the title (first line of the message, truncated) and content (full
-// body) so the user only has to confirm or tweak. On success we navigate
-// to the project's decisions page so they see the new entry in context.
-function CreateDecisionFromMessageModal({
-  messageId,
-  messageBody,
-  projectId,
-  onClose
-}: {
-  messageId: string;
-  messageBody: string;
-  projectId: string;
-  onClose: () => void;
-}) {
-  const router = useRouter();
-  const today = new Date().toISOString().slice(0, 10);
-  const firstLine = messageBody.split("\n")[0]?.slice(0, 80) ?? "";
-  const [title, setTitle] = useState(firstLine);
-  const [content, setContent] = useState(messageBody);
-  const [date, setDate] = useState(today);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (busy) return;
-    if (!title.trim() || !content.trim()) {
-      setError("제목과 내용을 입력해주세요.");
-      return;
-    }
-    setBusy(true);
-    try {
-      await decisionService.createFromMessage(messageId, {
-        title: title.trim(),
-        content: content.trim(),
-        decisionDate: date
-      });
-      onClose();
-      router.push(`/projects/${projectId}/decisions`);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        handleSessionExpired(router);
-        return;
-      }
-      if (err instanceof ApiError && err.status === 400) {
-        setError("이 메시지를 결정사항으로 만들 수 없습니다 (소스가 프로젝트 방이 아닐 수 있습니다).");
-        return;
-      }
-      setError("저장에 실패했습니다.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className={styles.modalBackdrop} onClick={onClose}>
-      <form
-        className={styles.modal}
-        onClick={(e) => e.stopPropagation()}
-        onSubmit={onSubmit}
-      >
-        <h2 className={styles.modalTitle}>이 메시지를 결정사항으로 기록</h2>
-        <p className={styles.modalHint}>
-          저장 후 프로젝트 결정 기록 페이지에서 확인 추적이 시작됩니다.
-        </p>
-        <label className={styles.modalLabel}>
-          제목
-          <input
-            className="field"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            disabled={busy}
-            autoFocus
-            required
-          />
-        </label>
-        <label className={styles.modalLabel}>
-          내용
-          <textarea
-            className={styles.modalTextarea}
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            rows={6}
-            disabled={busy}
-            required
-          />
-        </label>
-        <label className={styles.modalLabel}>
-          결정일
-          <input
-            className="field"
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            disabled={busy}
-            required
-          />
-        </label>
-        {error ? <div className={styles.modalError}>{error}</div> : null}
-        <div className={styles.modalBtns}>
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            onClick={onClose}
-            disabled={busy}
-          >
-            취소
-          </button>
-          <button type="submit" className="btn btn--primary btn--sm" disabled={busy}>
-            {busy ? "저장 중…" : "결정사항으로 저장"}
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-// Phase 5 H-2b + Phase 10 — entities 사이 plain text segment 에만
-// 마크다운(`**bold**`, `*italic*`, 줄 시작 `- `) 을 적용한다. entity
-// 안에서는 파싱하지 않아 멘션 표시가 흐트러지지 않음. 삭제된 메시지는
-// body 가 마스킹 텍스트("삭제된 메시지입니다") 라 매칭이 없어 자연히
-// 평범한 텍스트로 렌더된다. dangerouslySetInnerHTML 사용 금지 —
-// React node 트리만 반환.
-function renderMessageBody(message: ChatMessage) {
-  const { body, entities, mentions } = message;
-  if (entities && entities.length > 0) {
-    const sorted = [...entities].sort((a, b) => a.offset - b.offset);
-    const out: (string | JSX.Element)[] = [];
-    let cursor = 0;
-    let key = 0;
-    sorted.forEach((e, i) => {
-      if (e.offset < cursor) return; // overlap → skip
-      if (e.offset > cursor) {
-        out.push(
-          ...renderMarkdownSegment(body.slice(cursor, e.offset), `e${i}p`)
-        );
-      }
-      const tokenText = body.slice(e.offset, e.offset + e.length);
-      const cls = e.type === "mention" ? styles.mention : styles.entityRef;
-      out.push(
-        <span key={`ent-${i}`} className={cls} title={e.label}>
-          {tokenText}
-        </span>
-      );
-      cursor = e.offset + e.length;
-      key += 1;
-    });
-    if (cursor < body.length) {
-      out.push(...renderMarkdownSegment(body.slice(cursor), `e${key}t`));
-    }
-    return out;
-  }
-  // Legacy mentions[] fallback — 서버가 entities 를 비워 보낸 시드 데이터.
-  // 마크다운은 동일하게 적용하되, 멘션 토큰만 강조한다.
-  if (mentions && mentions.length > 0) {
-    const out: (string | JSX.Element)[] = [];
-    let remaining = body;
-    let key = 0;
-    for (const name of mentions) {
-      const token = `@${name}`;
-      const idx = remaining.indexOf(token);
-      if (idx === -1) continue;
-      if (idx > 0) out.push(...renderMarkdownSegment(remaining.slice(0, idx), `lm${key}p`));
-      out.push(
-        <span key={`lm-${key}`} className={styles.mention}>
-          {token}
-        </span>
-      );
-      remaining = remaining.slice(idx + token.length);
-      key += 1;
-    }
-    if (remaining.length > 0) {
-      out.push(...renderMarkdownSegment(remaining, `lm${key}t`));
-    }
-    return out;
-  }
-  return renderMarkdownSegment(body, "p");
-}
-
-// Phase 10 — 한 단락(entity 사이 plain text)에 한해 줄 단위로 list bullet
-// 처리 후, 인라인 마크다운(**, *) 을 파싱한다. 줄바꿈은 원본 그대로
-// 보존되므로(.body 가 white-space: pre-wrap) 별도 wrapping div 불필요.
-function renderMarkdownSegment(text: string, keyPrefix: string): JSX.Element[] {
-  if (!text) return [];
-  const out: JSX.Element[] = [];
-  // \n 도 결과 배열에 보존되도록 capture group split.
-  const chunks = text.split(/(\n)/);
-  let k = 0;
-  for (const chunk of chunks) {
-    if (chunk === "\n") {
-      out.push(<span key={`${keyPrefix}-${k++}`}>{"\n"}</span>);
-      continue;
-    }
-    if (chunk === "") continue;
-    const bulletMatch = /^-\s+(.*)$/.exec(chunk);
-    if (bulletMatch) {
-      out.push(
-        <span key={`${keyPrefix}-${k++}`} className={styles.listLine}>
-          <span className={styles.bullet}>•</span>
-          {parseInlineMarkdown(bulletMatch[1], `${keyPrefix}-${k}i`)}
-        </span>
-      );
-      continue;
-    }
-    const inline = parseInlineMarkdown(chunk, `${keyPrefix}-${k}i`);
-    out.push(<span key={`${keyPrefix}-${k++}`}>{inline}</span>);
-  }
-  return out;
-}
-
-// Phase 10 — `**bold**` 와 `*italic*` 만 지원하는 작은 인라인 파서.
-// 욕심 부리지 않음 — backslash escape, 중첩, link, code 등은 처리하지
-// 않는다 (사내 메신저 본문에 필요한 최소만). `**` 가 `*` 보다 먼저
-// 매칭되도록 정규식 순서를 고정.
-function parseInlineMarkdown(text: string, keyPrefix: string): (string | JSX.Element)[] {
-  const out: (string | JSX.Element)[] = [];
-  const re = /(\*\*[^*\n]+\*\*|\*[^*\n]+\*)/g;
-  let last = 0;
-  let k = 0;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text))) {
-    if (m.index > last) out.push(text.slice(last, m.index));
-    const t = m[0];
-    if (t.startsWith("**")) {
-      out.push(<strong key={`${keyPrefix}-${k++}`}>{t.slice(2, -2)}</strong>);
-    } else {
-      out.push(<em key={`${keyPrefix}-${k++}`}>{t.slice(1, -1)}</em>);
-    }
-    last = m.index + t.length;
-  }
-  if (last < text.length) out.push(text.slice(last));
-  return out;
 }

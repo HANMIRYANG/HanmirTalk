@@ -3,9 +3,10 @@ import fs from "fs/promises";
 import path from "path";
 import { randomBytes } from "crypto";
 import multer from "multer";
-import type { CreateFileInput, ListFilesFilter } from "@hanmir/shared";
+import type { CreateFileInput, FileFolder, ListFilesFilter } from "@hanmir/shared";
 import type { Repositories } from "../repositories/types";
-import { requireAuth } from "../auth/middleware";
+import { requireAuth, requireRole } from "../auth/middleware";
+import { hashPassword, verifyPassword } from "../auth/password";
 import { auditLog } from "../audit";
 import { config } from "../config";
 import { normalizeUploadOriginalName } from "../files/filename";
@@ -148,8 +149,66 @@ function uploadErrorHandler(
   next(err);
 }
 
+// 폴더 트리 헬퍼 — 폴더 수가 적으므로(부서 단위) 전체를 로드해 앱단에서
+// 조상 체인을 계산한다.
+type FolderMap = Map<string, FileFolder>;
+
+function rootOf(map: FolderMap, folder: FileFolder): FileFolder {
+  let cur = folder;
+  const seen = new Set<string>();
+  while (cur.parentId && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    const parent = map.get(cur.parentId);
+    if (!parent) break;
+    cur = parent;
+  }
+  return cur;
+}
+
+// 자기 자신 또는 조상 중 비밀번호가 걸린 가장 가까운 폴더.
+function nearestProtected(map: FolderMap, folder: FileFolder): FileFolder | undefined {
+  let cur: FileFolder | undefined = folder;
+  const seen = new Set<string>();
+  while (cur && !seen.has(cur.id)) {
+    if (cur.hasPassword) return cur;
+    seen.add(cur.id);
+    cur = cur.parentId ? map.get(cur.parentId) : undefined;
+  }
+  return undefined;
+}
+
+// 비밀번호 보호 체인 안에 있는 폴더 id 전체 (전체 파일 목록에서 제외용).
+function protectedFolderIds(map: FolderMap): Set<string> {
+  const out = new Set<string>();
+  for (const folder of map.values()) {
+    if (nearestProtected(map, folder)) out.add(folder.id);
+  }
+  return out;
+}
+
+function isAdminRole(role: string): boolean {
+  return role === "admin" || role === "super_admin";
+}
+
+// 하위 폴더 생성/폴더 업로드 권한: admin·super_admin 또는 루트(부서)
+// 폴더의 참여자.
+function canWriteIn(
+  map: FolderMap,
+  user: { id: string; role: string },
+  folder: FileFolder
+): boolean {
+  if (isAdminRole(user.role)) return true;
+  return rootOf(map, folder).memberIds.includes(user.id);
+}
+
 export function createFilesRouter(repos: Repositories): Router {
   const router = Router();
+  const adminOnly = requireRole("admin", "super_admin");
+
+  const loadFolderMap = async (): Promise<FolderMap> => {
+    const folders = await repos.files.listFolders();
+    return new Map(folders.map((f) => [f.id, f]));
+  };
 
   router.get("/", async (req, res) => {
     const filter: ListFilesFilter = {};
@@ -158,13 +217,182 @@ export function createFilesRouter(repos: Repositories): Router {
     if (isString(req.query.taskId)) filter.taskId = req.query.taskId;
     if (isString(req.query.messageId)) filter.messageId = req.query.messageId;
     if (isString(req.query.uploaderId)) filter.uploaderId = req.query.uploaderId;
-    const files = await repos.files.listFiles(filter);
+    let files = await repos.files.listFiles(filter);
+    // 비밀번호 보호 폴더 안의 파일은 전체 목록에서 숨긴다 (폴더 contents
+    // 엔드포인트로만 접근 — 그쪽에서 비밀번호를 검증한다). super_admin 예외.
+    if (req.currentUser?.role !== "super_admin") {
+      const map = await loadFolderMap();
+      const hidden = protectedFolderIds(map);
+      if (hidden.size > 0) {
+        files = files.filter((f) => !f.folderId || !hidden.has(f.folderId));
+      }
+    }
     res.json(files);
   });
 
   router.get("/folders", async (_req, res) => {
     const folders = await repos.files.listFolders();
     res.json(folders);
+  });
+
+  // 폴더 생성.
+  //   - 최상위(부서) 폴더: admin/super_admin 전용, 비밀번호 불가, 참여자 지정 가능
+  //   - 하위 폴더: 루트 참여자 또는 admin/super_admin, 비밀번호 선택 가능
+  router.post("/folders", async (req, res) => {
+    const me = req.currentUser!;
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    if (!name) {
+      res.status(400).json({ error: "name_required" });
+      return;
+    }
+    if (name.length > 100) {
+      res.status(400).json({ error: "name_too_long" });
+      return;
+    }
+    const parentId = isString(body.parentId) ? body.parentId : undefined;
+    const password =
+      typeof body.password === "string" && body.password.length > 0
+        ? body.password
+        : undefined;
+
+    if (!parentId) {
+      if (!isAdminRole(me.role)) {
+        res.status(403).json({ error: "admin_only" });
+        return;
+      }
+      if (password) {
+        res.status(400).json({ error: "password_not_allowed_on_root" });
+        return;
+      }
+      const memberIds = Array.isArray(body.memberIds)
+        ? body.memberIds.filter((x): x is string => typeof x === "string")
+        : [];
+      const created = await repos.files.createFolder({ name, memberIds }, me.id);
+      await auditLog(repos, req, {
+        action: "folder.create",
+        targetType: "folder",
+        targetId: created.id,
+        targetLabel: created.name,
+        meta: { root: true, memberCount: memberIds.length }
+      });
+      res.status(201).json(created);
+      return;
+    }
+
+    const map = await loadFolderMap();
+    const parent = map.get(parentId);
+    if (!parent) {
+      res.status(404).json({ error: "parent_not_found" });
+      return;
+    }
+    if (!canWriteIn(map, me, parent)) {
+      res.status(403).json({ error: "not_folder_member" });
+      return;
+    }
+    if (password && password.length < 4) {
+      res.status(400).json({ error: "password_too_short" });
+      return;
+    }
+    const created = await repos.files.createFolder(
+      {
+        name,
+        parentId,
+        passwordHash: password ? hashPassword(password) : undefined
+      },
+      me.id
+    );
+    await auditLog(repos, req, {
+      action: "folder.create",
+      targetType: "folder",
+      targetId: created.id,
+      targetLabel: created.name,
+      meta: { parentId, protected: Boolean(password) }
+    });
+    res.status(201).json(created);
+  });
+
+  // 폴더 내용 조회 — 비밀번호 게이트. 보호 체인(자신 또는 조상)에 비밀번호
+  // 폴더가 있으면 x-folder-password 헤더(encodeURIComponent 인코딩)를
+  // 검증한다. super_admin 은 비밀번호 없이 통과.
+  router.get("/folders/:id/contents", async (req, res) => {
+    const me = req.currentUser!;
+    const map = await loadFolderMap();
+    const folder = map.get(req.params.id);
+    if (!folder) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    const guard = nearestProtected(map, folder);
+    if (guard && me.role !== "super_admin") {
+      const rawHeader = req.header("x-folder-password") ?? "";
+      let supplied = "";
+      try {
+        supplied = decodeURIComponent(rawHeader);
+      } catch {
+        supplied = rawHeader;
+      }
+      const hash = await repos.files.folderPasswordHash(guard.id);
+      if (!hash || !supplied || !verifyPassword(supplied, hash)) {
+        res.status(403).json({
+          error: "password_required",
+          folderId: guard.id,
+          folderName: guard.name
+        });
+        return;
+      }
+    }
+    const subfolders = [...map.values()].filter((f) => f.parentId === folder.id);
+    const files = await repos.files.listFiles({ folderId: folder.id });
+    res.json({ folder, subfolders, files });
+  });
+
+  // 폴더 이름/참여자 수정 — admin 전용.
+  router.patch("/folders/:id", adminOnly, async (req, res) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const input: { name?: string; memberIds?: string[] } = {};
+    if (typeof body.name === "string" && body.name.trim()) {
+      input.name = body.name.trim().slice(0, 100);
+    }
+    if (Array.isArray(body.memberIds)) {
+      input.memberIds = body.memberIds.filter(
+        (x): x is string => typeof x === "string"
+      );
+    }
+    const updated = await repos.files.updateFolder(req.params.id, input);
+    if (!updated) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    await auditLog(repos, req, {
+      action: "folder.update",
+      targetType: "folder",
+      targetId: updated.id,
+      targetLabel: updated.name
+    });
+    res.json(updated);
+  });
+
+  // 폴더 삭제 — admin 전용, 빈 폴더만 (하위 폴더·파일이 없을 때).
+  router.delete("/folders/:id", adminOnly, async (req, res) => {
+    const folder = await repos.files.findFolderById(req.params.id);
+    if (!folder) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    if (folder.fileCount > 0 || folder.childCount > 0) {
+      res.status(409).json({ error: "folder_not_empty" });
+      return;
+    }
+    await repos.files.deleteFolder(folder.id);
+    await auditLog(repos, req, {
+      action: "folder.delete",
+      targetType: "folder",
+      targetId: folder.id,
+      targetLabel: folder.name,
+      level: "warn"
+    });
+    res.json({ ok: true });
   });
 
   router.post(
@@ -177,6 +405,20 @@ export function createFilesRouter(repos: Repositories): Router {
       if (!file) {
       res.status(400).json({ error: "file_required" });
       return;
+    }
+    // 폴더 업로드 권한 — 디스크에 쓰기 전에 검증해 고아 파일을 막는다.
+    const folderId = isString(req.body?.folderId) ? req.body.folderId : undefined;
+    if (folderId) {
+      const map = await loadFolderMap();
+      const folder = map.get(folderId);
+      if (!folder) {
+        res.status(404).json({ error: "folder_not_found" });
+        return;
+      }
+      if (!canWriteIn(map, req.currentUser!, folder)) {
+        res.status(403).json({ error: "not_folder_member" });
+        return;
+      }
     }
     // Phase 10 follow-up — multer 가 multipart filename 을 latin1 로
     // 디코딩해서 한글 파일명이 mojibake 로 들어오는 케이스 복원. 이
@@ -201,7 +443,8 @@ export function createFilesRouter(repos: Repositories): Router {
       projectId: isString(req.body?.projectId) ? req.body.projectId : undefined,
       productId: isString(req.body?.productId) ? req.body.productId : undefined,
       taskId: isString(req.body?.taskId) ? req.body.taskId : undefined,
-      messageId: isString(req.body?.messageId) ? req.body.messageId : undefined
+      messageId: isString(req.body?.messageId) ? req.body.messageId : undefined,
+      folderId
     };
     try {
       const created = await repos.files.create(input, req.currentUser!.id);

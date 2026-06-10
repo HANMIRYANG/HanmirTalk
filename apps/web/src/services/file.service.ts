@@ -1,4 +1,11 @@
-import type { FileEntry, FileFolder, ListFilesFilter } from "@hanmir/shared";
+import type {
+  CreateFolderInput,
+  FileEntry,
+  FileFolder,
+  FolderContents,
+  ListFilesFilter,
+  UpdateFolderInput
+} from "@hanmir/shared";
 import { ApiError, apiBaseUrl, apiRequest } from "./api-client";
 
 interface AuthOptions {
@@ -10,11 +17,54 @@ interface UploadScope {
   productId?: string;
   taskId?: string;
   messageId?: string;
+  folderId?: string;
 }
 
 export const fileService = {
   async listFolders(opts: AuthOptions = {}): Promise<FileFolder[]> {
     return apiRequest<FileFolder[]>("/files/folders", { token: opts.token });
+  },
+  async createFolder(
+    input: CreateFolderInput,
+    opts: AuthOptions = {}
+  ): Promise<FileFolder> {
+    return apiRequest<FileFolder>("/files/folders", {
+      method: "POST",
+      body: input,
+      token: opts.token
+    });
+  },
+  async updateFolder(
+    id: string,
+    input: UpdateFolderInput,
+    opts: AuthOptions = {}
+  ): Promise<FileFolder> {
+    return apiRequest<FileFolder>(`/files/folders/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: input,
+      token: opts.token
+    });
+  },
+  async deleteFolder(id: string, opts: AuthOptions = {}): Promise<{ ok: boolean }> {
+    return apiRequest<{ ok: boolean }>(`/files/folders/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      token: opts.token
+    });
+  },
+  // 비밀번호 보호 폴더는 password 를 함께 전달 — 서버가 403
+  // password_required 를 돌려주면 UI 가 비밀번호 입력을 띄운다.
+  async folderContents(
+    id: string,
+    options: { password?: string } & AuthOptions = {}
+  ): Promise<FolderContents> {
+    const headers: Record<string, string> = {};
+    if (options.password) {
+      headers["x-folder-password"] = encodeURIComponent(options.password);
+    }
+    return apiRequest<FolderContents>(
+      `/files/folders/${encodeURIComponent(id)}/contents`,
+      { token: options.token, headers }
+    );
   },
   async listFiles(opts: AuthOptions & ListFilesFilter = {}): Promise<FileEntry[]> {
     const { token, ...filter } = opts;
@@ -42,6 +92,7 @@ export const fileService = {
     if (scope.productId) form.append("productId", scope.productId);
     if (scope.taskId) form.append("taskId", scope.taskId);
     if (scope.messageId) form.append("messageId", scope.messageId);
+    if (scope.folderId) form.append("folderId", scope.folderId);
 
     const headers: Record<string, string> = { Accept: "application/json" };
     if (opts.token) headers.Authorization = `Bearer ${opts.token}`;

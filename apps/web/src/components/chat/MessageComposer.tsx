@@ -1,53 +1,33 @@
 "use client";
 
-import {
-  useEffect,
-  useRef,
-  useState,
-  type ChangeEvent,
-  type KeyboardEvent,
-  type ReactNode,
-  type UIEvent
-} from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type UIEvent } from "react";
 import { useRouter } from "next/navigation";
-import type { FileEntry, MentionSearchResult, MessageEntity } from "@hanmir/shared";
-import { Avatar } from "@/components/ui/Avatar";
-import {
-  BoldIcon,
-  CloseIcon,
-  EmojiIcon,
-  ItalicIcon,
-  ListIcon,
-  MentionIcon,
-  PaperclipIcon
-} from "@/components/ui/icons";
+import type { MessageEntity } from "@hanmir/shared";
+import { CloseIcon } from "@/components/ui/icons";
 import { chatService } from "@/services/chat.service";
-import { fileService } from "@/services/file.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
-import { cn } from "@/lib/classNames";
-import { AiCommandModal } from "./AiCommandModal";
-import { ScheduleSendModal } from "./ScheduleSendModal";
+import dynamic from "next/dynamic";
 import type { AiCommand } from "@/services/ai.service";
+
+// AI 명령/예약 전송 모달은 사용 시점에만 청크 로드.
+const AiCommandModal = dynamic(
+  () => import("./AiCommandModal").then((m) => m.AiCommandModal),
+  { ssr: false }
+);
+const ScheduleSendModal = dynamic(
+  () => import("./ScheduleSendModal").then((m) => m.ScheduleSendModal),
+  { ssr: false }
+);
+import { ComposerHighlighter } from "./composer/ComposerHighlighter";
+import { ComposerToolbar } from "./composer/ComposerToolbar";
+import { MentionPopover } from "./composer/MentionPopover";
+import { SlashCommandPopover } from "./composer/SlashCommandPopover";
+import { reconcileEntities, useComposerText } from "./composer/useComposerText";
+import { useComposerAttachment } from "./composer/useComposerAttachment";
+import { useMentionPicker } from "./composer/useMentionPicker";
+import { useSlashCommands } from "./composer/useSlashCommands";
 import styles from "./MessageComposer.module.css";
-
-// Phase 5 H-5 — slash command catalog. label은 textarea의 매치용,
-// description은 popover에 표시.
-const SLASH_COMMANDS: { trigger: string; command: AiCommand; description: string }[] = [
-  { trigger: "/요약", command: "chat-summary", description: "최근 메시지를 요약" },
-  { trigger: "/업무추출", command: "extract-tasks", description: "행동 항목 추출 (JSON)" },
-  { trigger: "/결정사항", command: "extract-decisions", description: "결정 사항 추출 (JSON)" },
-  { trigger: "/공지초안", command: "draft-notice", description: "공지문 초안 작성" },
-  { trigger: "/회의록", command: "minutes", description: "회의록 형식으로 정리" }
-];
-
-// Phase 10 — 큐레이션 이모지. 외부 라이브러리 없이 사내 메신저 맥락에
-// 자주 쓸 만한 것만. 3그룹으로 묶어 popover 한 화면에 들어오는 크기 유지.
-const EMOJI_GROUPS: { label: string; items: string[] }[] = [
-  { label: "업무", items: ["👍", "✅", "🙏", "🎉", "🔥", "👀", "💬", "📌"] },
-  { label: "감정", items: ["😀", "😄", "😂", "😊", "😮", "😢", "😡"] },
-  { label: "자료", items: ["📎", "📄", "📊", "🧪", "🏭", "🚚", "⚠️"] }
-];
 
 interface MessageComposerProps {
   roomId: string;
@@ -55,13 +35,6 @@ interface MessageComposerProps {
   // Used as upload scope so attachments uploaded from a project room land
   // tagged with the project, making them visible on /projects/[id]/files.
   projectId?: string;
-}
-
-// Phase 5 H-2 — mention popover state. `start` is the offset of the `@`
-// character in `value`; the popover is open whenever start !== null.
-interface MentionPickerState {
-  start: number;
-  query: string;
 }
 
 export function MessageComposer({ roomId, roomName, projectId }: MessageComposerProps) {
@@ -74,51 +47,26 @@ export function MessageComposer({ roomId, roomName, projectId }: MessageComposer
   const [entities, setEntities] = useState<MessageEntity[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [attachment, setAttachment] = useState<FileEntry | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [picker, setPicker] = useState<MentionPickerState | null>(null);
-  const [pickerResults, setPickerResults] = useState<MentionSearchResult[]>([]);
-  const [pickerIndex, setPickerIndex] = useState(0);
-  // Phase 5 H-5 — slash command popover state. Independent from mention
-  // picker; the two cannot both be open since their triggers ("/" vs
-  // "@") are mutually exclusive within the same caret context.
-  const [slashPicker, setSlashPicker] = useState<{ start: number; query: string } | null>(null);
-  const [slashIndex, setSlashIndex] = useState(0);
   const [aiCommand, setAiCommand] = useState<AiCommand | null>(null);
   // Phase 10 M-4 — 예약 전송 모달. 본문/첨부/entities 가 비면 toolbar
   // 버튼이 비활성. 성공 시 onScheduled() 가 composer state 를 초기화.
   const [scheduleOpen, setScheduleOpen] = useState(false);
-  // Phase 10 — emoji picker popover. 단일 boolean toggle. picker가 열려도
-  // textarea 포커스를 유지하기 위해 mousedown 에서 preventDefault.
-  const [emojiOpen, setEmojiOpen] = useState(false);
-  const emojiBtnRef = useRef<HTMLButtonElement>(null);
-  const emojiPopoverRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // 멘션 하이라이트 백드롭 — textarea 와 동일한 글꼴/패딩으로 뒤에 깔려
   // entity 구간에만 파란 배경 pill 을 그린다. 스크롤은 onScroll 로 동기화.
   const highlighterRef = useRef<HTMLDivElement>(null);
 
-  // Debounced search whenever the picker query changes.
-  useEffect(() => {
-    if (!picker) {
-      setPickerResults([]);
-      return;
-    }
-    const t = setTimeout(async () => {
-      try {
-        const list = await chatService.searchMentions(picker.query, {
-          scope: ["user"],
-          limit: 8
-        });
-        setPickerResults(list);
-        setPickerIndex(0);
-      } catch {
-        setPickerResults([]);
-      }
-    }, 80);
-    return () => clearTimeout(t);
-  }, [picker]);
+  const { attachment, setAttachment, uploading, fileInputRef, pickAttachment, onFileSelected, clearAttachment } =
+    useComposerAttachment({ projectId, sending, setError });
+
+  const { wrapSelection, prefixLines, insertAtCaret } =
+    useComposerText({ value, setValue, setEntities, textareaRef });
+
+  const { picker, setPicker, pickerResults, pickerIndex, setPickerIndex, insertMention, handlePickerKeyDown } =
+    useMentionPicker({ value, setValue, setEntities, textareaRef });
+
+  const { slashPicker, setSlashPicker, slashIndex, setSlashIndex, slashMatches, triggerSlashCommand, handleSlashKeyDown } =
+    useSlashCommands({ value, setValue, setEntities, onCommand: setAiCommand });
 
   // 백드롭이 늦게 마운트되거나(첫 멘션 추가) 값이 바뀐 직후에도 textarea
   // 의 현재 스크롤 위치와 어긋나지 않도록 동기화.
@@ -129,193 +77,6 @@ export function MessageComposer({ roomId, roomName, projectId }: MessageComposer
     hl.scrollTop = ta.scrollTop;
     hl.scrollLeft = ta.scrollLeft;
   }, [value, entities]);
-
-  // Phase 10 — close emoji picker on outside click or Escape.
-  // NOTE: KeyboardEvent 는 위에서 React 타입으로 import 했기 때문에
-  // DOM 의 native KeyboardEvent 가 필요한 곳은 globalThis.KeyboardEvent
-  // 로 명시 — 그렇지 않으면 addEventListener 오버로드와 충돌.
-  useEffect(() => {
-    if (!emojiOpen) return;
-    const onDocMouseDown = (e: MouseEvent) => {
-      const target = e.target as Node | null;
-      if (!target) return;
-      if (emojiPopoverRef.current?.contains(target)) return;
-      if (emojiBtnRef.current?.contains(target)) return;
-      setEmojiOpen(false);
-    };
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === "Escape") setEmojiOpen(false);
-    };
-    document.addEventListener("mousedown", onDocMouseDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDocMouseDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [emojiOpen]);
-
-  const pickAttachment = () => {
-    if (uploading || sending) return;
-    fileInputRef.current?.click();
-  };
-
-  const onFileSelected = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    setUploading(true);
-    setError(null);
-    try {
-      const uploaded = await fileService.uploadFile(file, projectId ? { projectId } : {});
-      setAttachment(uploaded);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        handleSessionExpired(router);
-        return;
-      }
-      if (err instanceof ApiError && err.status === 413) {
-        setError("파일이 너무 큽니다.");
-      } else {
-        setError("파일 업로드에 실패했습니다.");
-      }
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const clearAttachment = () => setAttachment(null);
-
-  // Reconcile entities against current `value`: drop any entity whose
-  // text substring no longer matches what's at its offset/length.
-  const reconcileEntities = (newValue: string, list: MessageEntity[]): MessageEntity[] => {
-    return list.filter((e) => {
-      const slice = newValue.slice(e.offset, e.offset + e.length);
-      return slice === `@${e.label}` || slice === e.label;
-    });
-  };
-
-  // Phase 10 — entity offsets 를 텍스트 변환 결과에 맞춰 조정한다.
-  // rangeStart..rangeEnd 가 변환된 영역(원본 인덱스 기준), shift 가 길이 변화.
-  // 정책:
-  //   - 영역 이전(end <= rangeStart) entity 는 그대로
-  //   - 영역 이후(offset >= rangeEnd) entity 는 offset += shift
-  //   - 영역과 겹치는 entity 는 drop (safe 조정 어려움 — Codex 검수와 일치)
-  // 마지막에 reconcileEntities 로 텍스트-라벨 일치를 재확인.
-  const shiftEntities = (
-    list: MessageEntity[],
-    rangeStart: number,
-    rangeEnd: number,
-    shift: number
-  ): MessageEntity[] => {
-    const out: MessageEntity[] = [];
-    for (const e of list) {
-      const eEnd = e.offset + e.length;
-      if (eEnd <= rangeStart) {
-        out.push(e);
-      } else if (e.offset >= rangeEnd) {
-        out.push({ ...e, offset: e.offset + shift });
-      }
-      // else: overlap → drop
-    }
-    return out;
-  };
-
-  // Apply a transform to the textarea: replace [start, end) in `value`
-  // with `replacement`, update state, restore focus + put caret at
-  // newCaret (relative to the new value), and reconcile entities.
-  const applyTextEdit = (
-    start: number,
-    end: number,
-    replacement: string,
-    newCaretStart: number,
-    newCaretEnd?: number
-  ) => {
-    const oldLen = end - start;
-    const newLen = replacement.length;
-    const shift = newLen - oldLen;
-    const newValue = value.slice(0, start) + replacement + value.slice(end);
-    setValue(newValue);
-    setEntities((prev) => {
-      const shifted = shiftEntities(prev, start, end, shift);
-      return reconcileEntities(newValue, shifted);
-    });
-    requestAnimationFrame(() => {
-      const ta = textareaRef.current;
-      if (!ta) return;
-      ta.focus();
-      const a = newCaretStart;
-      const b = newCaretEnd ?? newCaretStart;
-      ta.setSelectionRange(a, b);
-    });
-  };
-
-  // Wrap the current selection with `prefix` + `suffix`. If nothing is
-  // selected, inserts the pair and places the caret between them so the
-  // user can type immediately.
-  const wrapSelection = (prefix: string, suffix: string) => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    const start = ta.selectionStart ?? 0;
-    const end = ta.selectionEnd ?? start;
-    const selected = value.slice(start, end);
-    const replacement = `${prefix}${selected}${suffix}`;
-    if (selected) {
-      // Keep the original text selected (now wrapped) so the next click
-      // can toggle again, and so the markdown wrapper is visually obvious.
-      applyTextEdit(
-        start,
-        end,
-        replacement,
-        start + prefix.length,
-        start + prefix.length + selected.length
-      );
-    } else {
-      // Empty selection — drop caret between the markers.
-      applyTextEdit(start, end, replacement, start + prefix.length);
-    }
-  };
-
-  // Prefix every non-empty line in [start, end] with `linePrefix`. The
-  // selection is expanded to cover full lines first so partial-line
-  // selections still affect the right lines.
-  const prefixLines = (linePrefix: string) => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    const selStart = ta.selectionStart ?? 0;
-    const selEnd = ta.selectionEnd ?? selStart;
-    // Expand to full lines.
-    const lineStart = value.lastIndexOf("\n", selStart - 1) + 1;
-    let lineEnd = value.indexOf("\n", selEnd);
-    if (lineEnd === -1) lineEnd = value.length;
-    const block = value.slice(lineStart, lineEnd);
-    const transformed = block
-      .split("\n")
-      .map((line) => (line.length === 0 ? line : `${linePrefix}${line}`))
-      .join("\n");
-    const newCaret = lineStart + transformed.length;
-    applyTextEdit(lineStart, lineEnd, transformed, lineStart, newCaret);
-  };
-
-  // Insert text at the current caret, replacing any selection. Used by
-  // the emoji picker. Caret lands right after the inserted text.
-  const insertAtCaret = (text: string) => {
-    const ta = textareaRef.current;
-    if (!ta) {
-      // No textarea yet — append.
-      const newValue = value + text;
-      setValue(newValue);
-      setEntities((prev) => reconcileEntities(newValue, prev));
-      return;
-    }
-    const start = ta.selectionStart ?? value.length;
-    const end = ta.selectionEnd ?? start;
-    applyTextEdit(start, end, text, start + text.length);
-  };
-
-  const onPickEmoji = (emoji: string) => {
-    insertAtCaret(emoji);
-    setEmojiOpen(false);
-  };
 
   const onValueChange = (nextValue: string) => {
     setValue(nextValue);
@@ -334,8 +95,8 @@ export function MessageComposer({ roomId, roomName, projectId }: MessageComposer
       setPicker({ start: atIndex, query: mentionMatch[1] });
       setSlashPicker(null);
     } else if (slashMatch) {
-      const slashIndex = before.length - slashMatch[1].length;
-      setSlashPicker({ start: slashIndex, query: slashMatch[1] });
+      const slashStart = before.length - slashMatch[1].length;
+      setSlashPicker({ start: slashStart, query: slashMatch[1] });
       setPicker(null);
     } else {
       setPicker(null);
@@ -343,84 +104,18 @@ export function MessageComposer({ roomId, roomName, projectId }: MessageComposer
     }
   };
 
-  const slashMatches = slashPicker
-    ? SLASH_COMMANDS.filter(
-        (c) =>
-          c.trigger.toLowerCase().startsWith(slashPicker.query.toLowerCase()) ||
-          slashPicker.query === "/"
-      )
-    : [];
-
-  const triggerSlashCommand = (command: AiCommand) => {
-    if (!slashPicker) return;
-    // Remove the "/query" the user typed so we don't accidentally send
-    // it as a message later.
-    const before = value.slice(0, slashPicker.start);
-    const after = value.slice(slashPicker.start + slashPicker.query.length);
-    const cleared = before + after;
-    setValue(cleared);
-    setEntities((prev) => reconcileEntities(cleared, prev));
-    setSlashPicker(null);
-    setAiCommand(command);
-  };
-
-  const closePicker = () => {
-    setPicker(null);
-    setPickerResults([]);
-  };
-
-  // Insert the selected mention into the textarea, replacing the
-  // in-progress "@query" with "@Label " and appending an entity.
-  const insertMention = (result: MentionSearchResult) => {
-    if (!picker) return;
-    const before = value.slice(0, picker.start);
-    const after = value.slice(picker.start + 1 + picker.query.length); // skip "@query"
-    const tokenLabel = result.label;
-    const insertedText = `@${tokenLabel} `;
-    const newValue = before + insertedText + after;
-    const newEntity: MessageEntity = {
-      type: result.type === "user" ? "mention" : (`${result.type}_ref` as MessageEntity["type"]),
-      id: result.id,
-      label: tokenLabel,
-      offset: picker.start,
-      length: insertedText.trimEnd().length // "@Label" without trailing space
-    };
-    setValue(newValue);
-    setEntities((prev) =>
-      reconcileEntities(newValue, [...prev, newEntity])
-    );
-    closePicker();
-    // Restore caret right after the inserted "@Label ".
+  const onMentionButtonClick = () => {
+    // Insert "@" at caret to trigger the popover.
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const caret = ta.selectionStart ?? value.length;
+    const next = value.slice(0, caret) + "@" + value.slice(caret);
+    onValueChange(next);
     requestAnimationFrame(() => {
-      const ta = textareaRef.current;
-      if (!ta) return;
-      const pos = picker.start + insertedText.length;
       ta.focus();
+      const pos = caret + 1;
       ta.setSelectionRange(pos, pos);
     });
-  };
-
-  // Phase 5 H-2 보강 — 태그가 실제로 걸렸는지 입력창에서 바로 보이도록,
-  // entity 구간을 <mark> 로 감싼 백드롭용 노드를 만든다. 글자는 투명
-  // (textarea 의 실제 텍스트가 위에 겹침), 배경 pill 만 보인다.
-  const renderHighlightNodes = (): ReactNode[] => {
-    const nodes: ReactNode[] = [];
-    const sorted = [...entities].sort((a, b) => a.offset - b.offset);
-    let cursor = 0;
-    for (const e of sorted) {
-      if (e.offset < cursor) continue; // 겹침 안전장치 — reconcile 상 발생 안 함
-      if (e.offset > cursor) nodes.push(value.slice(cursor, e.offset));
-      nodes.push(
-        <mark key={`${e.type}:${e.id}:${e.offset}`} className={styles.highlightToken}>
-          {value.slice(e.offset, e.offset + e.length)}
-        </mark>
-      );
-      cursor = e.offset + e.length;
-    }
-    nodes.push(value.slice(cursor));
-    // 후행 개행도 textarea 와 같은 높이로 렌더되도록 zero-width space.
-    nodes.push("​");
-    return nodes;
   };
 
   const syncHighlightScroll = (e: UIEvent<HTMLTextAreaElement>) => {
@@ -462,54 +157,11 @@ export function MessageComposer({ roomId, roomName, projectId }: MessageComposer
     }
   };
 
+  // 키 처리 우선순위는 분할 전과 동일: 멘션 picker → 슬래시 picker →
+  // Enter 전송. picker 핸들러가 true(키 소비)면 이후 단계는 건너뛴다.
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (picker && pickerResults.length > 0) {
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        setPickerIndex((i) => Math.min(i + 1, pickerResults.length - 1));
-        return;
-      }
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        setPickerIndex((i) => Math.max(i - 1, 0));
-        return;
-      }
-      // Tab 도 Enter 와 동일하게 확정 — 자동완성 관성 (IDE/카카오워크 등).
-      if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
-        event.preventDefault();
-        const result = pickerResults[pickerIndex];
-        if (result) insertMention(result);
-        return;
-      }
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closePicker();
-        return;
-      }
-    }
-    if (slashPicker && slashMatches.length > 0) {
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        setSlashIndex((i) => Math.min(i + 1, slashMatches.length - 1));
-        return;
-      }
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        setSlashIndex((i) => Math.max(i - 1, 0));
-        return;
-      }
-      if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
-        event.preventDefault();
-        const choice = slashMatches[slashIndex];
-        if (choice) triggerSlashCommand(choice.command);
-        return;
-      }
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setSlashPicker(null);
-        return;
-      }
-    }
+    if (handlePickerKeyDown(event)) return;
+    if (handleSlashKeyDown(event)) return;
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       void send();
@@ -519,131 +171,24 @@ export function MessageComposer({ roomId, roomName, projectId }: MessageComposer
   return (
     <div className={styles.composer}>
       <div className={styles.box}>
-        <div className={styles.toolbar}>
-          <button
-            className={styles.tbBtn}
-            title="굵게 (선택한 텍스트를 **로 감싸기)"
-            type="button"
-            onMouseDown={(e) => {
-              // mousedown + preventDefault — textarea 포커스 유지로
-              // selectionStart/End 가 살아있게 함.
-              e.preventDefault();
-              wrapSelection("**", "**");
-            }}
-            disabled={sending}
-          >
-            <BoldIcon size={14} />
-          </button>
-          <button
-            className={styles.tbBtn}
-            title="기울임 (선택한 텍스트를 *로 감싸기)"
-            type="button"
-            onMouseDown={(e) => {
-              e.preventDefault();
-              wrapSelection("*", "*");
-            }}
-            disabled={sending}
-          >
-            <ItalicIcon size={14} />
-          </button>
-          <button
-            className={styles.tbBtn}
-            title="목록 (각 줄 앞에 - 추가)"
-            type="button"
-            onMouseDown={(e) => {
-              e.preventDefault();
-              prefixLines("- ");
-            }}
-            disabled={sending}
-          >
-            <ListIcon size={14} />
-          </button>
-          <span className={styles.divider} />
-          <input
-            ref={fileInputRef}
-            type="file"
-            style={{ display: "none" }}
-            onChange={onFileSelected}
-          />
-          <button
-            className={styles.tbBtn}
-            title="파일 첨부"
-            type="button"
-            onClick={pickAttachment}
-            disabled={uploading || sending}
-          >
-            <PaperclipIcon size={16} />
-          </button>
-          <button
-            className={styles.tbBtn}
-            title="멘션 (텍스트에 @ 입력)"
-            type="button"
-            onClick={() => {
-              // Insert "@" at caret to trigger the popover.
-              const ta = textareaRef.current;
-              if (!ta) return;
-              const caret = ta.selectionStart ?? value.length;
-              const next = value.slice(0, caret) + "@" + value.slice(caret);
-              onValueChange(next);
-              requestAnimationFrame(() => {
-                ta.focus();
-                const pos = caret + 1;
-                ta.setSelectionRange(pos, pos);
-              });
-            }}
-          >
-            <MentionIcon size={14} />
-          </button>
-          <button
-            ref={emojiBtnRef}
-            className={cn(styles.tbBtn, emojiOpen && styles.tbBtnActive)}
-            title="이모지 삽입"
-            type="button"
-            aria-expanded={emojiOpen}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              setEmojiOpen((o) => !o);
-            }}
-            disabled={sending}
-          >
-            <EmojiIcon size={14} />
-          </button>
-          {emojiOpen ? (
-            <div
-              ref={emojiPopoverRef}
-              className={styles.emojiPopover}
-              role="dialog"
-              aria-label="이모지 선택"
-            >
-              {EMOJI_GROUPS.map((group) => (
-                <div key={group.label} className={styles.emojiGroup}>
-                  <div className={styles.emojiGroupLabel}>{group.label}</div>
-                  <div className={styles.emojiGrid}>
-                    {group.items.map((emoji) => (
-                      <button
-                        key={emoji}
-                        type="button"
-                        className={styles.emojiBtn}
-                        title={emoji}
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          onPickEmoji(emoji);
-                        }}
-                      >
-                        {emoji}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </div>
+        <ComposerToolbar
+          sending={sending}
+          uploading={uploading}
+          fileInputRef={fileInputRef}
+          onFileSelected={onFileSelected}
+          onPickAttachment={pickAttachment}
+          onWrapSelection={wrapSelection}
+          onPrefixLines={prefixLines}
+          onMentionClick={onMentionButtonClick}
+          onPickEmoji={insertAtCaret}
+        />
         <div className={styles.inputWrap}>
           {entities.length > 0 ? (
-            <div ref={highlighterRef} className={styles.highlighter} aria-hidden="true">
-              {renderHighlightNodes()}
-            </div>
+            <ComposerHighlighter
+              value={value}
+              entities={entities}
+              highlighterRef={highlighterRef}
+            />
           ) : null}
           <textarea
             ref={textareaRef}
@@ -657,86 +202,20 @@ export function MessageComposer({ roomId, roomName, projectId }: MessageComposer
             disabled={sending}
           />
           {slashPicker && slashMatches.length > 0 ? (
-            <div className={styles.mentionPopover} role="listbox" aria-label="AI 명령">
-              {slashMatches.map((c, i) => (
-                <button
-                  key={c.command}
-                  type="button"
-                  className={cn(
-                    styles.mentionRow,
-                    i === slashIndex && styles.mentionRowActive
-                  )}
-                  onMouseEnter={() => setSlashIndex(i)}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    triggerSlashCommand(c.command);
-                  }}
-                  role="option"
-                  aria-selected={i === slashIndex}
-                >
-                  <span className={styles.mentionTypeIcon}>✨</span>
-                  <div className={styles.mentionMeta}>
-                    <div className={styles.mentionLabel}>{c.trigger}</div>
-                    <div className={styles.mentionSublabel}>{c.description}</div>
-                  </div>
-                </button>
-              ))}
-            </div>
+            <SlashCommandPopover
+              matches={slashMatches}
+              activeIndex={slashIndex}
+              onPick={triggerSlashCommand}
+              onHover={setSlashIndex}
+            />
           ) : null}
           {picker ? (
-            <div className={styles.mentionPopover} role="listbox">
-              {pickerResults.length === 0 ? (
-                <div className={styles.mentionEmpty}>
-                  검색 결과 없음 (계속 입력하거나 Esc로 닫기)
-                </div>
-              ) : (
-                pickerResults.map((r, i) => (
-                  <button
-                    key={`${r.type}:${r.id}`}
-                    type="button"
-                    className={cn(
-                      styles.mentionRow,
-                      i === pickerIndex && styles.mentionRowActive
-                    )}
-                    onMouseEnter={() => setPickerIndex(i)}
-                    onMouseDown={(e) => {
-                      // mousedown not click — click would steal focus
-                      // from textarea after blur runs.
-                      e.preventDefault();
-                      insertMention(r);
-                    }}
-                    role="option"
-                    aria-selected={i === pickerIndex}
-                  >
-                    {r.initials ? (
-                      <Avatar
-                        initials={r.initials}
-                        tone={r.avatarTone ?? "default"}
-                        size="sm"
-                      />
-                    ) : (
-                      <span className={styles.mentionTypeIcon}>
-                        {r.type === "department"
-                          ? "🏢"
-                          : r.type === "project"
-                          ? "📁"
-                          : r.type === "task"
-                          ? "✅"
-                          : r.type === "file"
-                          ? "📄"
-                          : "@"}
-                      </span>
-                    )}
-                    <div className={styles.mentionMeta}>
-                      <div className={styles.mentionLabel}>{r.label}</div>
-                      {r.sublabel ? (
-                        <div className={styles.mentionSublabel}>{r.sublabel}</div>
-                      ) : null}
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
+            <MentionPopover
+              results={pickerResults}
+              activeIndex={pickerIndex}
+              onPick={insertMention}
+              onHover={setPickerIndex}
+            />
           ) : null}
         </div>
         {uploading ? (
@@ -802,20 +281,25 @@ export function MessageComposer({ roomId, roomName, projectId }: MessageComposer
           onClose={() => setAiCommand(null)}
         />
       ) : null}
-      <ScheduleSendModal
-        open={scheduleOpen}
-        onClose={() => setScheduleOpen(false)}
-        roomId={roomId}
-        body={value}
-        entities={entities}
-        attachment={attachment}
-        onScheduled={() => {
-          // 예약 성공 → composer 입력 초기화. 일반 전송 직후와 동일.
-          setValue("");
-          setEntities([]);
-          setAttachment(null);
-        }}
-      />
+      {scheduleOpen ? (
+        // 조건부 마운트 — dynamic 청크가 버튼 클릭 시점에만 로드된다.
+        // ScheduleSendModal 은 [open] effect 로 폼을 초기화하므로 마운트
+        // 시점에 open=true 여도 동일하게 동작한다.
+        <ScheduleSendModal
+          open={scheduleOpen}
+          onClose={() => setScheduleOpen(false)}
+          roomId={roomId}
+          body={value}
+          entities={entities}
+          attachment={attachment}
+          onScheduled={() => {
+            // 예약 성공 → composer 입력 초기화. 일반 전송 직후와 동일.
+            setValue("");
+            setEntities([]);
+            setAttachment(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

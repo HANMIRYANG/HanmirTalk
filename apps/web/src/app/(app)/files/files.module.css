@@ -338,3 +338,47 @@
   margin-top: auto;
 }
 .cardDate { margin-left: auto; }
+
+/* 폴더 체계 개편 — 카드 액션 버튼 / 브레드크럼 / 폴더 툴바 */
+.folderClickable:focus-visible {
+  outline: 2px solid var(--brand-blue);
+  outline-offset: 2px;
+}
+.folderActions {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 2px;
+}
+.folderActionBtn {
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  line-height: 1;
+  padding: 3px 4px;
+  border-radius: var(--r-xs);
+  cursor: pointer;
+  opacity: 0.55;
+}
+.folderActionBtn:hover {
+  opacity: 1;
+  background: var(--bg-soft);
+}
+.folderToolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.folderToolbar .muted {
+  font-size: 12px;
+}
+.folderError {
+  margin: 8px 0;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  color: #b91c1c;
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.32);
+  border-radius: var(--r-xs);
+}

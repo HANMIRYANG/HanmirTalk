@@ -1,11 +1,23 @@
 import type { FileEntry, FileFolder } from "@hanmir/shared";
 
+// 메모리 모드(dev) 기본 폴더 — 운영의 기본 부서 폴더 구성과 동일한 이름.
+// memberIds 는 dev 시드 사용자 id 와 무관하게 비워 둔다 (admin/super_admin
+// 은 항상 하위 폴더를 만들 수 있으므로 dev 검증에는 충분).
 export const seedFolders: FileFolder[] = [
-  { id: "fo-2026", name: "2026년 프로젝트", meta: "128 항목 · 8명 공유", tone: "yellow" },
-  { id: "fo-trc", name: "시험성적서 (TRC)", meta: "214 항목 · 품질보증팀", tone: "blue" },
-  { id: "fo-sop", name: "표준 양식 / SOP", meta: "76 항목 · 전사 공유", tone: "orange" },
-  { id: "fo-notice", name: "전사 공지 자료", meta: "52 항목 · 인사팀", tone: "purple" }
-];
+  "경영지원실",
+  "도료사업부",
+  "영업본부",
+  "연구소"
+].map((name, i) => ({
+  id: `fo-dept-${i + 1}`,
+  name,
+  memberIds: [],
+  hasPassword: false,
+  createdBy: "u-kim-minjun",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  fileCount: 0,
+  childCount: 0
+}));
 
 export const seedFiles: FileEntry[] = [
   {

@@ -1,21 +1,33 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import type { FileEntry, FileFolder, FileKind, Project, User } from "@hanmir/shared";
-import { Tag } from "@/components/ui/Tag";
-import { Avatar } from "@/components/ui/Avatar";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import type {
+  FileEntry,
+  FileFolder,
+  FileKind,
+  FolderContents,
+  Project,
+  User
+} from "@hanmir/shared";
 import {
   CheckIcon,
   ClockIcon,
-  FavoriteIcon,
   FolderIcon,
   LockIcon,
   PinIcon,
   SearchIcon
 } from "@/components/ui/icons";
+import { Pagination } from "@/components/ui/Pagination";
 import { fileService } from "@/services/file.service";
+import { ApiError } from "@/services/api-client";
 import { cn } from "@/lib/classNames";
 import { FileUploadButton } from "./FileUploadButton";
+import { CardView, FilterSelect, ListTable, ScopeBtn, fileTag } from "./FileViews";
+import { FolderGrid } from "./FolderGrid";
+import { FolderCreateModal } from "./FolderCreateModal";
+import { FolderPasswordModal } from "./FolderPasswordModal";
+import { FolderMembersModal } from "./FolderMembersModal";
 import styles from "./files.module.css";
 
 type ScopeKind =
@@ -25,7 +37,7 @@ type ScopeKind =
   | "mine"
   | "private"
   | { kind: "project"; id: string; name: string }
-  | { kind: "dept"; name: string }
+  | { kind: "folder"; id: string }
   | { kind: "type"; type: FileKind };
 
 type ViewMode = "list" | "card" | "detail";
@@ -34,25 +46,7 @@ type OwnerFilter = "all" | "me" | string; // user id
 type PeriodFilter = "all" | "today" | "week" | "month";
 type SortBy = "newest" | "oldest" | "name" | "size";
 
-const fileColor: Record<string, string> = {
-  pdf: styles.icPdf,
-  xls: styles.icXls,
-  doc: styles.icDoc,
-  ppt: styles.icPpt,
-  img: styles.icImg,
-  zip: styles.icZip
-};
-
-const fileTag: Record<string, string> = {
-  pdf: "PDF", xls: "XLS", doc: "DOC", ppt: "PPT", img: "IMG", zip: "ZIP"
-};
-
-const folderTone: Record<string, string> = {
-  yellow: styles.folderYellow,
-  blue: styles.folderBlue,
-  orange: styles.folderOrange,
-  purple: styles.folderPurple
-};
+const PAGE_SIZE = 50;
 
 function isInPeriod(uploadedAt: string, period: PeriodFilter): boolean {
   if (period === "all") return true;
@@ -87,15 +81,37 @@ function uploadedAtMs(uploadedAt: string): number {
   return Number.isNaN(t) ? 0 : t;
 }
 
+// 세션 한정 폴더 비밀번호 보관 — 새로고침해도 같은 탭에서는 재입력 불필요.
+function storedFolderPw(folderId: string): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  return window.sessionStorage.getItem(`folder-pw:${folderId}`) ?? undefined;
+}
+
+function storeFolderPw(folderId: string, pw: string): void {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(`folder-pw:${folderId}`, pw);
+}
+
 interface FileLibraryProps {
   folders: FileFolder[];
   files: FileEntry[];
   users: User[];
   projects: Project[];
   meId: string;
+  meRole: string;
 }
 
-export function FileLibrary({ folders, files, users, projects, meId }: FileLibraryProps) {
+export function FileLibrary({
+  folders,
+  files,
+  users,
+  projects,
+  meId,
+  meRole
+}: FileLibraryProps) {
+  const router = useRouter();
+  const isAdmin = meRole === "admin" || meRole === "super_admin";
+
   const [scope, setScope] = useState<ScopeKind>("all");
   const [view, setView] = useState<ViewMode>("list");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
@@ -103,14 +119,160 @@ export function FileLibrary({ folders, files, users, projects, meId }: FileLibra
   const [periodFilter, setPeriodFilter] = useState<PeriodFilter>("all");
   const [sortBy, setSortBy] = useState<SortBy>("newest");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+
+  // 폴더 상태 — SSR folders 를 로컬 복사해 생성/삭제를 즉시 반영하고,
+  // router.refresh() 가 가져온 새 props 로 다시 동기화한다.
+  const [folderList, setFolderList] = useState<FileFolder[]>(folders);
+  useEffect(() => setFolderList(folders), [folders]);
+  const [folderContents, setFolderContents] = useState<FolderContents | null>(null);
+  const [folderLoading, setFolderLoading] = useState(false);
+  const [folderError, setFolderError] = useState<string | null>(null);
+  const [folderReload, setFolderReload] = useState(0);
+  const [pwPrompt, setPwPrompt] = useState<{
+    guardId: string;
+    guardName: string;
+    error: string | null;
+  } | null>(null);
+  const [createModal, setCreateModal] = useState<
+    { parentId?: string; parentName?: string } | null
+  >(null);
+  const [membersModal, setMembersModal] = useState<FileFolder | null>(null);
 
   const userById = useMemo(() => new Map(users.map((u) => [u.id, u] as const)), [users]);
+  const folderById = useMemo(
+    () => new Map(folderList.map((f) => [f.id, f] as const)),
+    [folderList]
+  );
+  const rootFolders = useMemo(
+    () => folderList.filter((f) => !f.parentId),
+    [folderList]
+  );
 
-  const departments = useMemo(() => {
-    const set = new Set<string>();
-    for (const u of users) if (u.departmentName) set.add(u.departmentName);
-    return Array.from(set).sort();
-  }, [users]);
+  const currentFolderId =
+    typeof scope === "object" && scope.kind === "folder" ? scope.id : null;
+  const currentFolder = currentFolderId
+    ? folderContents?.folder.id === currentFolderId
+      ? folderContents.folder
+      : folderById.get(currentFolderId) ?? null
+    : null;
+
+  // 폴더 조상 체인 (브레드크럼·권한·비밀번호 가드 계산용)
+  const folderPath = useMemo(() => {
+    if (!currentFolderId) return [] as FileFolder[];
+    const path: FileFolder[] = [];
+    let cur = folderById.get(currentFolderId);
+    const seen = new Set<string>();
+    while (cur && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      path.unshift(cur);
+      cur = cur.parentId ? folderById.get(cur.parentId) : undefined;
+    }
+    return path;
+  }, [currentFolderId, folderById]);
+
+  const rootOfCurrent = folderPath[0] ?? null;
+  const canWriteInCurrent =
+    isAdmin || (rootOfCurrent ? rootOfCurrent.memberIds.includes(meId) : false);
+
+  // 자기 자신 또는 조상 중 비밀번호가 걸린 가장 가까운 폴더 — 저장된
+  // 비밀번호를 요청에 실어 보내는 용도 (검증은 서버).
+  const nearestGuard = useMemo(() => {
+    for (let i = folderPath.length - 1; i >= 0; i--) {
+      if (folderPath[i].hasPassword) return folderPath[i];
+    }
+    return null;
+  }, [folderPath]);
+
+  // 폴더 내용 로드 — scope 가 폴더일 때.
+  useEffect(() => {
+    if (!currentFolderId) {
+      setFolderContents(null);
+      setFolderError(null);
+      return;
+    }
+    let cancelled = false;
+    setFolderLoading(true);
+    setFolderError(null);
+    const guardPw = nearestGuard ? storedFolderPw(nearestGuard.id) : undefined;
+    fileService
+      .folderContents(currentFolderId, { password: guardPw })
+      .then((contents) => {
+        if (cancelled) return;
+        setFolderContents(contents);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.message === "password_required") {
+          const body = (err.body ?? {}) as { folderId?: string; folderName?: string };
+          setPwPrompt({
+            guardId: body.folderId ?? currentFolderId,
+            guardName: body.folderName ?? "보호된 폴더",
+            error: guardPw ? "비밀번호가 일치하지 않습니다." : null
+          });
+          setFolderContents(null);
+          return;
+        }
+        setFolderError("폴더를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      })
+      .finally(() => {
+        if (!cancelled) setFolderLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentFolderId, folderReload, nearestGuard]);
+
+  // 필터/검색/스코프가 바뀌면 1페이지로.
+  useEffect(() => {
+    setPage(1);
+  }, [scope, typeFilter, ownerFilter, periodFilter, sortBy, search]);
+
+  const reloadFolder = useCallback(() => setFolderReload((n) => n + 1), []);
+
+  const openFolder = useCallback((folder: FileFolder) => {
+    setScope({ kind: "folder", id: folder.id });
+  }, []);
+
+  const onPasswordSubmit = (pw: string) => {
+    if (!pwPrompt) return;
+    storeFolderPw(pwPrompt.guardId, pw);
+    setPwPrompt(null);
+    reloadFolder();
+  };
+
+  const onFolderCreated = (created: FileFolder) => {
+    setFolderList((prev) => [...prev, created]);
+    if (created.parentId && created.parentId === currentFolderId) reloadFolder();
+    router.refresh();
+  };
+
+  const onFolderDelete = async (folder: FileFolder) => {
+    if (!window.confirm(`"${folder.name}" 폴더를 삭제할까요? (빈 폴더만 삭제됩니다)`)) {
+      return;
+    }
+    try {
+      await fileService.deleteFolder(folder.id);
+      setFolderList((prev) => prev.filter((f) => f.id !== folder.id));
+      if (folder.id === currentFolderId) {
+        setScope(folder.parentId ? { kind: "folder", id: folder.parentId } : "all");
+      } else if (folder.parentId === currentFolderId) {
+        reloadFolder();
+      }
+      router.refresh();
+    } catch (err) {
+      window.alert(
+        err instanceof ApiError && err.message === "folder_not_empty"
+          ? "비어있지 않은 폴더는 삭제할 수 없습니다."
+          : "폴더 삭제에 실패했습니다."
+      );
+    }
+  };
+
+  const onMembersUpdated = (updated: FileFolder) => {
+    setFolderList((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
+    router.refresh();
+  };
 
   // Counts per scope — all from `files` once.
   const counts = useMemo(() => {
@@ -121,20 +283,16 @@ export function FileLibrary({ folders, files, users, projects, meId }: FileLibra
       mine: files.filter((f) => f.uploaderId === meId).length,
       private: 0,
       perProject: new Map<string, number>(),
-      perDept: new Map<string, number>(),
       perType: { doc: 0, xls: 0, img: 0, zip: 0, pdf: 0, ppt: 0 } as Record<FileKind, number>
     };
     for (const f of files) {
       if (f.projectId) {
         out.perProject.set(f.projectId, (out.perProject.get(f.projectId) ?? 0) + 1);
       }
-      const uploader = userById.get(f.uploaderId);
-      const dept = uploader?.departmentName;
-      if (dept) out.perDept.set(dept, (out.perDept.get(dept) ?? 0) + 1);
       out.perType[f.kind] = (out.perType[f.kind] ?? 0) + 1;
     }
     return out;
-  }, [files, userById, meId]);
+  }, [files, meId]);
 
   const scopedFiles = useMemo(() => {
     if (scope === "all") return files;
@@ -144,13 +302,12 @@ export function FileLibrary({ folders, files, users, projects, meId }: FileLibra
     if (scope === "private") return [];
     if (typeof scope === "object" && scope.kind === "project")
       return files.filter((f) => f.projectId === scope.id);
-    if (typeof scope === "object" && scope.kind === "dept") {
-      return files.filter((f) => userById.get(f.uploaderId)?.departmentName === scope.name);
-    }
+    if (typeof scope === "object" && scope.kind === "folder")
+      return folderContents?.files ?? [];
     if (typeof scope === "object" && scope.kind === "type")
       return files.filter((f) => f.kind === scope.type);
     return files;
-  }, [files, scope, meId, userById]);
+  }, [files, scope, meId, folderContents]);
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -182,6 +339,13 @@ export function FileLibrary({ folders, files, users, projects, meId }: FileLibra
     return xs;
   }, [scopedFiles, typeFilter, ownerFilter, periodFilter, sortBy, search, meId]);
 
+  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const paged =
+    visible.length > PAGE_SIZE
+      ? visible.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+      : visible;
+
   // Scope label for breadcrumb
   const scopeLabel =
     scope === "all"
@@ -196,8 +360,8 @@ export function FileLibrary({ folders, files, users, projects, meId }: FileLibra
       ? "개인 보관함"
       : scope.kind === "project"
       ? `${scope.name}`
-      : scope.kind === "dept"
-      ? scope.name
+      : scope.kind === "folder"
+      ? currentFolder?.name ?? "폴더"
       : `유형: ${fileTag[scope.type] ?? scope.type}`;
 
   const typeLabel =
@@ -226,6 +390,8 @@ export function FileLibrary({ folders, files, users, projects, meId }: FileLibra
       : "최근 30일";
   const sortLabel =
     sortBy === "newest" ? "최신순" : sortBy === "oldest" ? "오래된순" : sortBy === "name" ? "이름순" : "크기순";
+
+  const isFolderScope = currentFolderId != null;
 
   return (
     <div className={styles.layout}>
@@ -268,6 +434,24 @@ export function FileLibrary({ folders, files, users, projects, meId }: FileLibra
         />
 
         <div className={styles.scopeTitle} style={{ marginTop: 14 }}>
+          폴더
+        </div>
+        {rootFolders.length === 0 ? (
+          <div className={styles.scopeEmpty}>폴더 없음</div>
+        ) : (
+          rootFolders.map((f) => (
+            <ScopeBtn
+              key={f.id}
+              icon={<FolderIcon size={14} />}
+              label={f.hasPassword ? `🔒 ${f.name}` : f.name}
+              count={f.fileCount}
+              active={rootOfCurrent?.id === f.id}
+              onClick={() => openFolder(f)}
+            />
+          ))
+        )}
+
+        <div className={styles.scopeTitle} style={{ marginTop: 14 }}>
           프로젝트
         </div>
         {projects.length === 0 ? (
@@ -284,23 +468,6 @@ export function FileLibrary({ folders, files, users, projects, meId }: FileLibra
               onClick={() =>
                 setScope({ kind: "project", id: p.id, name: `${p.code} ${p.name}` })
               }
-            />
-          ))
-        )}
-
-        <div className={styles.scopeTitle} style={{ marginTop: 14 }}>
-          부서
-        </div>
-        {departments.length === 0 ? (
-          <div className={styles.scopeEmpty}>부서 정보 없음</div>
-        ) : (
-          departments.map((dept) => (
-            <ScopeBtn
-              key={dept}
-              label={dept}
-              count={counts.perDept.get(dept) ?? 0}
-              active={typeof scope === "object" && scope.kind === "dept" && scope.name === dept}
-              onClick={() => setScope({ kind: "dept", name: dept })}
             />
           ))
         )}
@@ -334,8 +501,32 @@ export function FileLibrary({ folders, files, users, projects, meId }: FileLibra
             >
               파일함
             </button>
-            <span className={styles.sep}>›</span>
-            <b>{scopeLabel}</b>
+            {isFolderScope && folderPath.length > 0 ? (
+              folderPath.map((f, i) => (
+                <span key={f.id}>
+                  <span className={styles.sep}>›</span>
+                  {i === folderPath.length - 1 ? (
+                    <b>
+                      {f.hasPassword ? "🔒 " : ""}
+                      {f.name}
+                    </b>
+                  ) : (
+                    <button
+                      type="button"
+                      className={styles.crumbLink}
+                      onClick={() => openFolder(f)}
+                    >
+                      {f.name}
+                    </button>
+                  )}
+                </span>
+              ))
+            ) : (
+              <>
+                <span className={styles.sep}>›</span>
+                <b>{scopeLabel}</b>
+              </>
+            )}
           </div>
           <div className={styles.barRow}>
             <div className={styles.seg}>
@@ -436,221 +627,145 @@ export function FileLibrary({ folders, files, users, projects, meId }: FileLibra
                   aria-label="파일 검색"
                 />
               </div>
-              <FileUploadButton />
+              {isFolderScope ? (
+                canWriteInCurrent ? (
+                  <FileUploadButton
+                    folderId={currentFolderId ?? undefined}
+                    onUploaded={reloadFolder}
+                  />
+                ) : null
+              ) : (
+                <FileUploadButton />
+              )}
             </div>
           </div>
         </section>
 
         <div className={styles.fcontent}>
-          {scope === "all" && folders.length > 0 ? (
+          {scope === "all" ? (
             <>
-              <div className={styles.sectionH}>📂 폴더 {folders.length}개</div>
-              <div className={styles.folderGrid}>
-                {folders.map((f) => (
-                  <div key={f.id} className={styles.folder}>
-                    <div className={styles.folderHead}>
-                      <div className={cn(styles.folderIc, folderTone[f.tone])} />
-                    </div>
-                    <div>
-                      <div className={styles.folderName}>{f.name}</div>
-                      <div className={styles.folderMeta}>{f.meta}</div>
-                    </div>
-                  </div>
-                ))}
+              <div className={styles.folderToolbar}>
+                <div className={styles.sectionH} style={{ margin: 0 }}>
+                  📂 부서 폴더 {rootFolders.length}개
+                </div>
+                {isAdmin ? (
+                  <button
+                    type="button"
+                    className="btn btn--outline btn--sm"
+                    onClick={() => setCreateModal({})}
+                  >
+                    + 새 부서 폴더
+                  </button>
+                ) : null}
               </div>
+              {rootFolders.length === 0 ? (
+                <div className={styles.empty}>
+                  아직 폴더가 없습니다. 관리자가 부서 폴더를 만들 수 있습니다.
+                </div>
+              ) : (
+                <FolderGrid
+                  folders={rootFolders}
+                  isAdmin={isAdmin}
+                  isRootLevel
+                  onOpen={openFolder}
+                  onManageMembers={(f) => setMembersModal(f)}
+                  onDelete={onFolderDelete}
+                />
+              )}
             </>
           ) : null}
 
-          <div className={styles.sectionH}>📄 파일 {visible.length}개</div>
-          {visible.length === 0 ? (
-            <div className={styles.empty}>해당 조건에 맞는 파일이 없습니다.</div>
-          ) : view === "card" ? (
-            <CardView files={visible} userById={userById} />
-          ) : (
-            <ListTable files={visible} userById={userById} detail={view === "detail"} />
-          )}
+          {isFolderScope ? (
+            folderLoading ? (
+              <div className={styles.empty}>폴더를 불러오는 중...</div>
+            ) : folderError ? (
+              <div className={styles.folderError} role="alert">
+                {folderError}
+              </div>
+            ) : folderContents ? (
+              <>
+                <div className={styles.folderToolbar}>
+                  <div className={styles.sectionH} style={{ margin: 0 }}>
+                    📂 하위 폴더 {folderContents.subfolders.length}개
+                  </div>
+                  {canWriteInCurrent ? (
+                    <button
+                      type="button"
+                      className="btn btn--outline btn--sm"
+                      onClick={() =>
+                        setCreateModal({
+                          parentId: currentFolderId ?? undefined,
+                          parentName: currentFolder?.name
+                        })
+                      }
+                    >
+                      + 새 폴더
+                    </button>
+                  ) : (
+                    <span className="muted t-xs">
+                      이 폴더의 참여자만 하위 폴더를 만들 수 있습니다.
+                    </span>
+                  )}
+                </div>
+                {folderContents.subfolders.length > 0 ? (
+                  <FolderGrid
+                    folders={folderContents.subfolders}
+                    isAdmin={isAdmin}
+                    isRootLevel={false}
+                    onOpen={openFolder}
+                    onDelete={onFolderDelete}
+                  />
+                ) : null}
+              </>
+            ) : !pwPrompt ? (
+              <div className={styles.empty}>폴더 내용을 표시할 수 없습니다.</div>
+            ) : (
+              <div className={styles.empty}>비밀번호를 입력하면 폴더가 열립니다.</div>
+            )
+          ) : null}
+
+          {!isFolderScope || folderContents ? (
+            <>
+              <div className={styles.sectionH}>📄 파일 {visible.length}개</div>
+              {visible.length === 0 ? (
+                <div className={styles.empty}>해당 조건에 맞는 파일이 없습니다.</div>
+              ) : view === "card" ? (
+                <CardView files={paged} userById={userById} />
+              ) : (
+                <ListTable files={paged} userById={userById} detail={view === "detail"} />
+              )}
+              <Pagination page={safePage} pageCount={pageCount} onChange={setPage} />
+            </>
+          ) : null}
         </div>
       </main>
-    </div>
-  );
-}
 
-function ScopeBtn({
-  icon,
-  swatch,
-  swatchColor,
-  label,
-  count,
-  active,
-  onClick
-}: {
-  icon?: JSX.Element;
-  swatch?: boolean;
-  swatchColor?: string;
-  label: string;
-  count: number;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(styles.scopeItem, active && styles.scopeActive)}
-    >
-      {swatch ? (
-        <span className={styles.scopeSw} style={{ background: swatchColor }} />
-      ) : (
-        icon
-      )}
-      {label}
-      <span className={styles.count}>{count}</span>
-    </button>
-  );
-}
-
-function FilterSelect({
-  label,
-  value,
-  render
-}: {
-  label: string;
-  value: string;
-  render: () => JSX.Element;
-}) {
-  return (
-    <div className={styles.filterSlot}>
-      <span className={styles.filterLabel}>
-        {label}: <b>{value}</b>
-      </span>
-      {render()}
-    </div>
-  );
-}
-
-function ListTable({
-  files,
-  userById,
-  detail
-}: {
-  files: FileEntry[];
-  userById: Map<string, User>;
-  detail: boolean;
-}) {
-  return (
-    <div className={styles.ftable}>
-      <table>
-        <thead>
-          <tr>
-            <th className={styles.colIc} />
-            <th>이름</th>
-            <th className={styles.colTag}>분류</th>
-            <th className={styles.colSz}>크기</th>
-            <th className={styles.colBy}>업로드</th>
-            <th className={styles.colDt}>날짜</th>
-            {detail ? <th>설명</th> : null}
-          </tr>
-        </thead>
-        <tbody>
-          {files.map((f) => {
-            const uploader = userById.get(f.uploaderId);
-            return (
-              <tr key={f.id}>
-                <td>
-                  <div className={cn(styles.fic, fileColor[f.kind])}>{fileTag[f.kind]}</div>
-                </td>
-                <td>
-                  <a
-                    className={styles.fname}
-                    href={fileService.downloadUrl(f.id)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {f.name}
-                    {f.starred ? <FavoriteIcon size={12} /> : null}
-                  </a>
-                </td>
-                <td>
-                  <Tag tone={(f.scopeTone as "blue") ?? "default"}>{f.scope}</Tag>
-                  {f.scopeExtra ? (
-                    <Tag tone={(f.scopeExtra.tone as "amber") ?? "default"}>
-                      {f.scopeExtra.label}
-                    </Tag>
-                  ) : null}
-                </td>
-                <td className="muted">{f.size}</td>
-                <td>
-                  {uploader ? (
-                    <div className={styles.byRow}>
-                      <Avatar
-                        initials={uploader.initials}
-                        tone={uploader.avatarTone ?? "default"}
-                        className={styles.byAvatar}
-                      />
-                      <span>
-                        {uploader.name} {uploader.position}
-                      </span>
-                    </div>
-                  ) : null}
-                </td>
-                <td className="muted">{f.uploadedAt}</td>
-                {detail ? (
-                  <td className="muted t-xs">
-                    {f.projectId ? `프로젝트: ${f.projectId}` : "—"}
-                  </td>
-                ) : null}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function CardView({
-  files,
-  userById
-}: {
-  files: FileEntry[];
-  userById: Map<string, User>;
-}) {
-  return (
-    <div className={styles.cardGrid}>
-      {files.map((f) => {
-        const uploader = userById.get(f.uploaderId);
-        return (
-          <a
-            key={f.id}
-            className={styles.cardItem}
-            href={fileService.downloadUrl(f.id)}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <div className={cn(styles.fic, fileColor[f.kind], styles.cardIc)}>
-              {fileTag[f.kind]}
-            </div>
-            <div className={styles.cardName}>{f.name}</div>
-            <div className={styles.cardMeta}>
-              <Tag tone={(f.scopeTone as "blue") ?? "default"}>{f.scope}</Tag>
-              <span className="muted">{f.size}</span>
-            </div>
-            <div className={styles.cardFoot}>
-              {uploader ? (
-                <>
-                  <Avatar
-                    initials={uploader.initials}
-                    tone={uploader.avatarTone ?? "default"}
-                    size="sm"
-                  />
-                  <span>{uploader.name}</span>
-                </>
-              ) : null}
-              <span className={styles.cardDate}>{f.uploadedAt}</span>
-            </div>
-          </a>
-        );
-      })}
+      <FolderCreateModal
+        open={createModal != null}
+        onClose={() => setCreateModal(null)}
+        parentId={createModal?.parentId}
+        parentName={createModal?.parentName}
+        users={users}
+        onCreated={onFolderCreated}
+      />
+      <FolderPasswordModal
+        open={pwPrompt != null}
+        folderName={pwPrompt?.guardName ?? ""}
+        error={pwPrompt?.error}
+        onClose={() => {
+          setPwPrompt(null);
+          // 비밀번호 입력을 취소하면 상위로 빠져나간다.
+          setScope("all");
+        }}
+        onSubmit={onPasswordSubmit}
+      />
+      <FolderMembersModal
+        open={membersModal != null}
+        folder={membersModal}
+        users={users}
+        onClose={() => setMembersModal(null)}
+        onUpdated={onMembersUpdated}
+      />
     </div>
   );
 }

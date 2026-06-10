@@ -114,7 +114,9 @@ import type {
   RoomRepository,
   ScheduledMessageRepository,
   TaskRepository,
-  UserRepository
+  UserRepository,
+  CreateFolderRepoInput,
+  UpdateFolderRepoInput
 } from "./types";
 
 // Refresh token TTL — paired with the cookie Max-Age in routes/auth.ts.
@@ -663,13 +665,22 @@ class MemoryMessageRepository implements MessageRepository {
     return undefined;
   }
 
-  async listByRoom(roomId: string, viewerUserId?: string): Promise<ChatMessage[]> {
+  async listByRoom(
+    roomId: string,
+    viewerUserId?: string,
+    opts?: { limit?: number; beforeId?: string }
+  ): Promise<ChatMessage[]> {
     // Phase 11 — top-level 만 반환 + thread aggregate. 답글은 listReplies.
-    const topLevel = (this.data[roomId] ?? [])
-      .filter((m) => !m.parentMessageId)
-      .map(maskIfDeleted)
-      .map((m) => this.decorateThread(m));
-    return this.decorateReactions(topLevel, viewerUserId);
+    let topLevel = (this.data[roomId] ?? []).filter((m) => !m.parentMessageId);
+    if (opts?.beforeId) {
+      const idx = topLevel.findIndex((m) => m.id === opts.beforeId);
+      if (idx >= 0) topLevel = topLevel.slice(0, idx);
+    }
+    if (opts?.limit && opts.limit > 0) {
+      topLevel = topLevel.slice(-opts.limit);
+    }
+    const decorated = topLevel.map(maskIfDeleted).map((m) => this.decorateThread(m));
+    return this.decorateReactions(decorated, viewerUserId);
   }
 
   async findById(messageId: string, viewerUserId?: string): Promise<ChatMessage | undefined> {
@@ -1852,6 +1863,9 @@ function formatBytes(bytes: number): string {
 
 class MemoryFileRepository implements FileRepository {
   private readonly folders: FileFolder[] = clone(seedFolders);
+  // 폴더 비밀번호 해시 — FileFolder 응답 타입에 해시를 싣지 않기 위해
+  // 별도 맵으로 관리 (PG 의 password_hash 컬럼에 대응).
+  private readonly folderPasswords = new Map<string, string>();
   // Backfill `projectId` from seed `scope` strings ("P-2410") by lowercasing,
   // which matches the seedProjects.id convention. Done once at construction
   // so the live filter doesn't repeatedly re-derive.
@@ -1860,8 +1874,68 @@ class MemoryFileRepository implements FileRepository {
     projectId: f.projectId ?? (f.scope?.startsWith("P-") ? f.scope.toLowerCase() : undefined)
   }));
 
+  private withCounts(folder: FileFolder): FileFolder {
+    return {
+      ...folder,
+      fileCount: this.files.filter((f) => f.folderId === folder.id).length,
+      childCount: this.folders.filter((c) => c.parentId === folder.id).length
+    };
+  }
+
   async listFolders(): Promise<FileFolder[]> {
-    return clone(this.folders);
+    return this.folders.map((f) => clone(this.withCounts(f)));
+  }
+
+  async findFolderById(id: string): Promise<FileFolder | undefined> {
+    const found = this.folders.find((f) => f.id === id);
+    return found ? clone(this.withCounts(found)) : undefined;
+  }
+
+  async createFolder(
+    input: CreateFolderRepoInput,
+    createdBy: string
+  ): Promise<FileFolder> {
+    const folder: FileFolder = {
+      id: newId("fo"),
+      name: input.name,
+      parentId: input.parentId,
+      memberIds: input.memberIds ?? [],
+      hasPassword: input.passwordHash != null,
+      createdBy,
+      createdAt: new Date().toISOString(),
+      fileCount: 0,
+      childCount: 0
+    };
+    this.folders.push(folder);
+    if (input.passwordHash) this.folderPasswords.set(folder.id, input.passwordHash);
+    return clone(folder);
+  }
+
+  async updateFolder(
+    id: string,
+    input: UpdateFolderRepoInput
+  ): Promise<FileFolder | undefined> {
+    const idx = this.folders.findIndex((f) => f.id === id);
+    if (idx < 0) return undefined;
+    const next = { ...this.folders[idx] };
+    if (input.name !== undefined) next.name = input.name;
+    if (input.memberIds !== undefined) next.memberIds = input.memberIds;
+    this.folders[idx] = next;
+    return clone(this.withCounts(next));
+  }
+
+  async deleteFolder(id: string): Promise<boolean> {
+    const idx = this.folders.findIndex((f) => f.id === id);
+    if (idx < 0) return false;
+    this.folders.splice(idx, 1);
+    this.folderPasswords.delete(id);
+    return true;
+  }
+
+  async folderPasswordHash(id: string): Promise<string | null | undefined> {
+    const exists = this.folders.some((f) => f.id === id);
+    if (!exists) return undefined;
+    return this.folderPasswords.get(id) ?? null;
   }
 
   async listFiles(filter?: ListFilesFilter): Promise<FileEntry[]> {
@@ -1871,6 +1945,7 @@ class MemoryFileRepository implements FileRepository {
       if (filter?.taskId && f.taskId !== filter.taskId) return false;
       if (filter?.messageId && f.messageId !== filter.messageId) return false;
       if (filter?.uploaderId && f.uploaderId !== filter.uploaderId) return false;
+      if (filter?.folderId && f.folderId !== filter.folderId) return false;
       return true;
     });
     return clone(out);
@@ -1918,7 +1993,8 @@ class MemoryFileRepository implements FileRepository {
       projectId: input.projectId,
       productId: input.productId,
       taskId: input.taskId,
-      messageId: input.messageId
+      messageId: input.messageId,
+      folderId: input.folderId
     };
     this.files.unshift(entry);
     this.storage.set(entry.id, {

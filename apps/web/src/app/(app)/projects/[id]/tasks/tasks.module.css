@@ -462,3 +462,38 @@
   font-size: 13px;
   color: var(--text-4);
 }
+
+/* Pagination (client-side, 50건 단위) */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 28px 22px;
+}
+.pageBtn {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.pageBtn:hover:not(:disabled) { border-color: var(--brand-blue); color: var(--text-1); }
+.pageBtn:disabled { opacity: 0.45; cursor: default; }
+.pageBtnActive {
+  background: var(--brand-blue);
+  border-color: var(--brand-blue);
+  color: #fff;
+}
+.pageBtnActive:hover:not(:disabled) { border-color: var(--brand-blue); color: #fff; }
+.pageEllipsis {
+  min-width: 20px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-4);
+}

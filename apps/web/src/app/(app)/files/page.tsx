@@ -23,6 +23,7 @@ export default async function FileLibraryPage() {
         users={users}
         projects={projects}
         meId={me.id}
+        meRole={me.role}
       />
     </>
   );

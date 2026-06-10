@@ -157,7 +157,13 @@ export interface MessageRepository {
   // Phase 11 — `viewerUserId` 가 주어지면 reactions[].reactedByMe 가
   // 본인 기준으로 채워지고, listByRoom 은 top-level 만 반환 + thread
   // aggregate 가 함께 붙는다. 답글은 listReplies 로 별도 조회.
-  listByRoom(roomId: string, viewerUserId?: string): Promise<ChatMessage[]>;
+  // opts.limit: 최신 N개 윈도우 (시간 오름차순으로 반환). opts.beforeId:
+  // 해당 메시지보다 오래된 것만 — "이전 메시지 보기" 커서.
+  listByRoom(
+    roomId: string,
+    viewerUserId?: string,
+    opts?: { limit?: number; beforeId?: string }
+  ): Promise<ChatMessage[]>;
   // Returns a single message regardless of room. Required by the
   // /messages/:id PATCH/DELETE routes to perform ownership checks before
   // mutating. Returns undefined for missing or hard-deleted rows.
@@ -399,8 +405,28 @@ export interface ErpRepository {
   listMesSyncRuns(limit?: number): Promise<MesSyncRun[]>;
 }
 
+// 폴더 생성 입력 — 라우트가 비밀번호를 bcrypt 해시로 변환해 넘긴다.
+export interface CreateFolderRepoInput {
+  name: string;
+  parentId?: string;
+  passwordHash?: string;
+  memberIds?: string[];
+}
+
+export interface UpdateFolderRepoInput {
+  name?: string;
+  memberIds?: string[];
+}
+
 export interface FileRepository {
   listFolders(): Promise<FileFolder[]>;
+  findFolderById(id: string): Promise<FileFolder | undefined>;
+  createFolder(input: CreateFolderRepoInput, createdBy: string): Promise<FileFolder>;
+  updateFolder(id: string, input: UpdateFolderRepoInput): Promise<FileFolder | undefined>;
+  // 빈 폴더 검증은 라우트 책임 — repo 는 행 삭제만 한다.
+  deleteFolder(id: string): Promise<boolean>;
+  // 비밀번호 검증용. undefined = 폴더 없음, null = 비밀번호 미설정.
+  folderPasswordHash(id: string): Promise<string | null | undefined>;
   listFiles(filter?: ListFilesFilter): Promise<FileEntry[]>;
   findById(id: string): Promise<FileEntry | undefined>;
   // `uploaderId` is the authenticated user. The route already moved the

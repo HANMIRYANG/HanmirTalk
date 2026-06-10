@@ -1,21 +1,11 @@
-import Link from "next/link";
 import { Topbar } from "@/components/shell/Topbar";
-import { Tag } from "@/components/ui/Tag";
 import { productService } from "@/services/product.service";
 import { requireServerMe } from "@/lib/server-auth";
-import { salesStatusLabel } from "@hanmir/shared";
 import { ProductCreateButton } from "./ProductCreateButton";
+import { ProductsPagedGrid } from "./ProductsPagedGrid";
 import styles from "./products.module.css";
 
 const WRITER_ROLES = new Set(["admin", "super_admin", "manager", "project_owner"]);
-
-const SALES_TONE = {
-  unavailable: "red" as const,
-  preparing: "amber" as const,
-  internal: "blue" as const,
-  conditional: "amber" as const,
-  available: "green" as const
-};
 
 export default async function ProductListPage() {
   const { me, token } = await requireServerMe();
@@ -30,26 +20,7 @@ export default async function ProductListPage() {
           <div className={styles.toolbarMeta}>{products.length}개 제품</div>
           {canManage ? <ProductCreateButton /> : null}
         </div>
-        <div className={styles.grid}>
-          {products.map((p) => (
-            <Link key={p.id} href={`/products/${p.id}`} className={styles.card}>
-              <div className={styles.thumb}>{p.imageLabel ?? "PRODUCT"}</div>
-              <div>
-                <div className={styles.title}>{p.fullName}</div>
-                <div className={styles.code}>{p.code}</div>
-              </div>
-              <div className={styles.meta}>{p.subCategory}</div>
-              <div className={styles.statusRow}>
-                <Tag tone={SALES_TONE[p.salesStatus]} dot>
-                  {salesStatusLabel[p.salesStatus]}
-                </Tag>
-              </div>
-              <div className={styles.foot}>
-                {p.quarter?.revenue ? `분기 매출 ${p.quarter.revenue}` : "등록된 제품 정보"}
-              </div>
-            </Link>
-          ))}
-        </div>
+        <ProductsPagedGrid products={products} />
       </div>
     </>
   );

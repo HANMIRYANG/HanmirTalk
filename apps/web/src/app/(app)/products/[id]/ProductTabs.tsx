@@ -16,10 +16,23 @@ import type {
 import { salesStatusLabel } from "@hanmir/shared";
 import { Tag } from "@/components/ui/Tag";
 import { ProgressBar } from "@/components/ui/ProgressBar";
-import { ProductSpecsModal } from "./ProductSpecsModal";
-import { ProductLotModal } from "./ProductLotModal";
-import { ProductDocumentUploadModal } from "./ProductDocumentUploadModal";
+import dynamic from "next/dynamic";
 import { ProductOwnerChatButton } from "./ProductOwnerChatButton";
+
+// 모달 3종은 열 때만 로드 — 초기 번들에서 제외 (조건부 렌더라 청크는
+// 버튼 클릭 시점에 받아온다).
+const ProductSpecsModal = dynamic(
+  () => import("./ProductSpecsModal").then((m) => m.ProductSpecsModal),
+  { ssr: false }
+);
+const ProductLotModal = dynamic(
+  () => import("./ProductLotModal").then((m) => m.ProductLotModal),
+  { ssr: false }
+);
+const ProductDocumentUploadModal = dynamic(
+  () => import("./ProductDocumentUploadModal").then((m) => m.ProductDocumentUploadModal),
+  { ssr: false }
+);
 import { fileService } from "@/services/file.service";
 import { productService } from "@/services/product.service";
 import { ApiError } from "@/services/api-client";

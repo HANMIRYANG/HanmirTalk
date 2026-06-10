@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import type {
   CreateUserInput,
@@ -13,6 +13,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Tag } from "@/components/ui/Tag";
 import { SearchIcon } from "@/components/ui/icons";
 import { Modal } from "@/components/ui/Modal";
+import { Pagination } from "@/components/ui/Pagination";
 import { userService } from "@/services/user.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
@@ -42,6 +43,8 @@ const ROLE_OPTIONS: UserRole[] = [
   "admin",
   "super_admin"
 ];
+
+const PAGE_SIZE = 15;
 
 const AVATAR_TONES: NonNullable<User["avatarTone"]>[] = [
   "default",
@@ -118,6 +121,7 @@ export function UsersAdminCard({ initialUsers, departments }: UsersAdminCardProp
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -129,6 +133,18 @@ export function UsersAdminCard({ initialUsers, departments }: UsersAdminCardProp
         u.departmentName.toLowerCase().includes(q)
     );
   }, [users, search]);
+
+  // 검색어가 바뀌면 1페이지로.
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const paged =
+    filtered.length > PAGE_SIZE
+      ? filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+      : filtered;
 
   const openCreate = () => {
     setForm(EMPTY_FORM(departments[0]?.id));
@@ -248,7 +264,7 @@ export function UsersAdminCard({ initialUsers, departments }: UsersAdminCardProp
           </tr>
         </thead>
         <tbody>
-          {filtered.map((u) => {
+          {paged.map((u) => {
             const isInactive = u.isActive === false;
             return (
               <tr key={u.id}>
@@ -313,6 +329,7 @@ export function UsersAdminCard({ initialUsers, departments }: UsersAdminCardProp
           ) : null}
         </tbody>
       </table>
+      <Pagination page={safePage} pageCount={pageCount} onChange={setPage} />
 
       <Modal
         open={!!mode}

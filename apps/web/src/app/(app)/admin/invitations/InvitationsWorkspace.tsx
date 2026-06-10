@@ -10,6 +10,7 @@ import type {
 } from "@hanmir/shared";
 import { userRoleLabel } from "@hanmir/shared";
 import { Tag } from "@/components/ui/Tag";
+import { Pagination } from "@/components/ui/Pagination";
 import { invitationService } from "@/services/invitation.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
@@ -23,6 +24,8 @@ const ROLE_OPTIONS: UserRole[] = [
   "admin",
   "super_admin"
 ];
+
+const PAGE_SIZE = 15;
 
 const STATUS_TONE: Record<InvitationStatus, "blue" | "green" | "amber"> = {
   pending: "blue",
@@ -74,6 +77,14 @@ export function InvitationsWorkspace({ initialInvitations, departments }: Props)
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+
+  const pageCount = Math.max(1, Math.ceil(invitations.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const paged =
+    invitations.length > PAGE_SIZE
+      ? invitations.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+      : invitations;
 
   const onCreate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -221,7 +232,7 @@ export function InvitationsWorkspace({ initialInvitations, departments }: Props)
             </tr>
           </thead>
           <tbody>
-            {invitations.map((inv) => (
+            {paged.map((inv) => (
               <tr key={inv.id}>
                 <td>{inv.email}</td>
                 <td>
@@ -264,6 +275,7 @@ export function InvitationsWorkspace({ initialInvitations, departments }: Props)
             ) : null}
           </tbody>
         </table>
+        <Pagination page={safePage} pageCount={pageCount} onChange={setPage} />
       </section>
     </div>
   );

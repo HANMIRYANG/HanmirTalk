@@ -662,11 +662,46 @@ export interface FileEntry {
   messageId?: string;
 }
 
+// 파일함 폴더 — DB 엔티티 (migration 023).
+//   - 최상위 폴더(부서 폴더): admin/super_admin 만 생성. memberIds 가
+//     "참여자" — 그 트리 안에서 하위 폴더를 만들 수 있는 사용자 목록.
+//   - 하위 폴더: 루트의 참여자(또는 admin/super_admin)만 생성 가능,
+//     생성 시 선택적으로 비밀번호 설정 가능 (hasPassword).
+//   - 비밀번호 해시는 API 로 절대 노출하지 않는다.
 export interface FileFolder {
   id: string;
   name: string;
-  meta: string;
-  tone: "yellow" | "blue" | "orange" | "purple";
+  parentId?: string;
+  // 루트 폴더의 참여자 user id 목록. 하위 폴더는 빈 배열 (루트에서 상속).
+  memberIds: string[];
+  hasPassword: boolean;
+  createdBy: string;
+  createdAt: string;
+  // 직속 항목 수 (목록 표시용)
+  fileCount: number;
+  childCount: number;
+}
+
+export interface CreateFolderInput {
+  name: string;
+  // 없으면 최상위(부서) 폴더 — admin/super_admin 전용
+  parentId?: string;
+  // 하위 폴더에만 허용
+  password?: string;
+  // 최상위 폴더에만 의미 (참여자 목록)
+  memberIds?: string[];
+}
+
+export interface UpdateFolderInput {
+  name?: string;
+  memberIds?: string[];
+}
+
+// GET /files/folders/:id/contents 응답
+export interface FolderContents {
+  folder: FileFolder;
+  subfolders: FileFolder[];
+  files: FileEntry[];
 }
 
 export interface CreateFileInput {
@@ -683,6 +718,8 @@ export interface CreateFileInput {
   productId?: string;
   taskId?: string;
   messageId?: string;
+  // 파일함 폴더에 업로드할 때 지정 (migration 023)
+  folderId?: string;
 }
 
 export interface ListFilesFilter {
@@ -691,6 +728,7 @@ export interface ListFilesFilter {
   taskId?: string;
   messageId?: string;
   uploaderId?: string;
+  folderId?: string;
 }
 
 export interface Notice {

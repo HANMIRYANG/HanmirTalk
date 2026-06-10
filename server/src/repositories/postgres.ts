@@ -104,12 +104,14 @@ import type {
 import { NOTIFICATION_CATEGORIES } from "@hanmir/shared";
 import type {
   AuditRepository,
+  CreateFolderRepoInput,
   CreateNotificationInput,
   CreatePushSubscriptionInput,
   DecisionRepository,
   DepartmentRepository,
   OrgNotificationRepository,
   FileRepository,
+  UpdateFolderRepoInput,
   InvitationRepository,
   IssuedRefreshToken,
   MessageReactionRepository,
@@ -1320,18 +1322,40 @@ class PgMessageRepository implements MessageRepository {
     });
   }
 
-  async listByRoom(roomId: string, viewerUserId?: string): Promise<ChatMessage[]> {
+  async listByRoom(
+    roomId: string,
+    viewerUserId?: string,
+    opts?: { limit?: number; beforeId?: string }
+  ): Promise<ChatMessage[]> {
     // Phase 2 E-1 — include soft-deleted rows so the conversation flow
     // stays intact (tombstone). rowToMessage masks the body.
     // Phase 11 — top-level only (parent_message_id IS NULL). 답글은
     // listReplies 로 별도 조회.
+    // 페이지네이션: limit 가 있으면 최신 N개를 DESC 로 뽑아 reverse —
+    // MESSAGE_SELECT 를 서브쿼리로 감싸지 않아도 된다. beforeId 는
+    // (created_at, id) 복합 비교로 동시각 메시지 누락/중복을 방지.
+    const params: unknown[] = [roomId];
+    let beforeClause = "";
+    if (opts?.beforeId) {
+      params.push(opts.beforeId);
+      beforeClause = `AND (m.created_at, m.id) <
+        (SELECT created_at, id FROM messages WHERE id = $${params.length})`;
+    }
+    let limitClause = "";
+    if (opts?.limit && opts.limit > 0) {
+      params.push(opts.limit);
+      limitClause = `LIMIT $${params.length}`;
+    }
     const { rows } = await this.pool.query<MessageRow>(
       `${MESSAGE_SELECT}
        WHERE m.room_id = $1 AND m.parent_message_id IS NULL
-       ORDER BY m.created_at ASC`,
-      [roomId]
+       ${beforeClause}
+       ORDER BY m.created_at ${limitClause ? "DESC, m.id DESC" : "ASC"}
+       ${limitClause}`,
+      params
     );
     const messages = rows.map(rowToMessage);
+    if (limitClause) messages.reverse();
     const withThreads = await this.decorateThreads(messages);
     return this.decorateReactions(withThreads, viewerUserId);
   }
@@ -2081,6 +2105,7 @@ interface AttachmentRow {
   product_id: string | null;
   task_id: string | null;
   message_id: string | null;
+  folder_id: string | null;
   created_at: Date;
 }
 
@@ -2134,24 +2159,129 @@ function rowToFile(row: AttachmentRow): FileEntry {
     projectId: row.project_id ?? undefined,
     productId: row.product_id ?? undefined,
     taskId: row.task_id ?? undefined,
-    messageId: row.message_id ?? undefined
+    messageId: row.message_id ?? undefined,
+    folderId: row.folder_id ?? undefined
   };
 }
 
 const ATTACHMENT_SELECT = `
   SELECT id, file_name, file_type, file_size, file_url, uploaded_by,
-         project_id, product_id, task_id, message_id, created_at
+         project_id, product_id, task_id, message_id, folder_id, created_at
   FROM attachments
+`;
+
+interface FolderRow {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  password_hash: string | null;
+  member_ids: string[] | null;
+  created_by: string;
+  created_at: Date;
+  file_count: string | number | null;
+  child_count: string | number | null;
+}
+
+function rowToFolder(row: FolderRow): FileFolder {
+  return {
+    id: row.id,
+    name: row.name,
+    parentId: row.parent_id ?? undefined,
+    memberIds: row.member_ids ?? [],
+    hasPassword: row.password_hash != null,
+    createdBy: row.created_by,
+    createdAt: row.created_at.toISOString(),
+    fileCount: Number(row.file_count) || 0,
+    childCount: Number(row.child_count) || 0
+  };
+}
+
+const FOLDER_SELECT = `
+  SELECT f.id, f.name, f.parent_id, f.password_hash, f.member_ids,
+         f.created_by, f.created_at,
+         (SELECT COUNT(*) FROM attachments a WHERE a.folder_id = f.id) AS file_count,
+         (SELECT COUNT(*) FROM file_folders c WHERE c.parent_id = f.id) AS child_count
+  FROM file_folders f
 `;
 
 class PgFileRepository implements FileRepository {
   constructor(private readonly pool: Pool) {}
 
-  // No folders table exists in the current schema; folders are a UI-only
-  // construct seeded in memory. Returning [] keeps the file library page from
-  // throwing while leaving the door open for a later `file_folders` table.
   async listFolders(): Promise<FileFolder[]> {
-    return [];
+    const { rows } = await this.pool.query<FolderRow>(
+      `${FOLDER_SELECT} ORDER BY f.created_at ASC`
+    );
+    return rows.map(rowToFolder);
+  }
+
+  async findFolderById(id: string): Promise<FileFolder | undefined> {
+    const { rows } = await this.pool.query<FolderRow>(
+      `${FOLDER_SELECT} WHERE f.id = $1`,
+      [id]
+    );
+    return rows[0] ? rowToFolder(rows[0]) : undefined;
+  }
+
+  async createFolder(
+    input: CreateFolderRepoInput,
+    createdBy: string
+  ): Promise<FileFolder> {
+    const { rows } = await this.pool.query<{ id: string }>(
+      `INSERT INTO file_folders (name, parent_id, password_hash, member_ids, created_by)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id`,
+      [
+        input.name,
+        input.parentId ?? null,
+        input.passwordHash ?? null,
+        input.memberIds ?? [],
+        createdBy
+      ]
+    );
+    const created = await this.findFolderById(rows[0].id);
+    if (!created) throw new Error("[postgres] failed to read back created folder");
+    return created;
+  }
+
+  async updateFolder(
+    id: string,
+    input: UpdateFolderRepoInput
+  ): Promise<FileFolder | undefined> {
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    if (input.name !== undefined) {
+      params.push(input.name);
+      sets.push(`name = $${params.length}`);
+    }
+    if (input.memberIds !== undefined) {
+      params.push(input.memberIds);
+      sets.push(`member_ids = $${params.length}`);
+    }
+    if (sets.length === 0) return this.findFolderById(id);
+    sets.push("updated_at = NOW()");
+    params.push(id);
+    await this.pool.query(
+      `UPDATE file_folders SET ${sets.join(", ")} WHERE id = $${params.length}`,
+      params
+    );
+    return this.findFolderById(id);
+  }
+
+  async deleteFolder(id: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      `DELETE FROM file_folders WHERE id = $1`,
+      [id]
+    );
+    return (rowCount ?? 0) > 0;
+  }
+
+  async folderPasswordHash(id: string): Promise<string | null | undefined> {
+    const { rows } = await this.pool.query<{ password_hash: string | null }>(
+      `SELECT password_hash FROM file_folders WHERE id = $1`,
+      [id]
+    );
+    if (!rows[0]) return undefined;
+    return rows[0].password_hash;
   }
 
   async listFiles(filter?: ListFilesFilter): Promise<FileEntry[]> {
@@ -2167,6 +2297,7 @@ class PgFileRepository implements FileRepository {
     add("task_id", filter?.taskId);
     add("message_id", filter?.messageId);
     add("uploaded_by", filter?.uploaderId);
+    add("folder_id", filter?.folderId);
     const sql = `${ATTACHMENT_SELECT}${
       where.length > 0 ? ` WHERE ${where.join(" AND ")}` : ""
     } ORDER BY created_at DESC`;
@@ -2178,8 +2309,8 @@ class PgFileRepository implements FileRepository {
     const { rows } = await this.pool.query<{ id: string }>(
       `INSERT INTO attachments (
          file_name, file_type, file_size, file_url, uploaded_by,
-         project_id, product_id, task_id, message_id
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         project_id, product_id, task_id, message_id, folder_id
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING id`,
       [
         input.fileName,
@@ -2190,7 +2321,8 @@ class PgFileRepository implements FileRepository {
         input.projectId ?? null,
         input.productId ?? null,
         input.taskId ?? null,
-        input.messageId ?? null
+        input.messageId ?? null,
+        input.folderId ?? null
       ]
     );
     const created = await this.findById(rows[0].id);
