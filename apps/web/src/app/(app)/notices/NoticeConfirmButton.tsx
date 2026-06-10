@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { noticeService } from "@/services/notice.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
+import { useRefreshUnreadBadges } from "@/components/shell/UnreadBadgesProvider";
 
 interface NoticeConfirmButtonProps {
   noticeId: string;
@@ -12,6 +13,7 @@ interface NoticeConfirmButtonProps {
 
 export function NoticeConfirmButton({ noticeId }: NoticeConfirmButtonProps) {
   const router = useRouter();
+  const refreshBadges = useRefreshUnreadBadges();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,6 +23,9 @@ export function NoticeConfirmButton({ noticeId }: NoticeConfirmButtonProps) {
     setError(null);
     try {
       await noticeService.confirmNotice(noticeId);
+      // 확인 처리 직후 사이드바 공지 배지 즉시 갱신 (경로 변경이 없어
+      // provider 의 자동 트리거가 돌지 않는 지점).
+      refreshBadges();
       router.refresh();
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {

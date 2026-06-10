@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { chatService } from "@/services/chat.service";
 import { ApiError } from "@/services/api-client";
 import { getSocket } from "@/lib/socket";
+import { useRefreshUnreadBadges } from "@/components/shell/UnreadBadgesProvider";
 
 interface ChatRoomMounterProps {
   roomId: string;
@@ -21,6 +22,7 @@ const REFRESH_WINDOW_MS = 800;
 //    other users post, pin, or unpin.
 export function ChatRoomMounter({ roomId, latestMessageId }: ChatRoomMounterProps) {
   const router = useRouter();
+  const refreshBadges = useRefreshUnreadBadges();
   const lastMarked = useRef<string | undefined>(undefined);
   const lastRefreshAt = useRef(0);
   const pendingRefresh = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -52,13 +54,20 @@ export function ChatRoomMounter({ roomId, latestMessageId }: ChatRoomMounterProp
     if (!latestMessageId) return;
     if (lastMarked.current === latestMessageId) return;
     lastMarked.current = latestMessageId;
-    chatService.markRead(roomId, latestMessageId).catch((err) => {
-      if (err instanceof ApiError) {
-        // 401 → layout guard handles the redirect on next navigation.
-        return;
-      }
-    });
-  }, [roomId, latestMessageId]);
+    chatService
+      .markRead(roomId, latestMessageId)
+      .then(() => {
+        // markRead 가 서버에 반영된 뒤에 배지를 재조회해야 순서가 보장됨
+        // — 경로 변경 트리거에만 의존하면 경합으로 stale 배지가 남는다.
+        refreshBadges();
+      })
+      .catch((err) => {
+        if (err instanceof ApiError) {
+          // 401 → layout guard handles the redirect on next navigation.
+          return;
+        }
+      });
+  }, [roomId, latestMessageId, refreshBadges]);
 
   useEffect(() => {
     const socket = getSocket();

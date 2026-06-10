@@ -21,6 +21,11 @@ export interface UnreadBadges {
 }
 
 const UnreadBadgesContext = createContext<UnreadBadges>({ chat: 0, notice: 0 });
+// 읽음 처리를 수행한 컴포넌트(채팅방 markRead, 공지 확인 버튼)가 완료
+// 직후 배지를 재조회할 수 있도록 refresh 를 별도 컨텍스트로 노출한다.
+// 경로 변경/소켓 이벤트만 기다리면 markRead 와의 경합으로 배지가 한 박자
+// 늦게 사라지는 문제가 있었음.
+const UnreadBadgesRefreshContext = createContext<() => void>(() => {});
 
 // 사이드바/모바일 탭 공용 미읽음 배지 집계. Sidebar 와 MobileNav 가 동시에
 // 마운트되므로(데스크톱/모바일 CSS 토글) fetch 는 provider 한 곳에서만.
@@ -74,10 +79,20 @@ export function UnreadBadgesProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   return (
-    <UnreadBadgesContext.Provider value={badges}>{children}</UnreadBadgesContext.Provider>
+    <UnreadBadgesContext.Provider value={badges}>
+      <UnreadBadgesRefreshContext.Provider value={refresh}>
+        {children}
+      </UnreadBadgesRefreshContext.Provider>
+    </UnreadBadgesContext.Provider>
   );
 }
 
 export function useUnreadBadges(): UnreadBadges {
   return useContext(UnreadBadgesContext);
+}
+
+// 읽음 상태를 바꾼 직후 호출 — 사이드바/모바일 배지가 즉시 갱신된다.
+// provider 밖에서는 no-op.
+export function useRefreshUnreadBadges(): () => void {
+  return useContext(UnreadBadgesRefreshContext);
 }
