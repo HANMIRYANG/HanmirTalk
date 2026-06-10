@@ -11,6 +11,10 @@ import type {
   CreateProductInput,
   CreateProductLotInput,
   CreateProductSpecInput,
+  CreateProductVariantInput,
+  CreateWarehouseInput,
+  CreateErpDocumentInput,
+  CreateMesProductMappingInput,
   CreateProjectInput,
   CreateRoomInput,
   CreateScheduledMessageInput,
@@ -34,6 +38,16 @@ import type {
   ProductDocumentType,
   ProductLot,
   ProductSpec,
+  ProductVariant,
+  ProductInventorySummary,
+  Warehouse,
+  InventoryBalance,
+  InventoryTransaction,
+  InventoryDirection,
+  ErpDocument,
+  ErpDocumentQuery,
+  MesProductMapping,
+  MesSyncRun,
   Project,
   Room,
   SalesStatusEvent,
@@ -45,6 +59,9 @@ import type {
   UpdateProductInput,
   UpdateProductLotInput,
   UpdateProductSpecInput,
+  UpdateProductVariantInput,
+  UpdateWarehouseInput,
+  UpdateMesProductMappingInput,
   UpdateProjectInput,
   UpdateRoomInput,
   UpdateTaskInput,
@@ -287,6 +304,98 @@ export interface ProductRepository {
   ): Promise<{ attachmentId: string } | undefined>;
 }
 
+// Phase 12 — ERP 전표 저장 결과. 재고 차감은 documents/lines/transactions/
+// balances 를 하나의 트랜잭션으로 처리하므로, 부족분이 있으면(그리고
+// allowNegative 가 아니면) 아무것도 커밋하지 않고 부족 내역을 돌려준다.
+export type CreateErpDocumentResult =
+  | { ok: true; document: ErpDocument }
+  | {
+      ok: false;
+      error: "insufficient_stock";
+      shortages: {
+        productVariantId: string;
+        warehouseId: string;
+        available: number;
+        requested: number;
+      }[];
+    }
+  | { ok: false; error: "empty_lines" | "variant_not_found" | "warehouse_not_found" };
+
+// Phase 12 — 관리자 초기 재고/조정 일괄 입력 1행.
+export interface InventoryAdjustmentRow {
+  productVariantId: string;
+  warehouseId: string;
+  quantity: number;
+  direction?: InventoryDirection; // 기본 'adjust'
+  note?: string;
+}
+
+// Phase 12 — ERP 재고 원장 + 전표. 재고 차감/복원은 PG 구현에서 단일
+// 트랜잭션으로 처리한다(메모리 구현은 in-process 직렬 실행으로 모사).
+export interface ErpRepository {
+  // ── 판매/포장 규격(product_variants) ──
+  listVariants(productId: string): Promise<ProductVariant[]>;
+  listAllVariants(): Promise<ProductVariant[]>;
+  findVariantById(id: string): Promise<ProductVariant | undefined>;
+  createVariant(productId: string, input: CreateProductVariantInput): Promise<ProductVariant>;
+  updateVariant(
+    id: string,
+    input: UpdateProductVariantInput
+  ): Promise<ProductVariant | undefined>;
+
+  // ── 창고(warehouses) ──
+  listWarehouses(): Promise<Warehouse[]>;
+  findWarehouseById(id: string): Promise<Warehouse | undefined>;
+  createWarehouse(input: CreateWarehouseInput): Promise<Warehouse>;
+  updateWarehouse(id: string, input: UpdateWarehouseInput): Promise<Warehouse | undefined>;
+
+  // ── 재고(inventory_balances / inventory_transactions) ──
+  listInventory(filter: {
+    productId?: string;
+    warehouseId?: string;
+  }): Promise<InventoryBalance[]>;
+  getProductInventorySummary(productId: string): Promise<ProductInventorySummary>;
+  listTransactions(filter: {
+    productId?: string;
+    productVariantId?: string;
+    warehouseId?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+  }): Promise<InventoryTransaction[]>;
+  // 관리자 초기 재고/조정 일괄 등록. 각 행을 inventory_transactions +
+  // balances 에 반영하고 반영된 거래 수를 돌려준다.
+  importInventory(
+    rows: InventoryAdjustmentRow[],
+    actor: { id: string }
+  ): Promise<{ applied: number }>;
+
+  // ── 전표(erp_documents / erp_document_lines) ──
+  // 저장 성공 시 즉시 재고 차감(Phase 12-C). allowNegative=true 면 음수
+  // 재고를 허용(관리자). 전표번호는 전역 연번으로 발급.
+  createDocument(
+    input: CreateErpDocumentInput,
+    actor: { id: string }
+  ): Promise<CreateErpDocumentResult>;
+  listDocuments(query: ErpDocumentQuery): Promise<ErpDocument[]>;
+  findDocumentById(id: string): Promise<ErpDocument | undefined>;
+  // 취소: status='cancelled' + 반대 방향('cancel') 거래로 재고 복원.
+  // 이미 취소된 전표면 undefined.
+  cancelDocument(
+    id: string,
+    actor: { id: string }
+  ): Promise<ErpDocument | undefined>;
+
+  // ── MES 매핑(골격) ──
+  listMesMappings(productId?: string): Promise<MesProductMapping[]>;
+  createMesMapping(input: CreateMesProductMappingInput): Promise<MesProductMapping>;
+  updateMesMapping(
+    id: string,
+    input: UpdateMesProductMappingInput
+  ): Promise<MesProductMapping | undefined>;
+  listMesSyncRuns(limit?: number): Promise<MesSyncRun[]>;
+}
+
 export interface FileRepository {
   listFolders(): Promise<FileFolder[]>;
   listFiles(filter?: ListFilesFilter): Promise<FileEntry[]>;
@@ -474,6 +583,7 @@ export interface Repositories {
   projects: ProjectRepository;
   tasks: TaskRepository;
   products: ProductRepository;
+  erp: ErpRepository;
   files: FileRepository;
   notices: NoticeRepository;
   decisions: DecisionRepository;

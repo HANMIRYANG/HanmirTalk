@@ -8,6 +8,7 @@ import { authService } from "@/services/auth.service";
 import {
   AdminIcon,
   ChatIcon,
+  ErpIcon,
   FileIcon,
   HomeIcon,
   LogoutIcon,
@@ -30,6 +31,7 @@ const NAV: NavItem[] = [
   { key: "chat", href: "/chat", label: "채팅", Icon: ChatIcon },
   { key: "project", href: "/projects", label: "프로젝트", Icon: ProjectIcon },
   { key: "product", href: "/products", label: "제품정보", Icon: ProductIcon },
+  { key: "erp", href: "/erp", label: "ERP", Icon: ErpIcon },
   { key: "file", href: "/files", label: "파일함", Icon: FileIcon },
   { key: "notice", href: "/notices", label: "공지", Icon: NoticeIcon },
   { key: "admin", href: "/admin", label: "관리자", Icon: AdminIcon }

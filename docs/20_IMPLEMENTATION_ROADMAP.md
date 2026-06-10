@@ -9,7 +9,8 @@
 ## A. 한 페이지 요약
 
 - **현재 위치**: Phase 0~11 완료 — 보안 코어 · 메시지 · 결정사항 · 채팅운영 · 멘션/AI · 알림 · 제품 부속 · 관리자 영역 · 통합 검색 · 메시지 에디터 고급 · 스레드 답글 + 이모지 반응 영속화
-- **남은 작업**: N·R절 운영 배포 — Proxmox VM, .env.prod, 백업 cron 등록, 복원 리허설
+- **신규 요구사항**: Phase 12 ERP — 판매/포장 규격별 재고, 전표 저장 즉시 차감, MES 양방향 차감 연동 준비, 월/연 단위 Excel 출력
+- **남은 작업**: Phase 12 ERP + N·R절 운영 배포 — Proxmox VM, .env.prod, 백업 cron 등록, 복원 리허설
 - **이 문서의 사용법**: 작업 완료 시 해당 phase의 체크박스 ✅ 처리 → commit message에 `[Phase N]` 태그 사용
 - **선행조건 원칙**: schema 변경이 필요한 작업이 같은 컬럼/테이블을 건드리는 다른 작업보다 먼저 와야 함. 보안 코어는 외부 배포 전 끝나야 함.
 
@@ -39,6 +40,7 @@
 | 17 CODEX_REVIEW_CHECKLIST | 검토 체크리스트 | ✅ N/A | — |
 | 18 PROJECT_STRUCTURE | 폴더 구조 | ✅ 일치 | — |
 | 19 UI_FUNCTIONAL_AUDIT | UI 비동작 60개 | ⚠️ 진행 중 | Group A~G → Phase 0/4/5/6/7/8/10 |
+| 2026-06-01 ERP 추가 요구 | ERP 재고/전표, 제품별 판매·포장 규격 재고, MES 양방향 차감, Excel 출력 | 🆕 신규 | → Phase 12 |
 
 ---
 
@@ -642,7 +644,98 @@
 
 ---
 
-## N. 운영 배포 계획 (Phase 11 완료 후)
+## Phase 12 — ERP 재고/전표 + MES 양방향 연동 준비 (신규, 2026-06-01)
+
+**의존성**: Phase 7 제품 부속, Phase 8 관리자 영역, Phase 1 감사 로그. MES 업체 API/파일 연동 사양은 2026년 8월 이전 제공 예정이므로 1차 구현은 Hanmir Talk DB 단독 재고 원장으로 동작해야 한다.
+**예상 작업량**: 6~10일 (MES 실제 연동 어댑터 제외)
+**범위 기준**: 사용자가 제공한 판매입력 화면(`C:\Users\한미르_IT\Pictures\Screenshots\스크린샷 2026-06-01 164038.png`)을 ERP 입력 UX의 1차 기준으로 삼는다.
+
+> **구현 현황 (2026-06-01, 1차 완료)** — 아래 5개 슬라이스로 구현. `npm run typecheck`(3 워크스페이스) · 서버 build · web lint 모두 통과. 메모리 어댑터 기준 재고 차감/부족 차단/관리자 음수 허용/취소 복원/전역 채번/부가세 10% 자동을 스모크로 검증.
+> - **스키마/타입**: 마이그레이션 `020_erp_inventory_core` · `021_erp_documents` · `022_erp_mes_sync` 작성. `@hanmir/shared` 에 ERP DTO, `ErpRepository` 인터페이스 + 메모리/PG 양쪽 구현.
+> - **백엔드**: `routes/erp.ts` — variants/warehouses/inventory(+summary/transactions/import)/documents(저장·취소)/mes(mappings·sync-runs)/exports(CSV). 재고 차감은 PG 단일 트랜잭션 + `FOR UPDATE` 잠금. `/erp` 인증, 관리·전표는 권한 분기.
+> - **프론트**: 사이드바 `ERP` + `ErpIcon`, `/erp` 메인(재고 요약·최근 전표·Excel), `/erp/documents/new`(스크린샷 기준 판매입력), `/erp/documents/[id]`(상세·취소), 제품 상세 재고 현황 카드, `/admin/erp`(창고·규격·초기재고·MES 매핑).
+> - **MES**: 1차는 Talk DB 단독 원장. `mes_product_mappings`/`mes_sync_runs` 테이블 + 관리 API/UI + `external_ref`/`sync_status` 컬럼까지 **골격만**. 실제 inbound/outbound 어댑터·재시도 UI는 MES 사양 제공(~2026-08) 후 후속.
+> - **후속(미구현)**: 초기 재고 **CSV/Excel 업로드**(현재 화면 단건 입력 + JSON rows import 만), 월/연 **기간 프리셋** Excel 버튼(현재 전체 CSV), 정식 `.xlsx`(현재 UTF-8 BOM CSV), 규격 kg 변경 후 과거 전표 kg 불변에 대한 **자동 회귀 테스트**(snapshot 설계로 보장하나 테스트 코드 없음).
+
+### 12-A. 도메인 / 메뉴 구조
+
+- [ ] 사이드바 최상위 메뉴 `ERP` 추가 + `ErpIcon` 생성 (`apps/web/src/components/ui/icons.tsx`, `Sidebar.tsx`)
+- [ ] 일반 사용자 업무 화면은 `/erp`, 관리자 설정 화면은 `/admin/erp` 로 분리
+- [ ] `product_specs` 는 제품 설명용 사양으로 유지하고, 재고를 나누는 **판매/포장 규격**은 별도 모델로 분리
+- [ ] 제품별 판매/포장 규격 예: `18kg`, `20kg`, `4L`, `말통`, `세트`. 각 규격은 `kg_per_unit` 환산값을 가져 총 재고 kg 계산에 사용
+- [ ] 제품 상세 화면에 규격별 재고와 제품 전체 총 kg 표시. 필요 시 `재고` 탭 또는 우측 요약 카드로 노출
+
+### 12-B. 스키마 / 마이그레이션
+
+- [ ] **마이그레이션 020_erp_inventory_core.sql**:
+  - `product_variants (id, product_id FK, code, name, unit_label, kg_per_unit NUMERIC, sort_order, is_active, created_at, updated_at, UNIQUE(product_id, code))`
+  - `warehouses (id, code UNIQUE, name, is_active, created_at, updated_at)`
+  - `inventory_balances (product_variant_id FK, warehouse_id FK, quantity NUMERIC, quantity_kg NUMERIC, updated_at, PRIMARY KEY(product_variant_id, warehouse_id))`
+  - `inventory_transactions (id, product_id FK, product_variant_id FK, warehouse_id FK, direction, quantity, unit_label, kg_per_unit_snapshot, quantity_kg, source_type, source_id, lot_id, note, created_by FK, created_at)`
+- [ ] **마이그레이션 021_erp_documents.sql**:
+  - `erp_documents (id, document_no UNIQUE, document_type, status, document_date, manager_id FK, customer_name, warehouse_id FK, transaction_type, currency, contact, address, supply_amount, vat_amount, total_amount, created_by FK, created_at, updated_at, cancelled_at)`
+  - `erp_document_lines (id, document_id FK, line_no, product_id FK, product_variant_id FK, warehouse_id FK, item_code, item_name, spec_label, quantity, unit_price, supply_amount, vat_amount, note, serial_lot, created_at)`
+- [ ] **마이그레이션 022_erp_mes_sync.sql**:
+  - `mes_product_mappings (id, product_id FK, product_variant_id FK, mes_product_id, mes_item_code, mes_unit_label, is_active, created_at, updated_at)`
+  - `mes_sync_runs (id, direction, status, started_at, finished_at, error_message, meta JSONB)`
+  - ERP 문서/재고 거래에 `external_ref`, `sync_status`, `last_synced_at` 를 붙일 수 있도록 확장
+
+### 12-C. 재고 처리 규칙
+
+- [ ] **전표 저장 성공 시 즉시 재고 차감**. 별도 `확정` 단계는 두지 않는다.
+- [ ] 재고 차감은 `erp_documents` + `erp_document_lines` 저장과 `inventory_transactions` insert + `inventory_balances` update 를 하나의 DB transaction 으로 처리
+- [ ] 저장된 전표의 삭제/취소는 원장 row hard delete 금지. 취소 전표 또는 반대 방향 거래를 생성해 재고를 복원하고 감사 추적 가능하게 유지
+- [ ] kg 총합은 `quantity * kg_per_unit_snapshot` 으로 계산. 전표 작성 당시 환산값을 snapshot 으로 남겨 과거 전표가 추후 규격 변경의 영향을 받지 않게 한다.
+- [ ] 입고/출고/조정/취소 방향을 표준화하고, MES 입고와 ERP 사용 차감을 같은 원장에 기록한다.
+
+### 12-D. 백엔드 API
+
+- [ ] `GET /api/v1/erp/inventory?productId=&warehouseId=` — 제품/규격/창고별 재고와 총 kg 조회
+- [ ] `GET/POST/PATCH /api/v1/erp/variants` — 제품별 판매/포장 규격 관리 (관리자)
+- [ ] `GET/POST/PATCH /api/v1/erp/warehouses` — 창고 관리 (관리자)
+- [ ] `POST /api/v1/erp/documents` — 판매입력/사용 전표 저장. 저장 즉시 재고 차감
+- [ ] `GET /api/v1/erp/documents?from=&to=&type=&customer=` — 전표 목록/검색
+- [ ] `POST /api/v1/erp/documents/:id/cancel` — 취소 원장 생성 + 재고 복원
+- [ ] `POST /api/v1/erp/inventory/import` — 관리자 Excel/CSV 일괄 재고 등록
+- [ ] `GET /api/v1/erp/exports/inventory?period=month|year&from=&to=` — 월/연 단위 Excel 출력
+
+### 12-E. 프론트 UI
+
+- [ ] `/erp` 메인: 재고 요약, 최근 전표, 제품/거래처/기간 검색
+- [ ] `/erp/sales/new` 또는 `/erp/documents/new`: 판매입력 화면 구현
+  - 상단 폼: 일자, 담당자, 거래처, 출하창고, 거래유형, 통화, 연락처, 주소
+  - 하단 테이블: `품목코드`, `품목명`, `규격`, `수량`, `단가`, `공급가액`, `부가세`, `적요`, `시리얼/로트`
+  - 스크린샷의 버튼 구성은 1차로 동일한 업무 흐름을 유지하되, 실제 동작은 저장/취소/목록/Excel 출력부터 구현
+- [ ] 제품 상세 `/products/[id]`: 규격별 현재 재고, 창고별 재고, 총 kg 표시
+- [ ] `/admin/erp`: 제품 규격, 창고, 초기 재고, MES 매핑 관리
+- [ ] 관리자 초기 재고 등록: 화면 테이블 직접 입력 + Excel/CSV 업로드 지원
+- [ ] 월 단위 / 연 단위 Excel 출력 버튼 제공. 출력 대상은 전표 목록, 재고 변동 원장, 현재고 요약
+
+### 12-F. MES 연동 준비
+
+- [ ] MES 완성 전: Hanmir Talk DB를 기준 재고 원장으로 사용하고, 모든 입고/출고/조정 이력을 내부에서 관리
+- [ ] MES 완성 후 inbound: MES 생산 완료 수량/LOT 를 받아 ERP 재고 입고로 반영
+- [ ] MES 완성 후 outbound: ERP에서 제품 사용/판매 전표가 저장되어 재고가 차감되면 MES에도 차감 이벤트 전달
+- [ ] 양방향 모두 idempotency 기준을 둔다: `external_ref` 또는 `(system, document_no, line_no)` 조합으로 중복 처리 방지
+- [ ] 동기화 실패는 `sync_status=pending|sent|failed|ignored` 로 추적하고 관리자 화면에서 재시도 가능하게 한다.
+
+### 12-G. 감사 / 권한 / 검증
+
+- [ ] ERP 전표 저장/취소, 재고 조정, Excel 일괄 등록, MES 매핑 변경은 audit log 기록
+- [ ] `/erp` 는 인증 사용자 조회/작성 권한, `/admin/erp` 는 admin/super_admin 만 접근
+- [ ] 재고 차감 DB transaction 테스트: 전표 저장 실패 시 balances/transactions/documents 모두 rollback
+- [ ] 제품 규격 환산값 변경 후에도 과거 전표 kg 값이 변하지 않는지 검증
+- [ ] 월/연 Excel 출력의 합계가 원장 합계와 일치하는지 검증
+
+### 12-H. 구현 전 추가 확인 (2026-06-01 결정 완료)
+
+- [x] **재고 부족 처리** — **기본 차단 + 관리자 음수 허용**. 일반 사용자는 재고 부족 시 전표 저장 차단(`409 insufficient_stock`). `admin`/`super_admin` 은 음수 재고를 허용해 저장 가능(예외 입력·소급 정산용). 차감 트랜잭션 안에서 잔량 검사 후 분기하며, 음수 저장 시 audit log 에 사유 기록.
+- [x] **전표 번호 규칙** — **전역 연번**. 문서유형 prefix + 끊기지 않는 전역 시퀀스(예: `SALE-000123`, `USE-000045`). 날짜 리셋 없음 → 누락 감지 용이. PG 는 `erp_documents` 내 유형별 `MAX(seq)+1` 또는 전용 시퀀스로 채번하되 동시성은 채번을 차감 트랜잭션과 같은 트랜잭션 + row lock 으로 보장.
+- [x] **부가세 기본값** — **10% 자동 계산 + 라인별 수기 수정 가능**. 공급가액 기준 10% 를 기본 자동 계산하되 라인 단위로 사용자가 덮어쓸 수 있게 한다(면세/영세율 예외 대응). 스크린샷의 `부가세율 적용` 거래유형 기본 흐름과 일치.
+
+---
+
+## N. 운영 배포 계획 (Phase 11 완료 후, Phase 12와 우선순위 조정 가능)
 
 ### N-0. 배포 아키텍처 (2026-05-20 확정)
 
@@ -773,6 +866,9 @@
 | 017 | org_notification_defaults | (완료) Phase 8 K-4 |
 | 018 | scheduled_messages | (완료) Phase 10 M-4 |
 | 019 | chat threads + message_reactions | (완료) Phase 11 |
+| 020 | ERP inventory core: product_variants / warehouses / inventory_balances / inventory_transactions | (완료) Phase 12 |
+| 021 | ERP documents: erp_documents / erp_document_lines | (완료) Phase 12 |
+| 022 | ERP-MES sync: mes_product_mappings / mes_sync_runs / sync status fields | (완료) Phase 12 |
 
 ---
 
@@ -788,13 +884,21 @@
 6. **사이드바 그룹화** → ✅ **현재 평평한 nav 유지** (항목 6-7개 규모라 그룹화 ROI 낮음)
 7. **간트 차트 라이브러리** → ✅ **자체 CSS grid 유지**, 라이브러리 도입은 후속 phase
 
+### 추가 의사결정 기록 (2026-06-01)
+
+8. **ERP 메뉴** → ✅ 최상위 메뉴명을 `ERP` 로 사용하고 별도 아이콘(`ErpIcon`)을 생성한다. 일반 업무 화면은 `/erp`, 관리자 설정은 `/admin/erp` 로 분리한다. (Phase 12)
+9. **재고 규격의 의미** → ✅ 제품 설명용 사양(`product_specs`)이 아니라 **판매/포장 규격**으로 분리한다. 규격별 현재고와 제품 총 kg 를 표시한다. (Phase 12)
+10. **재고 환산 기준** → ✅ `개`, `말`, `통`, `L` 등 입력 단위가 있어도 각 규격에 `kg_per_unit` 환산값을 두고 총합은 kg 기준으로 계산한다. (Phase 12)
+11. **ERP 전표 차감 시점** → ✅ 별도 확정 단계 없이 **저장 성공 시 즉시 재고 차감**한다. 취소는 원장 삭제가 아니라 반대 거래로 복원한다. (Phase 12)
+12. **초기 재고/출력** → ✅ 관리자 화면에서 테이블 입력과 Excel/CSV 업로드를 지원하고, 이후 월 단위·연 단위 Excel 출력 기능을 제공한다. (Phase 12)
+
 ### 결정에 따른 Phase 마이그레이션 번호 추가
 
 | 번호 | 내용 | Phase |
 | --- | --- | --- |
 | 012a | `decisions` 테이블 + `decision_reads` 테이블 (결정 4의 결과) | Phase 3 |
 
-(005~016 외 추가 슬롯이 필요할 경우 `012a`, `014b` 형태로 부번호 사용)
+(005~022 외 추가 슬롯이 필요할 경우 `012a`, `014b` 형태로 부번호 사용)
 
 ---
 

@@ -213,6 +213,13 @@ export const ProductIcon = (p: Props) => (
   </svg>
 );
 
+export const ErpIcon = (p: Props) => (
+  <svg {...base(p)}>
+    <path d="M4 3h9l3 3v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+    <path d="M12 3v4h4M6 11h8M6 14h8M6 8h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+  </svg>
+);
+
 export const FileIcon = (p: Props) => (
   <svg {...base(p)}>
     <path d="M5 3h7l4 4v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />

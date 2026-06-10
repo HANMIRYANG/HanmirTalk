@@ -23,6 +23,7 @@ import { createPushSubscriptionsRouter } from "./routes/push-subscriptions";
 import { createProjectsRouter } from "./routes/projects";
 import { createTasksRouter } from "./routes/tasks";
 import { createProductsRouter } from "./routes/products";
+import { createErpRouter } from "./routes/erp";
 import { createFilesRouter } from "./routes/files";
 import { createNoticesRouter } from "./routes/notices";
 import { createDepartmentsRouter } from "./routes/departments";
@@ -76,6 +77,7 @@ export function createApp(deps: AppDeps = { repos: createMemoryRepositories() })
   app.use(`${config.apiPrefix}/ai`, requireAuth, createAiRouter(deps.repos));
   app.use(`${config.apiPrefix}/tasks`, requireAuth, createTasksRouter(deps.repos));
   app.use(`${config.apiPrefix}/products`, requireAuth, createProductsRouter(deps.repos));
+  app.use(`${config.apiPrefix}/erp`, requireAuth, createErpRouter(deps.repos));
   app.use(`${config.apiPrefix}/files`, requireAuth, createFilesRouter(deps.repos));
   app.use(`${config.apiPrefix}/notices`, requireAuth, createNoticesRouter(deps.repos));
   app.use(`${config.apiPrefix}/dashboard`, requireAuth, createDashboardRouter(deps.repos));

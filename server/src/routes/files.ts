@@ -81,6 +81,16 @@ function safeFilename(original: string): { rel: string; absDir: string; abs: str
   return { rel, absDir, abs };
 }
 
+function resolveStoragePath(fileUrl: string): string | undefined {
+  const uploadRoot = path.resolve(config.uploadDir);
+  const targetPath = path.resolve(uploadRoot, fileUrl);
+  const relative = path.relative(uploadRoot, targetPath);
+  if (relative.startsWith("..") || path.isAbsolute(relative) || relative === "") {
+    return undefined;
+  }
+  return targetPath;
+}
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: config.uploadMaxBytes },
@@ -210,9 +220,9 @@ export function createFilesRouter(repos: Repositories): Router {
       res.status(404).json({ error: "not_found" });
       return;
     }
-    const abs = path.resolve(config.uploadDir, storage.fileUrl);
+    const abs = resolveStoragePath(storage.fileUrl);
     // Defense in depth: refuse paths that escaped the upload root.
-    if (!abs.startsWith(config.uploadDir)) {
+    if (!abs) {
       res.status(400).json({ error: "invalid_path" });
       return;
     }
@@ -233,8 +243,8 @@ export function createFilesRouter(repos: Repositories): Router {
       return;
     }
     if (storage) {
-      const abs = path.resolve(config.uploadDir, storage.fileUrl);
-      if (abs.startsWith(config.uploadDir)) {
+      const abs = resolveStoragePath(storage.fileUrl);
+      if (abs) {
         await fs.unlink(abs).catch(() => undefined);
       }
     }

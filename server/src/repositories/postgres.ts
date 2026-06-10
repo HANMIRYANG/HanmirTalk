@@ -82,7 +82,24 @@ import type {
   UpdateUserInput,
   User,
   UserInvitation,
-  UserRole
+  UserRole,
+  ProductVariant,
+  ProductInventorySummary,
+  Warehouse,
+  InventoryBalance,
+  InventoryTransaction,
+  ErpDocument,
+  ErpDocumentLine,
+  ErpDocumentQuery,
+  CreateProductVariantInput,
+  UpdateProductVariantInput,
+  CreateWarehouseInput,
+  UpdateWarehouseInput,
+  CreateErpDocumentInput,
+  MesProductMapping,
+  MesSyncRun,
+  CreateMesProductMappingInput,
+  UpdateMesProductMappingInput
 } from "@hanmir/shared";
 import { NOTIFICATION_CATEGORIES } from "@hanmir/shared";
 import type {
@@ -100,6 +117,9 @@ import type {
   NoticeRepository,
   NotificationRepository,
   ProductRepository,
+  ErpRepository,
+  CreateErpDocumentResult,
+  InventoryAdjustmentRow,
   ProjectRepository,
   PushSubscriptionRecord,
   PushSubscriptionRepository,
@@ -3498,6 +3518,830 @@ class PgMessageReactionRepository implements MessageReactionRepository {
   }
 }
 
+// ───────────────────────────────────────────────────────────────────────
+// Phase 12 — ERP 재고/전표 + MES 매핑.
+// 재고 차감/복원은 documents/lines/transactions/balances 를 단일 트랜잭션
+// (BEGIN…COMMIT)으로 처리하고, 잔량 검사는 inventory_balances 를 FOR UPDATE
+// 로 잠근 뒤 수행해 동시 차감 경합을 막는다. NUMERIC 컬럼은 pg 가 문자열로
+// 돌려주므로 num() 으로 파싱한다.
+// ───────────────────────────────────────────────────────────────────────
+function num(value: unknown): number {
+  if (value === null || value === undefined) return 0;
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function round2pg(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function rowToVariant(r: any): ProductVariant {
+  return {
+    id: r.id,
+    productId: r.product_id,
+    code: r.code,
+    name: r.name,
+    unitLabel: r.unit_label,
+    kgPerUnit: num(r.kg_per_unit),
+    sortOrder: r.sort_order,
+    isActive: r.is_active,
+    createdAt: formatDate(r.created_at),
+    updatedAt: formatDate(r.updated_at)
+  };
+}
+
+function rowToWarehouse(r: any): Warehouse {
+  return {
+    id: r.id,
+    code: r.code,
+    name: r.name,
+    isActive: r.is_active,
+    createdAt: formatDate(r.created_at),
+    updatedAt: formatDate(r.updated_at)
+  };
+}
+
+function rowToTransaction(r: any): InventoryTransaction {
+  return {
+    id: r.id,
+    productId: r.product_id,
+    productVariantId: r.product_variant_id,
+    warehouseId: r.warehouse_id,
+    direction: r.direction,
+    quantity: num(r.quantity),
+    unitLabel: r.unit_label,
+    kgPerUnitSnapshot: num(r.kg_per_unit_snapshot),
+    quantityKg: num(r.quantity_kg),
+    sourceType: r.source_type ?? undefined,
+    sourceId: r.source_id ?? undefined,
+    lotId: r.lot_id ?? undefined,
+    note: r.note ?? undefined,
+    createdById: r.created_by,
+    createdByName: r.created_by_name ?? undefined,
+    createdAt: formatDate(r.created_at),
+    externalRef: r.external_ref ?? undefined,
+    syncStatus: r.sync_status ?? undefined,
+    lastSyncedAt: r.last_synced_at ? formatDate(r.last_synced_at) : undefined
+  };
+}
+
+function rowToErpLine(r: any): ErpDocumentLine {
+  return {
+    id: r.id,
+    documentId: r.document_id,
+    lineNo: r.line_no,
+    productId: r.product_id ?? undefined,
+    productVariantId: r.product_variant_id ?? undefined,
+    warehouseId: r.warehouse_id ?? undefined,
+    itemCode: r.item_code ?? undefined,
+    itemName: r.item_name ?? undefined,
+    specLabel: r.spec_label ?? undefined,
+    quantity: num(r.quantity),
+    unitPrice: num(r.unit_price),
+    supplyAmount: num(r.supply_amount),
+    vatAmount: num(r.vat_amount),
+    note: r.note ?? undefined,
+    serialLot: r.serial_lot ?? undefined,
+    createdAt: formatDate(r.created_at)
+  };
+}
+
+function rowToErpDocument(r: any, lines: ErpDocumentLine[]): ErpDocument {
+  return {
+    id: r.id,
+    documentNo: r.document_no,
+    documentType: r.document_type,
+    status: r.status,
+    documentDate: formatDate(r.document_date),
+    managerId: r.manager_id ?? undefined,
+    managerName: r.manager_name ?? undefined,
+    customerName: r.customer_name ?? undefined,
+    warehouseId: r.warehouse_id ?? undefined,
+    warehouseName: r.warehouse_name ?? undefined,
+    transactionType: r.transaction_type ?? undefined,
+    currency: r.currency,
+    contact: r.contact ?? undefined,
+    address: r.address ?? undefined,
+    supplyAmount: num(r.supply_amount),
+    vatAmount: num(r.vat_amount),
+    totalAmount: num(r.total_amount),
+    note: r.note ?? undefined,
+    createdById: r.created_by,
+    createdByName: r.created_by_name ?? undefined,
+    createdAt: formatDate(r.created_at),
+    updatedAt: formatDate(r.updated_at),
+    cancelledAt: r.cancelled_at ? formatDate(r.cancelled_at) : undefined,
+    lines,
+    externalRef: r.external_ref ?? undefined,
+    syncStatus: r.sync_status ?? undefined,
+    lastSyncedAt: r.last_synced_at ? formatDate(r.last_synced_at) : undefined
+  };
+}
+
+function rowToMesMapping(r: any): MesProductMapping {
+  return {
+    id: r.id,
+    productId: r.product_id,
+    productVariantId: r.product_variant_id ?? undefined,
+    mesProductId: r.mes_product_id ?? undefined,
+    mesItemCode: r.mes_item_code ?? undefined,
+    mesUnitLabel: r.mes_unit_label ?? undefined,
+    isActive: r.is_active,
+    createdAt: formatDate(r.created_at),
+    updatedAt: formatDate(r.updated_at)
+  };
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+const ERP_DOC_HEADER_SELECT = `
+  SELECT d.*, m.name AS manager_name, w.name AS warehouse_name, c.name AS created_by_name
+  FROM erp_documents d
+  LEFT JOIN users m ON m.id = d.manager_id
+  LEFT JOIN warehouses w ON w.id = d.warehouse_id
+  LEFT JOIN users c ON c.id = d.created_by
+`;
+
+class PgErpRepository implements ErpRepository {
+  constructor(private readonly pool: Pool) {}
+
+  // ── 규격 ──
+  async listVariants(productId: string): Promise<ProductVariant[]> {
+    const { rows } = await this.pool.query(
+      `SELECT * FROM product_variants WHERE product_id = $1 ORDER BY sort_order, created_at`,
+      [productId]
+    );
+    return rows.map(rowToVariant);
+  }
+
+  async listAllVariants(): Promise<ProductVariant[]> {
+    const { rows } = await this.pool.query(
+      `SELECT * FROM product_variants ORDER BY product_id, sort_order`
+    );
+    return rows.map(rowToVariant);
+  }
+
+  async findVariantById(id: string): Promise<ProductVariant | undefined> {
+    const { rows } = await this.pool.query(`SELECT * FROM product_variants WHERE id = $1`, [id]);
+    return rows[0] ? rowToVariant(rows[0]) : undefined;
+  }
+
+  async createVariant(
+    productId: string,
+    input: CreateProductVariantInput
+  ): Promise<ProductVariant> {
+    const { rows } = await this.pool.query(
+      `INSERT INTO product_variants
+         (product_id, code, name, unit_label, kg_per_unit, sort_order, is_active)
+       VALUES ($1, $2, $3, $4, $5,
+               COALESCE($6, (SELECT COUNT(*) FROM product_variants WHERE product_id = $1)),
+               COALESCE($7, TRUE))
+       RETURNING *`,
+      [
+        productId,
+        input.code,
+        input.name,
+        input.unitLabel,
+        input.kgPerUnit ?? 0,
+        input.sortOrder ?? null,
+        input.isActive ?? null
+      ]
+    );
+    return rowToVariant(rows[0]);
+  }
+
+  async updateVariant(
+    id: string,
+    input: UpdateProductVariantInput
+  ): Promise<ProductVariant | undefined> {
+    const { rows } = await this.pool.query(
+      `UPDATE product_variants SET
+         code = COALESCE($2, code),
+         name = COALESCE($3, name),
+         unit_label = COALESCE($4, unit_label),
+         kg_per_unit = COALESCE($5, kg_per_unit),
+         sort_order = COALESCE($6, sort_order),
+         is_active = COALESCE($7, is_active),
+         updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [
+        id,
+        input.code ?? null,
+        input.name ?? null,
+        input.unitLabel ?? null,
+        input.kgPerUnit ?? null,
+        input.sortOrder ?? null,
+        input.isActive ?? null
+      ]
+    );
+    return rows[0] ? rowToVariant(rows[0]) : undefined;
+  }
+
+  // ── 창고 ──
+  async listWarehouses(): Promise<Warehouse[]> {
+    const { rows } = await this.pool.query(`SELECT * FROM warehouses ORDER BY code`);
+    return rows.map(rowToWarehouse);
+  }
+
+  async findWarehouseById(id: string): Promise<Warehouse | undefined> {
+    const { rows } = await this.pool.query(`SELECT * FROM warehouses WHERE id = $1`, [id]);
+    return rows[0] ? rowToWarehouse(rows[0]) : undefined;
+  }
+
+  async createWarehouse(input: CreateWarehouseInput): Promise<Warehouse> {
+    const { rows } = await this.pool.query(
+      `INSERT INTO warehouses (code, name, is_active)
+       VALUES ($1, $2, COALESCE($3, TRUE)) RETURNING *`,
+      [input.code, input.name, input.isActive ?? null]
+    );
+    return rowToWarehouse(rows[0]);
+  }
+
+  async updateWarehouse(
+    id: string,
+    input: UpdateWarehouseInput
+  ): Promise<Warehouse | undefined> {
+    const { rows } = await this.pool.query(
+      `UPDATE warehouses SET
+         code = COALESCE($2, code),
+         name = COALESCE($3, name),
+         is_active = COALESCE($4, is_active),
+         updated_at = NOW()
+       WHERE id = $1 RETURNING *`,
+      [id, input.code ?? null, input.name ?? null, input.isActive ?? null]
+    );
+    return rows[0] ? rowToWarehouse(rows[0]) : undefined;
+  }
+
+  // ── 재고 ──
+  async listInventory(filter: {
+    productId?: string;
+    warehouseId?: string;
+  }): Promise<InventoryBalance[]> {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (filter.productId) {
+      params.push(filter.productId);
+      where.push(`v.product_id = $${params.length}`);
+    }
+    if (filter.warehouseId) {
+      params.push(filter.warehouseId);
+      where.push(`b.warehouse_id = $${params.length}`);
+    }
+    const { rows } = await this.pool.query(
+      `SELECT b.*, v.product_id, v.code AS variant_code, v.name AS variant_name,
+              v.unit_label, p.name AS product_name,
+              w.code AS warehouse_code, w.name AS warehouse_name
+       FROM inventory_balances b
+       JOIN product_variants v ON v.id = b.product_variant_id
+       LEFT JOIN products p ON p.id = v.product_id
+       LEFT JOIN warehouses w ON w.id = b.warehouse_id
+       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+       ORDER BY p.name, v.sort_order, w.code`,
+      params
+    );
+    return rows.map((r) => ({
+      productVariantId: r.product_variant_id,
+      warehouseId: r.warehouse_id,
+      quantity: num(r.quantity),
+      quantityKg: num(r.quantity_kg),
+      updatedAt: formatDate(r.updated_at),
+      productId: r.product_id ?? undefined,
+      productName: r.product_name ?? undefined,
+      variantCode: r.variant_code ?? undefined,
+      variantName: r.variant_name ?? undefined,
+      unitLabel: r.unit_label ?? undefined,
+      warehouseCode: r.warehouse_code ?? undefined,
+      warehouseName: r.warehouse_name ?? undefined
+    }));
+  }
+
+  async getProductInventorySummary(productId: string): Promise<ProductInventorySummary> {
+    const { rows } = await this.pool.query(
+      `SELECT v.id AS variant_id, v.code AS variant_code, v.name AS variant_name,
+              v.unit_label, v.kg_per_unit, v.sort_order,
+              b.warehouse_id, b.quantity, b.quantity_kg,
+              w.code AS warehouse_code, w.name AS warehouse_name
+       FROM product_variants v
+       LEFT JOIN inventory_balances b ON b.product_variant_id = v.id
+       LEFT JOIN warehouses w ON w.id = b.warehouse_id
+       WHERE v.product_id = $1
+       ORDER BY v.sort_order, w.code`,
+      [productId]
+    );
+    const byVariant = new Map<string, ProductInventorySummary["variants"][number]>();
+    let totalKg = 0;
+    for (const r of rows) {
+      let entry = byVariant.get(r.variant_id);
+      if (!entry) {
+        entry = {
+          productVariantId: r.variant_id,
+          variantCode: r.variant_code,
+          variantName: r.variant_name,
+          unitLabel: r.unit_label,
+          kgPerUnit: num(r.kg_per_unit),
+          totalQuantity: 0,
+          totalKg: 0,
+          byWarehouse: []
+        };
+        byVariant.set(r.variant_id, entry);
+      }
+      if (r.warehouse_id) {
+        const qty = num(r.quantity);
+        const qtyKg = num(r.quantity_kg);
+        entry.totalQuantity = round2pg(entry.totalQuantity + qty);
+        entry.totalKg = round2pg(entry.totalKg + qtyKg);
+        totalKg += qtyKg;
+        entry.byWarehouse.push({
+          warehouseId: r.warehouse_id,
+          warehouseCode: r.warehouse_code ?? "",
+          warehouseName: r.warehouse_name ?? "",
+          quantity: qty,
+          quantityKg: round2pg(qtyKg)
+        });
+      }
+    }
+    return {
+      productId,
+      totalKg: round2pg(totalKg),
+      variants: Array.from(byVariant.values())
+    };
+  }
+
+  async listTransactions(filter: {
+    productId?: string;
+    productVariantId?: string;
+    warehouseId?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+  }): Promise<InventoryTransaction[]> {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    const add = (clause: string, value: unknown) => {
+      params.push(value);
+      where.push(clause.replace("$?", `$${params.length}`));
+    };
+    if (filter.productId) add("t.product_id = $?", filter.productId);
+    if (filter.productVariantId) add("t.product_variant_id = $?", filter.productVariantId);
+    if (filter.warehouseId) add("t.warehouse_id = $?", filter.warehouseId);
+    if (filter.from) add("t.created_at >= $?", filter.from);
+    if (filter.to) add("t.created_at <= $?", filter.to);
+    const limit = filter.limit && filter.limit > 0 ? Math.min(filter.limit, 1000) : 200;
+    const { rows } = await this.pool.query(
+      `SELECT t.*, u.name AS created_by_name
+       FROM inventory_transactions t
+       LEFT JOIN users u ON u.id = t.created_by
+       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+       ORDER BY t.created_at DESC
+       LIMIT ${limit}`,
+      params
+    );
+    return rows.map(rowToTransaction);
+  }
+
+  async importInventory(
+    rows: InventoryAdjustmentRow[],
+    actor: { id: string }
+  ): Promise<{ applied: number }> {
+    const client = await this.pool.connect();
+    let applied = 0;
+    try {
+      await client.query("BEGIN");
+      for (const row of rows) {
+        const v = await client.query(
+          `SELECT product_id, unit_label, kg_per_unit FROM product_variants WHERE id = $1`,
+          [row.productVariantId]
+        );
+        if (!v.rows[0]) continue;
+        const wh = await client.query(`SELECT 1 FROM warehouses WHERE id = $1`, [row.warehouseId]);
+        if (!wh.rows[0]) continue;
+        const kgPerUnit = num(v.rows[0].kg_per_unit);
+        const deltaKg = round2pg(row.quantity * kgPerUnit);
+        await client.query(
+          `INSERT INTO inventory_balances
+             (product_variant_id, warehouse_id, quantity, quantity_kg, updated_at)
+           VALUES ($1, $2, $3, $4, NOW())
+           ON CONFLICT (product_variant_id, warehouse_id) DO UPDATE
+             SET quantity = inventory_balances.quantity + EXCLUDED.quantity,
+                 quantity_kg = inventory_balances.quantity_kg + EXCLUDED.quantity_kg,
+                 updated_at = NOW()`,
+          [row.productVariantId, row.warehouseId, row.quantity, deltaKg]
+        );
+        await client.query(
+          `INSERT INTO inventory_transactions
+             (product_id, product_variant_id, warehouse_id, direction, quantity,
+              unit_label, kg_per_unit_snapshot, quantity_kg, source_type, note, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'import', $9, $10)`,
+          [
+            v.rows[0].product_id,
+            row.productVariantId,
+            row.warehouseId,
+            row.direction ?? "adjust",
+            row.quantity,
+            v.rows[0].unit_label,
+            kgPerUnit,
+            deltaKg,
+            row.note ?? null,
+            actor.id
+          ]
+        );
+        applied++;
+      }
+      await client.query("COMMIT");
+      return { applied };
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  // ── 전표 ──
+  async createDocument(
+    input: CreateErpDocumentInput,
+    actor: { id: string }
+  ): Promise<CreateErpDocumentResult> {
+    if (!input.lines || input.lines.length === 0) {
+      return { ok: false, error: "empty_lines" };
+    }
+    const headerWarehouseId = input.warehouseId;
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      // 참조 무결성 — 라인이 가리키는 규격/창고가 실제 존재하는지.
+      const variantIds = Array.from(
+        new Set(input.lines.map((l) => l.productVariantId).filter(Boolean) as string[])
+      );
+      const variantMap = new Map<string, any>(); // eslint-disable-line @typescript-eslint/no-explicit-any
+      if (variantIds.length) {
+        const v = await client.query(
+          `SELECT * FROM product_variants WHERE id = ANY($1)`,
+          [variantIds]
+        );
+        for (const r of v.rows) variantMap.set(r.id, r);
+        if (variantMap.size !== variantIds.length) {
+          await client.query("ROLLBACK");
+          return { ok: false, error: "variant_not_found" };
+        }
+      }
+      const warehouseIds = Array.from(
+        new Set(
+          input.lines
+            .map((l) => l.warehouseId ?? headerWarehouseId)
+            .filter(Boolean) as string[]
+        )
+      );
+      if (warehouseIds.length) {
+        const w = await client.query(`SELECT id FROM warehouses WHERE id = ANY($1)`, [
+          warehouseIds
+        ]);
+        if (w.rows.length !== warehouseIds.length) {
+          await client.query("ROLLBACK");
+          return { ok: false, error: "warehouse_not_found" };
+        }
+      }
+
+      // 차감 대상(규격+창고 지정) 라인의 잔량을 FOR UPDATE 로 잠그고 검사.
+      const shortages: {
+        productVariantId: string;
+        warehouseId: string;
+        available: number;
+        requested: number;
+      }[] = [];
+      for (const line of input.lines) {
+        const warehouseId = line.warehouseId ?? headerWarehouseId;
+        if (!line.productVariantId || !warehouseId) continue;
+        const bal = await client.query(
+          `SELECT quantity FROM inventory_balances
+           WHERE product_variant_id = $1 AND warehouse_id = $2 FOR UPDATE`,
+          [line.productVariantId, warehouseId]
+        );
+        const available = bal.rows[0] ? num(bal.rows[0].quantity) : 0;
+        if (!input.allowNegative && line.quantity > available) {
+          shortages.push({
+            productVariantId: line.productVariantId,
+            warehouseId,
+            available,
+            requested: line.quantity
+          });
+        }
+      }
+      if (shortages.length > 0) {
+        await client.query("ROLLBACK");
+        return { ok: false, error: "insufficient_stock", shortages };
+      }
+
+      // 채번 — 전역 연번.
+      const documentType = input.documentType ?? "sale";
+      const seqRes = await client.query(`SELECT nextval('erp_doc_seq') AS n`);
+      const seq = num(seqRes.rows[0].n);
+      const prefix = documentType === "use" ? "USE" : "SALE";
+      const documentNo = `${prefix}-${String(seq).padStart(6, "0")}`;
+
+      // 금액 집계.
+      let supplyTotal = 0;
+      let vatTotal = 0;
+      const prepared = input.lines.map((line, i) => {
+        const supplyAmount = line.supplyAmount ?? round2pg(line.quantity * (line.unitPrice ?? 0));
+        const vatAmount = line.vatAmount ?? round2pg(supplyAmount * 0.1);
+        supplyTotal += supplyAmount;
+        vatTotal += vatAmount;
+        return { line, lineNo: i + 1, supplyAmount, vatAmount };
+      });
+
+      const docRes = await client.query(
+        `INSERT INTO erp_documents
+           (document_no, document_type, status, document_date, manager_id, customer_name,
+            warehouse_id, transaction_type, currency, contact, address,
+            supply_amount, vat_amount, total_amount, note, created_by)
+         VALUES ($1, $2, 'active', $3, $4, $5, $6, $7, COALESCE($8,'KRW'), $9, $10,
+                 $11, $12, $13, $14, $15)
+         RETURNING id`,
+        [
+          documentNo,
+          documentType,
+          input.documentDate,
+          input.managerId ?? null,
+          input.customerName ?? null,
+          headerWarehouseId ?? null,
+          input.transactionType ?? null,
+          input.currency ?? null,
+          input.contact ?? null,
+          input.address ?? null,
+          round2pg(supplyTotal),
+          round2pg(vatTotal),
+          round2pg(supplyTotal + vatTotal),
+          input.note ?? null,
+          actor.id
+        ]
+      );
+      const documentId = docRes.rows[0].id;
+
+      for (const p of prepared) {
+        const warehouseId = p.line.warehouseId ?? headerWarehouseId;
+        const variant = p.line.productVariantId
+          ? variantMap.get(p.line.productVariantId)
+          : undefined;
+        await client.query(
+          `INSERT INTO erp_document_lines
+             (document_id, line_no, product_id, product_variant_id, warehouse_id,
+              item_code, item_name, spec_label, quantity, unit_price,
+              supply_amount, vat_amount, note, serial_lot)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+          [
+            documentId,
+            p.lineNo,
+            variant?.product_id ?? p.line.productId ?? null,
+            p.line.productVariantId ?? null,
+            warehouseId ?? null,
+            p.line.itemCode ?? null,
+            p.line.itemName ?? null,
+            p.line.specLabel ?? variant?.name ?? null,
+            p.line.quantity,
+            p.line.unitPrice ?? 0,
+            p.supplyAmount,
+            p.vatAmount,
+            p.line.note ?? null,
+            p.line.serialLot ?? null
+          ]
+        );
+        // 재고 차감 + 거래 원장.
+        if (variant && warehouseId) {
+          const kgPerUnit = num(variant.kg_per_unit);
+          const deltaKg = round2pg(p.line.quantity * kgPerUnit);
+          await client.query(
+            `INSERT INTO inventory_balances
+               (product_variant_id, warehouse_id, quantity, quantity_kg, updated_at)
+             VALUES ($1, $2, $3, $4, NOW())
+             ON CONFLICT (product_variant_id, warehouse_id) DO UPDATE
+               SET quantity = inventory_balances.quantity + EXCLUDED.quantity,
+                   quantity_kg = inventory_balances.quantity_kg + EXCLUDED.quantity_kg,
+                   updated_at = NOW()`,
+            [p.line.productVariantId, warehouseId, -p.line.quantity, -deltaKg]
+          );
+          await client.query(
+            `INSERT INTO inventory_transactions
+               (product_id, product_variant_id, warehouse_id, direction, quantity,
+                unit_label, kg_per_unit_snapshot, quantity_kg, source_type, source_id,
+                note, created_by)
+             VALUES ($1, $2, $3, 'out', $4, $5, $6, $7, 'erp_document', $8, $9, $10)`,
+            [
+              variant.product_id,
+              p.line.productVariantId,
+              warehouseId,
+              p.line.quantity,
+              variant.unit_label,
+              kgPerUnit,
+              deltaKg,
+              documentId,
+              p.line.note ?? null,
+              actor.id
+            ]
+          );
+        }
+      }
+
+      await client.query("COMMIT");
+      const document = await this.findDocumentById(documentId);
+      if (!document) throw new Error("[postgres] failed to read back created erp document");
+      return { ok: true, document };
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listDocuments(query: ErpDocumentQuery): Promise<ErpDocument[]> {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    const add = (clause: string, value: unknown) => {
+      params.push(value);
+      where.push(clause.replace("$?", `$${params.length}`));
+    };
+    if (query.type) add("d.document_type = $?", query.type);
+    if (query.status) add("d.status = $?", query.status);
+    if (query.from) add("d.document_date >= $?", query.from);
+    if (query.to) add("d.document_date <= $?", query.to);
+    if (query.customer) add("d.customer_name ILIKE $?", `%${query.customer}%`);
+    const limit = query.limit && query.limit > 0 ? Math.min(query.limit, 500) : 100;
+    const { rows } = await this.pool.query(
+      `${ERP_DOC_HEADER_SELECT}
+       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+       ORDER BY d.document_date DESC, d.created_at DESC
+       LIMIT ${limit}`,
+      params
+    );
+    if (rows.length === 0) return [];
+    const ids = rows.map((r) => r.id);
+    const { rows: lineRows } = await this.pool.query(
+      `SELECT * FROM erp_document_lines WHERE document_id = ANY($1) ORDER BY document_id, line_no`,
+      [ids]
+    );
+    const linesByDoc = new Map<string, ErpDocumentLine[]>();
+    for (const lr of lineRows) {
+      const arr = linesByDoc.get(lr.document_id) ?? [];
+      arr.push(rowToErpLine(lr));
+      linesByDoc.set(lr.document_id, arr);
+    }
+    return rows.map((r) => rowToErpDocument(r, linesByDoc.get(r.id) ?? []));
+  }
+
+  async findDocumentById(id: string): Promise<ErpDocument | undefined> {
+    const { rows } = await this.pool.query(`${ERP_DOC_HEADER_SELECT} WHERE d.id = $1`, [id]);
+    if (!rows[0]) return undefined;
+    const { rows: lineRows } = await this.pool.query(
+      `SELECT * FROM erp_document_lines WHERE document_id = $1 ORDER BY line_no`,
+      [id]
+    );
+    return rowToErpDocument(rows[0], lineRows.map(rowToErpLine));
+  }
+
+  async cancelDocument(
+    id: string,
+    actor: { id: string }
+  ): Promise<ErpDocument | undefined> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const doc = await client.query(
+        `SELECT id, status FROM erp_documents WHERE id = $1 FOR UPDATE`,
+        [id]
+      );
+      if (!doc.rows[0] || doc.rows[0].status === "cancelled") {
+        await client.query("ROLLBACK");
+        return undefined;
+      }
+      const lines = await client.query(
+        `SELECT l.*, v.kg_per_unit, v.unit_label
+         FROM erp_document_lines l
+         LEFT JOIN product_variants v ON v.id = l.product_variant_id
+         WHERE l.document_id = $1`,
+        [id]
+      );
+      for (const line of lines.rows) {
+        if (!line.product_variant_id || !line.warehouse_id) continue;
+        const kgPerUnit = num(line.kg_per_unit);
+        const qty = num(line.quantity);
+        const deltaKg = round2pg(qty * kgPerUnit);
+        await client.query(
+          `INSERT INTO inventory_balances
+             (product_variant_id, warehouse_id, quantity, quantity_kg, updated_at)
+           VALUES ($1, $2, $3, $4, NOW())
+           ON CONFLICT (product_variant_id, warehouse_id) DO UPDATE
+             SET quantity = inventory_balances.quantity + EXCLUDED.quantity,
+                 quantity_kg = inventory_balances.quantity_kg + EXCLUDED.quantity_kg,
+                 updated_at = NOW()`,
+          [line.product_variant_id, line.warehouse_id, qty, deltaKg]
+        );
+        await client.query(
+          `INSERT INTO inventory_transactions
+             (product_id, product_variant_id, warehouse_id, direction, quantity,
+              unit_label, kg_per_unit_snapshot, quantity_kg, source_type, source_id, created_by)
+           VALUES ($1, $2, $3, 'cancel', $4, $5, $6, $7, 'erp_document_cancel', $8, $9)`,
+          [
+            line.product_id,
+            line.product_variant_id,
+            line.warehouse_id,
+            qty,
+            line.unit_label ?? "",
+            kgPerUnit,
+            deltaKg,
+            id,
+            actor.id
+          ]
+        );
+      }
+      await client.query(
+        `UPDATE erp_documents SET status = 'cancelled', cancelled_at = NOW(), updated_at = NOW()
+         WHERE id = $1`,
+        [id]
+      );
+      await client.query("COMMIT");
+      return this.findDocumentById(id);
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  // ── MES 매핑(골격) ──
+  async listMesMappings(productId?: string): Promise<MesProductMapping[]> {
+    const { rows } = productId
+      ? await this.pool.query(
+          `SELECT * FROM mes_product_mappings WHERE product_id = $1 ORDER BY created_at`,
+          [productId]
+        )
+      : await this.pool.query(`SELECT * FROM mes_product_mappings ORDER BY created_at`);
+    return rows.map(rowToMesMapping);
+  }
+
+  async createMesMapping(input: CreateMesProductMappingInput): Promise<MesProductMapping> {
+    const { rows } = await this.pool.query(
+      `INSERT INTO mes_product_mappings
+         (product_id, product_variant_id, mes_product_id, mes_item_code, mes_unit_label, is_active)
+       VALUES ($1, $2, $3, $4, $5, COALESCE($6, TRUE)) RETURNING *`,
+      [
+        input.productId,
+        input.productVariantId ?? null,
+        input.mesProductId ?? null,
+        input.mesItemCode ?? null,
+        input.mesUnitLabel ?? null,
+        input.isActive ?? null
+      ]
+    );
+    return rowToMesMapping(rows[0]);
+  }
+
+  async updateMesMapping(
+    id: string,
+    input: UpdateMesProductMappingInput
+  ): Promise<MesProductMapping | undefined> {
+    const { rows } = await this.pool.query(
+      `UPDATE mes_product_mappings SET
+         product_variant_id = COALESCE($2, product_variant_id),
+         mes_product_id = COALESCE($3, mes_product_id),
+         mes_item_code = COALESCE($4, mes_item_code),
+         mes_unit_label = COALESCE($5, mes_unit_label),
+         is_active = COALESCE($6, is_active),
+         updated_at = NOW()
+       WHERE id = $1 RETURNING *`,
+      [
+        id,
+        input.productVariantId ?? null,
+        input.mesProductId ?? null,
+        input.mesItemCode ?? null,
+        input.mesUnitLabel ?? null,
+        input.isActive ?? null
+      ]
+    );
+    return rows[0] ? rowToMesMapping(rows[0]) : undefined;
+  }
+
+  async listMesSyncRuns(limit?: number): Promise<MesSyncRun[]> {
+    const lim = limit && limit > 0 ? Math.min(limit, 200) : 50;
+    const { rows } = await this.pool.query(
+      `SELECT * FROM mes_sync_runs ORDER BY started_at DESC LIMIT ${lim}`
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      direction: r.direction,
+      status: r.status,
+      startedAt: formatDate(r.started_at),
+      finishedAt: r.finished_at ? formatDate(r.finished_at) : undefined,
+      errorMessage: r.error_message ?? undefined,
+      meta: r.meta ?? undefined
+    }));
+  }
+}
+
 export function createPostgresRepositories(pool: Pool): Repositories {
   const users = new PgUserRepository(pool);
   // Phase 11 — message repo 가 reactions 배치 lookup 을 사용하므로 reactions
@@ -3511,6 +4355,7 @@ export function createPostgresRepositories(pool: Pool): Repositories {
     projects: new PgProjectRepository(pool),
     tasks: new PgTaskRepository(pool),
     products: new PgProductRepository(pool),
+    erp: new PgErpRepository(pool),
     files: new PgFileRepository(pool),
     notices: new PgNoticeRepository(pool),
     decisions: new PgDecisionRepository(pool),

@@ -1,16 +1,8 @@
-# 한미르톡 운영 리버스 프록시 (Caddy 2) — 사내 HTTP 배포.
+# 한미르톡 운영 리버스 프록시 (Caddy 2) — Cloudflare Tunnel 전용.
 #
-# 현재 구성: 평문 HTTP(:80). 직원들은 http://<서버IP> 로 접속한다.
-# 사내 전용이라 HTTP 로 운영하며, 크롬 주소창에 "안전하지 않음" 라벨이
-# 표시되지만 차단은 아니다. (트레이드오프: 브라우저 푸시 알림·PWA 설치 불가)
-#
-# ── 나중에 HTTPS 로 전환하려면 ──────────────────────────────────────
-# 1) 아래 ":80" 을 도메인(예: talk.hanmirfe.com)으로 바꾼다.
-# 2) 사이트 블록 안에 인증서 지정을 추가한다:
-#      tls /etc/caddy/certs/fullchain.pem /etc/caddy/certs/privkey.pem
-#    (또는 자동발급 / `tls internal` — 환경에 맞춰)
-# 3) docker-compose.prod.yml 의 caddy 에 "443:443" 포트와 인증서 마운트 추가.
-# web 은 API 주소를 상대경로로 쓰므로 HTTPS 전환 시 재빌드가 필요 없다.
+# 외부 HTTPS 는 Cloudflare 가 담당한다. VM 내부에서는 cloudflared(systemd)
+# 가 http://127.0.0.1:80 으로 Caddy 에 전달하므로 이 파일은 :80 을 유지한다.
+# Caddy 에서 443, Let's Encrypt, tls 인증서 설정을 직접 추가하지 않는다.
 
 :80 {
 	encode gzip zstd

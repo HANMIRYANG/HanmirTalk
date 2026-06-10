@@ -56,7 +56,24 @@ import type {
   UpdateTaskInput,
   UpdateUserInput,
   User,
-  UserInvitation
+  UserInvitation,
+  ProductVariant,
+  ProductInventorySummary,
+  Warehouse,
+  InventoryBalance,
+  InventoryTransaction,
+  ErpDocument,
+  ErpDocumentLine,
+  ErpDocumentQuery,
+  CreateProductVariantInput,
+  UpdateProductVariantInput,
+  CreateWarehouseInput,
+  UpdateWarehouseInput,
+  CreateErpDocumentInput,
+  MesProductMapping,
+  MesSyncRun,
+  CreateMesProductMappingInput,
+  UpdateMesProductMappingInput
 } from "@hanmir/shared";
 import { NOTIFICATION_CATEGORIES } from "@hanmir/shared";
 import { hashPassword, seedPasswordHash, verifyPassword } from "../auth/password";
@@ -85,6 +102,9 @@ import type {
   NotificationRepository,
   OrgNotificationRepository,
   ProductRepository,
+  ErpRepository,
+  CreateErpDocumentResult,
+  InventoryAdjustmentRow,
   ProjectRepository,
   PushSubscriptionRecord,
   PushSubscriptionRepository,
@@ -991,6 +1011,11 @@ class MemoryProductRepository implements ProductRepository {
     return found ? clone(found) : undefined;
   }
 
+  // Phase 12 — ERP 재고 표시용 제품명 동기 조회 (closure 연결용).
+  findByIdSync(id: string): Product | undefined {
+    return this.data.find((p) => p.id === id);
+  }
+
   async create(input: CreateProductInput): Promise<Product> {
     const today = new Date().toISOString().slice(0, 10);
     const product: Product = {
@@ -1262,6 +1287,536 @@ class MemoryProductRepository implements ProductRepository {
     if (idx < 0) return undefined;
     const [removed] = this.documents.splice(idx, 1);
     return { attachmentId: removed.attachmentId };
+  }
+}
+
+// Phase 12 — ERP 재고/전표 in-memory 어댑터. PG 의 단일 트랜잭션 차감을
+// 단일 스레드 직렬 실행으로 모사한다(dev/test 전용). 금액은 소수 2자리,
+// 수량/kg 는 그대로 number 로 보관.
+function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+interface MemoryBalanceRow {
+  productVariantId: string;
+  warehouseId: string;
+  quantity: number;
+  quantityKg: number;
+  updatedAt: string;
+}
+
+class MemoryErpRepository implements ErpRepository {
+  private variants: ProductVariant[] = [];
+  private warehouses: Warehouse[] = [];
+  private balances: MemoryBalanceRow[] = [];
+  private transactions: InventoryTransaction[] = [];
+  private documents: ErpDocument[] = [];
+  private mesMappings: MesProductMapping[] = [];
+  private mesSyncRuns: MesSyncRun[] = [];
+  private docSeq = 0;
+
+  // 표시용 이름 채우기 — createMemoryRepositories 에서 연결.
+  private getProductName: (id: string) => string = () => "";
+  private getUserName: (id: string) => string = () => "";
+
+  setAccessors(a: {
+    getProductName: (id: string) => string;
+    getUserName: (id: string) => string;
+  }): void {
+    this.getProductName = a.getProductName;
+    this.getUserName = a.getUserName;
+  }
+
+  // ── 규격 ──
+  async listVariants(productId: string): Promise<ProductVariant[]> {
+    return this.variants
+      .filter((v) => v.productId === productId)
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((v) => clone(v));
+  }
+
+  async listAllVariants(): Promise<ProductVariant[]> {
+    return clone(this.variants);
+  }
+
+  async findVariantById(id: string): Promise<ProductVariant | undefined> {
+    const found = this.variants.find((v) => v.id === id);
+    return found ? clone(found) : undefined;
+  }
+
+  async createVariant(
+    productId: string,
+    input: CreateProductVariantInput
+  ): Promise<ProductVariant> {
+    const now = new Date().toISOString();
+    const variant: ProductVariant = {
+      id: newId("pv"),
+      productId,
+      code: input.code,
+      name: input.name,
+      unitLabel: input.unitLabel,
+      kgPerUnit: input.kgPerUnit ?? 0,
+      sortOrder:
+        input.sortOrder ?? this.variants.filter((v) => v.productId === productId).length,
+      isActive: input.isActive ?? true,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.variants.push(variant);
+    return clone(variant);
+  }
+
+  async updateVariant(
+    id: string,
+    input: UpdateProductVariantInput
+  ): Promise<ProductVariant | undefined> {
+    const target = this.variants.find((v) => v.id === id);
+    if (!target) return undefined;
+    if (input.code !== undefined) target.code = input.code;
+    if (input.name !== undefined) target.name = input.name;
+    if (input.unitLabel !== undefined) target.unitLabel = input.unitLabel;
+    if (input.kgPerUnit !== undefined) target.kgPerUnit = input.kgPerUnit;
+    if (input.sortOrder !== undefined) target.sortOrder = input.sortOrder;
+    if (input.isActive !== undefined) target.isActive = input.isActive;
+    target.updatedAt = new Date().toISOString();
+    return clone(target);
+  }
+
+  // ── 창고 ──
+  async listWarehouses(): Promise<Warehouse[]> {
+    return clone(this.warehouses);
+  }
+
+  async findWarehouseById(id: string): Promise<Warehouse | undefined> {
+    const found = this.warehouses.find((w) => w.id === id);
+    return found ? clone(found) : undefined;
+  }
+
+  async createWarehouse(input: CreateWarehouseInput): Promise<Warehouse> {
+    const now = new Date().toISOString();
+    const warehouse: Warehouse = {
+      id: newId("wh"),
+      code: input.code,
+      name: input.name,
+      isActive: input.isActive ?? true,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.warehouses.push(warehouse);
+    return clone(warehouse);
+  }
+
+  async updateWarehouse(
+    id: string,
+    input: UpdateWarehouseInput
+  ): Promise<Warehouse | undefined> {
+    const target = this.warehouses.find((w) => w.id === id);
+    if (!target) return undefined;
+    if (input.code !== undefined) target.code = input.code;
+    if (input.name !== undefined) target.name = input.name;
+    if (input.isActive !== undefined) target.isActive = input.isActive;
+    target.updatedAt = new Date().toISOString();
+    return clone(target);
+  }
+
+  // ── 재고 ──
+  private decorateBalance(row: MemoryBalanceRow): InventoryBalance {
+    const variant = this.variants.find((v) => v.id === row.productVariantId);
+    const warehouse = this.warehouses.find((w) => w.id === row.warehouseId);
+    return {
+      productVariantId: row.productVariantId,
+      warehouseId: row.warehouseId,
+      quantity: row.quantity,
+      quantityKg: row.quantityKg,
+      updatedAt: row.updatedAt,
+      productId: variant?.productId,
+      productName: variant ? this.getProductName(variant.productId) : undefined,
+      variantCode: variant?.code,
+      variantName: variant?.name,
+      unitLabel: variant?.unitLabel,
+      warehouseCode: warehouse?.code,
+      warehouseName: warehouse?.name
+    };
+  }
+
+  async listInventory(filter: {
+    productId?: string;
+    warehouseId?: string;
+  }): Promise<InventoryBalance[]> {
+    const variantIds = filter.productId
+      ? new Set(this.variants.filter((v) => v.productId === filter.productId).map((v) => v.id))
+      : undefined;
+    return this.balances
+      .filter((b) => (variantIds ? variantIds.has(b.productVariantId) : true))
+      .filter((b) => (filter.warehouseId ? b.warehouseId === filter.warehouseId : true))
+      .map((b) => this.decorateBalance(b));
+  }
+
+  async getProductInventorySummary(productId: string): Promise<ProductInventorySummary> {
+    const variants = this.variants
+      .filter((v) => v.productId === productId)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+    let totalKg = 0;
+    const variantSummaries = variants.map((variant) => {
+      const rows = this.balances.filter((b) => b.productVariantId === variant.id);
+      const vTotalQty = rows.reduce((s, r) => s + r.quantity, 0);
+      const vTotalKg = rows.reduce((s, r) => s + r.quantityKg, 0);
+      totalKg += vTotalKg;
+      return {
+        productVariantId: variant.id,
+        variantCode: variant.code,
+        variantName: variant.name,
+        unitLabel: variant.unitLabel,
+        kgPerUnit: variant.kgPerUnit,
+        totalQuantity: vTotalQty,
+        totalKg: round2(vTotalKg),
+        byWarehouse: rows.map((r) => {
+          const wh = this.warehouses.find((w) => w.id === r.warehouseId);
+          return {
+            warehouseId: r.warehouseId,
+            warehouseCode: wh?.code ?? "",
+            warehouseName: wh?.name ?? "",
+            quantity: r.quantity,
+            quantityKg: round2(r.quantityKg)
+          };
+        })
+      };
+    });
+    return { productId, totalKg: round2(totalKg), variants: variantSummaries };
+  }
+
+  async listTransactions(filter: {
+    productId?: string;
+    productVariantId?: string;
+    warehouseId?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+  }): Promise<InventoryTransaction[]> {
+    let rows = this.transactions.slice();
+    if (filter.productId) rows = rows.filter((t) => t.productId === filter.productId);
+    if (filter.productVariantId)
+      rows = rows.filter((t) => t.productVariantId === filter.productVariantId);
+    if (filter.warehouseId) rows = rows.filter((t) => t.warehouseId === filter.warehouseId);
+    if (filter.from) rows = rows.filter((t) => t.createdAt >= filter.from!);
+    if (filter.to) rows = rows.filter((t) => t.createdAt <= filter.to!);
+    rows.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    if (filter.limit && filter.limit > 0) rows = rows.slice(0, filter.limit);
+    return rows.map((t) => clone(t));
+  }
+
+  // (variant, warehouse) balance 를 delta 만큼 증감. kg 는 snapshot 환산값.
+  private applyBalanceDelta(
+    productVariantId: string,
+    warehouseId: string,
+    deltaQty: number,
+    kgPerUnit: number,
+    now: string
+  ): void {
+    let row = this.balances.find(
+      (b) => b.productVariantId === productVariantId && b.warehouseId === warehouseId
+    );
+    if (!row) {
+      row = { productVariantId, warehouseId, quantity: 0, quantityKg: 0, updatedAt: now };
+      this.balances.push(row);
+    }
+    row.quantity = round2(row.quantity + deltaQty);
+    row.quantityKg = round2(row.quantityKg + deltaQty * kgPerUnit);
+    row.updatedAt = now;
+  }
+
+  private availableQty(productVariantId: string, warehouseId: string): number {
+    const row = this.balances.find(
+      (b) => b.productVariantId === productVariantId && b.warehouseId === warehouseId
+    );
+    return row?.quantity ?? 0;
+  }
+
+  async importInventory(
+    rows: InventoryAdjustmentRow[],
+    actor: { id: string }
+  ): Promise<{ applied: number }> {
+    const now = new Date().toISOString();
+    let applied = 0;
+    for (const row of rows) {
+      const variant = this.variants.find((v) => v.id === row.productVariantId);
+      if (!variant) continue;
+      if (!this.warehouses.some((w) => w.id === row.warehouseId)) continue;
+      const kgPerUnit = variant.kgPerUnit;
+      const direction = row.direction ?? "adjust";
+      this.applyBalanceDelta(row.productVariantId, row.warehouseId, row.quantity, kgPerUnit, now);
+      this.transactions.push({
+        id: newId("itx"),
+        productId: variant.productId,
+        productVariantId: row.productVariantId,
+        warehouseId: row.warehouseId,
+        direction,
+        quantity: row.quantity,
+        unitLabel: variant.unitLabel,
+        kgPerUnitSnapshot: kgPerUnit,
+        quantityKg: round2(row.quantity * kgPerUnit),
+        sourceType: "import",
+        note: row.note,
+        createdById: actor.id,
+        createdByName: this.getUserName(actor.id),
+        createdAt: now
+      });
+      applied++;
+    }
+    return { applied };
+  }
+
+  // ── 전표 ──
+  private nextDocumentNo(type: ErpDocument["documentType"]): string {
+    this.docSeq++;
+    const prefix = type === "use" ? "USE" : "SALE";
+    return `${prefix}-${String(this.docSeq).padStart(6, "0")}`;
+  }
+
+  async createDocument(
+    input: CreateErpDocumentInput,
+    actor: { id: string }
+  ): Promise<CreateErpDocumentResult> {
+    if (!input.lines || input.lines.length === 0) {
+      return { ok: false, error: "empty_lines" };
+    }
+    const headerWarehouseId = input.warehouseId;
+    // 1차 검증: 참조 무결성 + 차감 대상 라인의 부족 여부 집계.
+    interface PreparedLine {
+      lineNo: number;
+      raw: CreateErpDocumentInput["lines"][number];
+      variant?: ProductVariant;
+      warehouseId?: string;
+      supplyAmount: number;
+      vatAmount: number;
+    }
+    const prepared: PreparedLine[] = [];
+    const shortages: {
+      productVariantId: string;
+      warehouseId: string;
+      available: number;
+      requested: number;
+    }[] = [];
+
+    for (let i = 0; i < input.lines.length; i++) {
+      const raw = input.lines[i];
+      const variant = raw.productVariantId
+        ? this.variants.find((v) => v.id === raw.productVariantId)
+        : undefined;
+      if (raw.productVariantId && !variant) {
+        return { ok: false, error: "variant_not_found" };
+      }
+      const warehouseId = raw.warehouseId ?? headerWarehouseId;
+      if (warehouseId && !this.warehouses.some((w) => w.id === warehouseId)) {
+        return { ok: false, error: "warehouse_not_found" };
+      }
+      const supplyAmount = raw.supplyAmount ?? round2(raw.quantity * (raw.unitPrice ?? 0));
+      const vatAmount = raw.vatAmount ?? round2(supplyAmount * 0.1);
+      prepared.push({ lineNo: i + 1, raw, variant, warehouseId, supplyAmount, vatAmount });
+
+      // 차감 대상 = 규격 + 창고가 모두 지정된 라인.
+      if (variant && warehouseId) {
+        const available = this.availableQty(variant.id, warehouseId);
+        if (!input.allowNegative && raw.quantity > available) {
+          shortages.push({
+            productVariantId: variant.id,
+            warehouseId,
+            available,
+            requested: raw.quantity
+          });
+        }
+      }
+    }
+
+    if (shortages.length > 0) {
+      return { ok: false, error: "insufficient_stock", shortages };
+    }
+
+    // 2차: 커밋(메모리는 직렬 실행이라 부분 적용 위험 없음).
+    const now = new Date().toISOString();
+    const documentType = input.documentType ?? "sale";
+    const documentId = newId("erpdoc");
+    const lines: ErpDocumentLine[] = [];
+    let supplyTotal = 0;
+    let vatTotal = 0;
+
+    for (const p of prepared) {
+      const total = p.supplyAmount + p.vatAmount;
+      supplyTotal += p.supplyAmount;
+      vatTotal += p.vatAmount;
+      lines.push({
+        id: newId("erpline"),
+        documentId,
+        lineNo: p.lineNo,
+        productId: p.variant?.productId ?? p.raw.productId,
+        productVariantId: p.raw.productVariantId,
+        warehouseId: p.warehouseId,
+        itemCode: p.raw.itemCode,
+        itemName: p.raw.itemName,
+        specLabel: p.raw.specLabel ?? p.variant?.name,
+        quantity: p.raw.quantity,
+        unitPrice: p.raw.unitPrice ?? 0,
+        supplyAmount: p.supplyAmount,
+        vatAmount: p.vatAmount,
+        note: p.raw.note,
+        serialLot: p.raw.serialLot,
+        createdAt: now
+      });
+      // 재고 차감 + 거래 원장.
+      if (p.variant && p.warehouseId) {
+        const kgPerUnit = p.variant.kgPerUnit;
+        this.applyBalanceDelta(p.variant.id, p.warehouseId, -p.raw.quantity, kgPerUnit, now);
+        this.transactions.push({
+          id: newId("itx"),
+          productId: p.variant.productId,
+          productVariantId: p.variant.id,
+          warehouseId: p.warehouseId,
+          direction: "out",
+          quantity: p.raw.quantity,
+          unitLabel: p.variant.unitLabel,
+          kgPerUnitSnapshot: kgPerUnit,
+          quantityKg: round2(p.raw.quantity * kgPerUnit),
+          sourceType: "erp_document",
+          sourceId: documentId,
+          note: p.raw.note,
+          createdById: actor.id,
+          createdByName: this.getUserName(actor.id),
+          createdAt: now
+        });
+      }
+    }
+
+    const document: ErpDocument = {
+      id: documentId,
+      documentNo: this.nextDocumentNo(documentType),
+      documentType,
+      status: "active",
+      documentDate: input.documentDate,
+      managerId: input.managerId,
+      managerName: input.managerId ? this.getUserName(input.managerId) : undefined,
+      customerName: input.customerName,
+      warehouseId: headerWarehouseId,
+      warehouseName: headerWarehouseId
+        ? this.warehouses.find((w) => w.id === headerWarehouseId)?.name
+        : undefined,
+      transactionType: input.transactionType,
+      currency: input.currency ?? "KRW",
+      contact: input.contact,
+      address: input.address,
+      supplyAmount: round2(supplyTotal),
+      vatAmount: round2(vatTotal),
+      totalAmount: round2(supplyTotal + vatTotal),
+      note: input.note,
+      createdById: actor.id,
+      createdByName: this.getUserName(actor.id),
+      createdAt: now,
+      updatedAt: now,
+      lines
+    };
+    this.documents.unshift(document);
+    return { ok: true, document: clone(document) };
+  }
+
+  async listDocuments(query: ErpDocumentQuery): Promise<ErpDocument[]> {
+    let rows = this.documents.slice();
+    if (query.type) rows = rows.filter((d) => d.documentType === query.type);
+    if (query.status) rows = rows.filter((d) => d.status === query.status);
+    if (query.from) rows = rows.filter((d) => d.documentDate >= query.from!);
+    if (query.to) rows = rows.filter((d) => d.documentDate <= query.to!);
+    if (query.customer) {
+      const q = query.customer.toLowerCase();
+      rows = rows.filter((d) => (d.customerName ?? "").toLowerCase().includes(q));
+    }
+    rows.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    if (query.limit && query.limit > 0) rows = rows.slice(0, query.limit);
+    return rows.map((d) => clone(d));
+  }
+
+  async findDocumentById(id: string): Promise<ErpDocument | undefined> {
+    const found = this.documents.find((d) => d.id === id);
+    return found ? clone(found) : undefined;
+  }
+
+  async cancelDocument(
+    id: string,
+    actor: { id: string }
+  ): Promise<ErpDocument | undefined> {
+    const target = this.documents.find((d) => d.id === id);
+    if (!target || target.status === "cancelled") return undefined;
+    const now = new Date().toISOString();
+    // 차감했던 라인을 반대 방향으로 복원.
+    for (const line of target.lines) {
+      if (!line.productVariantId || !line.warehouseId) continue;
+      const variant = this.variants.find((v) => v.id === line.productVariantId);
+      const kgPerUnit = variant?.kgPerUnit ?? 0;
+      this.applyBalanceDelta(line.productVariantId, line.warehouseId, line.quantity, kgPerUnit, now);
+      this.transactions.push({
+        id: newId("itx"),
+        productId: line.productId ?? variant?.productId ?? "",
+        productVariantId: line.productVariantId,
+        warehouseId: line.warehouseId,
+        direction: "cancel",
+        quantity: line.quantity,
+        unitLabel: variant?.unitLabel ?? "",
+        kgPerUnitSnapshot: kgPerUnit,
+        quantityKg: round2(line.quantity * kgPerUnit),
+        sourceType: "erp_document_cancel",
+        sourceId: target.id,
+        createdById: actor.id,
+        createdByName: this.getUserName(actor.id),
+        createdAt: now
+      });
+    }
+    target.status = "cancelled";
+    target.cancelledAt = now;
+    target.updatedAt = now;
+    return clone(target);
+  }
+
+  // ── MES 매핑(골격) ──
+  async listMesMappings(productId?: string): Promise<MesProductMapping[]> {
+    return this.mesMappings
+      .filter((m) => (productId ? m.productId === productId : true))
+      .map((m) => clone(m));
+  }
+
+  async createMesMapping(input: CreateMesProductMappingInput): Promise<MesProductMapping> {
+    const now = new Date().toISOString();
+    const mapping: MesProductMapping = {
+      id: newId("mesmap"),
+      productId: input.productId,
+      productVariantId: input.productVariantId,
+      mesProductId: input.mesProductId,
+      mesItemCode: input.mesItemCode,
+      mesUnitLabel: input.mesUnitLabel,
+      isActive: input.isActive ?? true,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.mesMappings.push(mapping);
+    return clone(mapping);
+  }
+
+  async updateMesMapping(
+    id: string,
+    input: UpdateMesProductMappingInput
+  ): Promise<MesProductMapping | undefined> {
+    const target = this.mesMappings.find((m) => m.id === id);
+    if (!target) return undefined;
+    if (input.productVariantId !== undefined) target.productVariantId = input.productVariantId;
+    if (input.mesProductId !== undefined) target.mesProductId = input.mesProductId;
+    if (input.mesItemCode !== undefined) target.mesItemCode = input.mesItemCode;
+    if (input.mesUnitLabel !== undefined) target.mesUnitLabel = input.mesUnitLabel;
+    if (input.isActive !== undefined) target.isActive = input.isActive;
+    target.updatedAt = new Date().toISOString();
+    return clone(target);
+  }
+
+  async listMesSyncRuns(limit?: number): Promise<MesSyncRun[]> {
+    const rows = this.mesSyncRuns
+      .slice()
+      .sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
+    return (limit && limit > 0 ? rows.slice(0, limit) : rows).map((r) => clone(r));
   }
 }
 
@@ -2332,6 +2887,13 @@ export function createMemoryRepositories(): Repositories {
     getFile: (id) => files.findByIdSync(id),
     getUserName: (id) => users._data.find((u) => u.id === id)?.name ?? ""
   });
+  // Phase 12 — ERP 재고/전표. 표시용 제품명/사용자명을 채우기 위해
+  // products/users 에 closure 로 연결.
+  const erp = new MemoryErpRepository();
+  erp.setAccessors({
+    getProductName: (id) => products.findByIdSync(id)?.name ?? "",
+    getUserName: (id) => users._data.find((u) => u.id === id)?.name ?? ""
+  });
   // Phase 8 K-2 — invitations enrich rows with department + inviter names.
   const invitations = new MemoryInvitationRepository();
   invitations.setAccessors({
@@ -2373,6 +2935,7 @@ export function createMemoryRepositories(): Repositories {
     projects,
     tasks,
     products,
+    erp,
     files,
     notices,
     decisions,

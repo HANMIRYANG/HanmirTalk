@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { Topbar } from "@/components/shell/Topbar";
 import { Tag } from "@/components/ui/Tag";
 import { productService } from "@/services/product.service";
+import { erpService } from "@/services/erp.service";
 import { userService } from "@/services/user.service";
 import { projectService } from "@/services/project.service";
 import { requireServerMe } from "@/lib/server-auth";
@@ -24,7 +25,7 @@ export default async function ProductDetailPage({ params }: Props) {
   // Phase 7 J-3 — DB-backed specs / lots / sales-history.
   // listSalesHistory가 비어 있으면 product.history(mock)로 fallback해서
   // 데모 데이터 호환 유지.
-  const [owner, relatedProjects, dbSpecs, dbLots, dbHistory, dbDocuments] =
+  const [owner, relatedProjects, dbSpecs, dbLots, dbHistory, dbDocuments, inventory] =
     await Promise.all([
       product.ownerId
         ? userService.getUser(product.ownerId, { token })
@@ -35,7 +36,8 @@ export default async function ProductDetailPage({ params }: Props) {
       productService.listSpecs(params.id, { token }).catch(() => []),
       productService.listLots(params.id, { token }).catch(() => []),
       productService.listSalesHistory(params.id, { token }).catch(() => []),
-      productService.listDocuments(params.id, { token }).catch(() => [])
+      productService.listDocuments(params.id, { token }).catch(() => []),
+      erpService.getInventorySummary(params.id, { token }).catch(() => undefined)
     ]);
   const canManage = WRITER_ROLES.has(me.role);
 
@@ -91,6 +93,41 @@ export default async function ProductDetailPage({ params }: Props) {
           {product.salesUpdatedBy ? `${product.salesUpdatedBy} 상태 변경` : null}
         </div>
       </div>
+
+      {inventory && inventory.variants.length > 0 ? (
+        <section className={styles.inventoryCard}>
+          <div className={styles.inventoryHead}>
+            <b>재고 현황</b>
+            <span className={styles.inventoryTotal}>
+              총 {inventory.totalKg.toLocaleString("ko-KR", { maximumFractionDigits: 2 })} kg
+            </span>
+          </div>
+          <table className={styles.inventoryTable}>
+            <thead>
+              <tr>
+                <th>규격</th>
+                <th>단위</th>
+                <th style={{ textAlign: "right" }}>수량</th>
+                <th style={{ textAlign: "right" }}>kg</th>
+              </tr>
+            </thead>
+            <tbody>
+              {inventory.variants.map((v) => (
+                <tr key={v.productVariantId}>
+                  <td>{v.variantName}</td>
+                  <td>{v.unitLabel}</td>
+                  <td style={{ textAlign: "right" }}>
+                    {v.totalQuantity.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}
+                  </td>
+                  <td style={{ textAlign: "right" }}>
+                    {v.totalKg.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ) : null}
 
       <ProductTabs
         product={product}

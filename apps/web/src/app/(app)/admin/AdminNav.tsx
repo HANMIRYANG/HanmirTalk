@@ -39,7 +39,8 @@ const GROUPS: NavGroup[] = [
       { label: "프로젝트 관리", href: "/projects" },
       { label: "채팅방 관리", href: "/chat" },
       { label: "공지 발송 관리", href: "/notices" },
-      { label: "제품정보 관리", href: "/products" }
+      { label: "제품정보 관리", href: "/products" },
+      { label: "ERP 설정", href: "/admin/erp" }
     ]
   },
   {

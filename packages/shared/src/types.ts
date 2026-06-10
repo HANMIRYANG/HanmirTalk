@@ -1032,3 +1032,268 @@ export interface ReactionUpdate {
   messageId: string;
   reactions: MessageReaction[];
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Phase 12 — ERP 재고/전표 + MES 연동 준비.
+// product_specs(설명용 key-value)와 별개로, 재고를 나누는 판매/포장 규격은
+// product_variants 로 분리한다. 모든 금액/수량은 직렬화 단순화를 위해 number
+// 로 주고받는다(DB 는 NUMERIC).
+// ─────────────────────────────────────────────────────────────────────────
+
+// 재고 거래 방향. 입고/출고/조정/취소(복원).
+export type InventoryDirection = "in" | "out" | "adjust" | "cancel";
+
+// 전표 유형/상태.
+export type ErpDocumentType = "sale" | "use";
+export type ErpDocumentStatus = "active" | "cancelled";
+
+// 외부(MES) 동기화 상태.
+export type ErpSyncStatus = "pending" | "sent" | "failed" | "ignored";
+
+// 판매/포장 규격. kg_per_unit 으로 총 재고 kg 환산. 예) 18kg / 4L / 말통.
+export interface ProductVariant {
+  id: string;
+  productId: string;
+  code: string;
+  name: string;
+  unitLabel: string;
+  kgPerUnit: number;
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateProductVariantInput {
+  code: string;
+  name: string;
+  unitLabel: string;
+  kgPerUnit?: number;
+  sortOrder?: number;
+  isActive?: boolean;
+}
+
+export interface UpdateProductVariantInput {
+  code?: string;
+  name?: string;
+  unitLabel?: string;
+  kgPerUnit?: number;
+  sortOrder?: number;
+  isActive?: boolean;
+}
+
+// 출하/보관 창고. 스크린샷의 '출하창고'(코드+이름).
+export interface Warehouse {
+  id: string;
+  code: string;
+  name: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateWarehouseInput {
+  code: string;
+  name: string;
+  isActive?: boolean;
+}
+
+export interface UpdateWarehouseInput {
+  code?: string;
+  name?: string;
+  isActive?: boolean;
+}
+
+// (규격 × 창고) 현재고. 조회 시 표시용 이름들을 JOIN 해서 함께 내려준다.
+export interface InventoryBalance {
+  productVariantId: string;
+  warehouseId: string;
+  quantity: number;
+  quantityKg: number;
+  updatedAt: string;
+  productId?: string;
+  productName?: string;
+  variantCode?: string;
+  variantName?: string;
+  unitLabel?: string;
+  warehouseCode?: string;
+  warehouseName?: string;
+}
+
+// 제품 단위 재고 요약. 제품 상세 화면의 규격별 재고 + 총 kg 표시용.
+export interface ProductInventorySummary {
+  productId: string;
+  totalKg: number;
+  variants: {
+    productVariantId: string;
+    variantCode: string;
+    variantName: string;
+    unitLabel: string;
+    kgPerUnit: number;
+    totalQuantity: number;
+    totalKg: number;
+    byWarehouse: {
+      warehouseId: string;
+      warehouseCode: string;
+      warehouseName: string;
+      quantity: number;
+      quantityKg: number;
+    }[];
+  }[];
+}
+
+// append-only 재고 거래 원장 row.
+export interface InventoryTransaction {
+  id: string;
+  productId: string;
+  productVariantId: string;
+  warehouseId: string;
+  direction: InventoryDirection;
+  quantity: number;
+  unitLabel: string;
+  kgPerUnitSnapshot: number;
+  quantityKg: number;
+  sourceType?: string;
+  sourceId?: string;
+  lotId?: string;
+  note?: string;
+  createdById: string;
+  createdByName?: string;
+  createdAt: string;
+  externalRef?: string;
+  syncStatus?: ErpSyncStatus;
+  lastSyncedAt?: string;
+}
+
+// 전표 라인. 작성 시 product_variant_id 를 기준으로 재고를 차감한다.
+export interface ErpDocumentLine {
+  id: string;
+  documentId: string;
+  lineNo: number;
+  productId?: string;
+  productVariantId?: string;
+  warehouseId?: string;
+  itemCode?: string;
+  itemName?: string;
+  specLabel?: string;
+  quantity: number;
+  unitPrice: number;
+  supplyAmount: number;
+  vatAmount: number;
+  note?: string;
+  serialLot?: string;
+  createdAt: string;
+}
+
+// 라인 작성 입력. supplyAmount/vatAmount 를 생략하면 서버가
+// quantity*unitPrice 와 공급가액 10% 로 자동 계산한다(부가세는 수기 우선).
+export interface CreateErpDocumentLineInput {
+  productId?: string;
+  productVariantId?: string;
+  warehouseId?: string;
+  itemCode?: string;
+  itemName?: string;
+  specLabel?: string;
+  quantity: number;
+  unitPrice?: number;
+  supplyAmount?: number;
+  vatAmount?: number;
+  note?: string;
+  serialLot?: string;
+}
+
+export interface ErpDocument {
+  id: string;
+  documentNo: string;
+  documentType: ErpDocumentType;
+  status: ErpDocumentStatus;
+  documentDate: string;
+  managerId?: string;
+  managerName?: string;
+  customerName?: string;
+  warehouseId?: string;
+  warehouseName?: string;
+  transactionType?: string;
+  currency: string;
+  contact?: string;
+  address?: string;
+  supplyAmount: number;
+  vatAmount: number;
+  totalAmount: number;
+  note?: string;
+  createdById: string;
+  createdByName?: string;
+  createdAt: string;
+  updatedAt: string;
+  cancelledAt?: string;
+  lines: ErpDocumentLine[];
+  externalRef?: string;
+  syncStatus?: ErpSyncStatus;
+  lastSyncedAt?: string;
+}
+
+export interface CreateErpDocumentInput {
+  documentType?: ErpDocumentType;
+  documentDate: string;
+  managerId?: string;
+  customerName?: string;
+  warehouseId?: string;
+  transactionType?: string;
+  currency?: string;
+  contact?: string;
+  address?: string;
+  note?: string;
+  lines: CreateErpDocumentLineInput[];
+  // 관리자 전용: 재고 부족 시에도 음수 재고를 허용하고 저장.
+  allowNegative?: boolean;
+}
+
+// 전표 목록/검색 쿼리.
+export interface ErpDocumentQuery {
+  from?: string;
+  to?: string;
+  type?: ErpDocumentType;
+  customer?: string;
+  status?: ErpDocumentStatus;
+  limit?: number;
+}
+
+// MES 매핑 / 동기화 이력(Phase 12-F 골격).
+export interface MesProductMapping {
+  id: string;
+  productId: string;
+  productVariantId?: string;
+  mesProductId?: string;
+  mesItemCode?: string;
+  mesUnitLabel?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateMesProductMappingInput {
+  productId: string;
+  productVariantId?: string;
+  mesProductId?: string;
+  mesItemCode?: string;
+  mesUnitLabel?: string;
+  isActive?: boolean;
+}
+
+export interface UpdateMesProductMappingInput {
+  productVariantId?: string;
+  mesProductId?: string;
+  mesItemCode?: string;
+  mesUnitLabel?: string;
+  isActive?: boolean;
+}
+
+export interface MesSyncRun {
+  id: string;
+  direction: "inbound" | "outbound";
+  status: "running" | "success" | "failed";
+  startedAt: string;
+  finishedAt?: string;
+  errorMessage?: string;
+  meta?: Record<string, unknown>;
+}
