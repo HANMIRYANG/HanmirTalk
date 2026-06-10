@@ -62,12 +62,14 @@ export default async function ChatRoomPage({ params }: Props) {
           <div className={styles.topAvatar}>{room.avatarLabel ?? room.name.slice(0, 2)}</div>
           <div>
             <h1 className={styles.topTitle}>
-              # {room.name}
+              {room.type === "direct" ? room.name : `# ${room.name}`}
               <span className={styles.topMembers}>· {room.members.length}명</span>
             </h1>
             <div className={styles.topMeta}>
               {project
                 ? `${project.department} · ${project.ownerName} · 마감 ${project.dueDate}`
+                : room.type === "direct"
+                ? "1:1 대화"
                 : "그룹 채팅방"}
             </div>
           </div>

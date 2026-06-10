@@ -16,6 +16,44 @@ import { notifyMessageNew } from "../notify";
 
 const VALID_ROOM_TYPE: RoomType[] = ["direct", "group", "department", "announcement", "project"];
 
+// 1:1 대화방은 보는 사람 기준 상대방 이름으로 표시한다. DB 의 name
+// ("1:1 대화")은 그대로 두고 응답 DTO 만 바꾼다 — 같은 방이라도 두
+// 참여자에게 서로 다른 이름이 보여야 하므로 저장 시점에 박을 수 없다.
+// 멤버가 아닌 관리자(전체 방 열람)에게는 "A ↔ B" 형태로 표시.
+async function withDirectDisplayNames(
+  repos: Repositories,
+  rooms: Room[],
+  viewerId: string
+): Promise<Room[]> {
+  if (!rooms.some((r) => r.type === "direct")) return rooms;
+  const users = await repos.users.list();
+  const userById = new Map(users.map((u) => [u.id, u] as const));
+  return rooms.map((room) => {
+    if (room.type !== "direct") return room;
+    const isMember = room.members.some((m) => m.userId === viewerId);
+    if (isMember) {
+      const other = room.members.find((m) => m.userId !== viewerId);
+      const otherUser = other ? userById.get(other.userId) : undefined;
+      if (!otherUser) return room;
+      return { ...room, name: otherUser.name, avatarLabel: otherUser.name.slice(0, 2) };
+    }
+    const names = room.members
+      .map((m) => userById.get(m.userId)?.name)
+      .filter((n): n is string => Boolean(n));
+    if (names.length === 0) return room;
+    return { ...room, name: names.join(" ↔ ") };
+  });
+}
+
+async function withDirectDisplayName(
+  repos: Repositories,
+  room: Room,
+  viewerId: string
+): Promise<Room> {
+  const [out] = await withDirectDisplayNames(repos, [room], viewerId);
+  return out;
+}
+
 function isString(value: unknown): value is string {
   return typeof value === "string";
 }
@@ -104,13 +142,13 @@ export function createRoomsRouter(repos: Repositories): Router {
       me.role === "admin" || me.role === "super_admin"
         ? all
         : all.filter((r) => r.members.some((m) => m.userId === me.id));
-    res.json(visible);
+    res.json(await withDirectDisplayNames(repos, visible, me.id));
   });
 
   router.get("/:id", async (req, res) => {
     const access = await ensureRoomAccess(repos, req, res, req.params.id);
     if (!access.allowed) return;
-    res.json(access.room);
+    res.json(await withDirectDisplayName(repos, access.room, req.currentUser!.id));
   });
 
   router.get("/:roomId/messages", async (req, res) => {
@@ -349,7 +387,9 @@ export function createRoomsRouter(repos: Repositories): Router {
       });
       realtime.emitRoomCreated(room);
     }
-    res.status(wasNew ? 201 : 200).json(room);
+    res
+      .status(wasNew ? 201 : 200)
+      .json(await withDirectDisplayName(repos, room, me.id));
   });
 
   // PATCH /rooms/:id — edit name/description. Members only.
