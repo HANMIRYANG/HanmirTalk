@@ -17,6 +17,7 @@ import {
   ProjectIcon,
   SettingsIcon
 } from "@/components/ui/icons";
+import { useUnreadBadges, type UnreadBadges } from "./UnreadBadgesProvider";
 import styles from "./Sidebar.module.css";
 
 interface NavItem {
@@ -24,22 +25,25 @@ interface NavItem {
   href: string;
   label: string;
   Icon: (p: { size?: number }) => JSX.Element;
+  // 미읽음 배지를 표시할 항목이면 UnreadBadges 의 어느 카운트를 쓸지
+  badgeKey?: keyof UnreadBadges;
 }
 
 const NAV: NavItem[] = [
   { key: "dashboard", href: "/dashboard", label: "대시보드", Icon: HomeIcon },
-  { key: "chat", href: "/chat", label: "채팅", Icon: ChatIcon },
+  { key: "chat", href: "/chat", label: "채팅", Icon: ChatIcon, badgeKey: "chat" },
   { key: "project", href: "/projects", label: "프로젝트", Icon: ProjectIcon },
   { key: "product", href: "/products", label: "제품정보", Icon: ProductIcon },
   { key: "erp", href: "/erp", label: "ERP", Icon: ErpIcon },
   { key: "file", href: "/files", label: "파일함", Icon: FileIcon },
-  { key: "notice", href: "/notices", label: "공지", Icon: NoticeIcon },
+  { key: "notice", href: "/notices", label: "공지", Icon: NoticeIcon, badgeKey: "notice" },
   { key: "admin", href: "/admin", label: "관리자", Icon: AdminIcon }
 ];
 
 export function Sidebar() {
   const pathname = usePathname() ?? "/";
   const router = useRouter();
+  const badges = useUnreadBadges();
   const [loggingOut, setLoggingOut] = useState(false);
 
   const isActive = (item: NavItem) => {
@@ -72,16 +76,29 @@ export function Sidebar() {
         </span>
       </Link>
       <nav className={styles.nav}>
-        {NAV.map((item) => (
-          <Link
-            key={item.key}
-            href={item.href}
-            className={cn(styles.navItem, isActive(item) && styles.navItemActive)}
-          >
-            <item.Icon size={20} />
-            <span className={styles.navLabel}>{item.label}</span>
-          </Link>
-        ))}
+        {NAV.map((item) => {
+          const count = item.badgeKey ? badges[item.badgeKey] : 0;
+          return (
+            <Link
+              key={item.key}
+              href={item.href}
+              className={cn(styles.navItem, isActive(item) && styles.navItemActive)}
+            >
+              <span className={styles.iconWrap}>
+                <item.Icon size={20} />
+                {count > 0 ? (
+                  <span
+                    className={styles.navBadge}
+                    aria-label={`${item.label} 안 읽음 ${count}개`}
+                  >
+                    {count > 99 ? "99+" : count}
+                  </span>
+                ) : null}
+              </span>
+              <span className={styles.navLabel}>{item.label}</span>
+            </Link>
+          );
+        })}
       </nav>
       <div className={styles.bottom}>
         <button type="button" className={styles.navItem} aria-label="설정">

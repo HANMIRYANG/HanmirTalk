@@ -946,6 +946,9 @@ class MemoryTaskRepository implements TaskRepository {
   async list(): Promise<TaskItem[]> {
     return clone(this._data);
   }
+  async listDueCandidates(): Promise<TaskItem[]> {
+    return clone(this._data.filter((t) => Boolean(t.dueDate) && t.status !== "done"));
+  }
   async listByProject(projectId: string): Promise<TaskItem[]> {
     return clone(this._data.filter((t) => t.projectId === projectId));
   }
@@ -2422,6 +2425,14 @@ class MemoryNotificationRepository implements NotificationRepository {
       this.settings.set(userId, s);
     }
     return clone(s);
+  }
+
+  async getSettingsMany(userIds: string[]): Promise<Map<string, NotificationSettings>> {
+    const out = new Map<string, NotificationSettings>();
+    for (const uid of new Set(userIds)) {
+      out.set(uid, await this.getSettings(uid));
+    }
+    return out;
   }
 
   async updateSettings(

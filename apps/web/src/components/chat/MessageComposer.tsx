@@ -5,7 +5,9 @@ import {
   useRef,
   useState,
   type ChangeEvent,
-  type KeyboardEvent
+  type KeyboardEvent,
+  type ReactNode,
+  type UIEvent
 } from "react";
 import { useRouter } from "next/navigation";
 import type { FileEntry, MentionSearchResult, MessageEntity } from "@hanmir/shared";
@@ -93,6 +95,9 @@ export function MessageComposer({ roomId, roomName, projectId }: MessageComposer
   const emojiPopoverRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // 멘션 하이라이트 백드롭 — textarea 와 동일한 글꼴/패딩으로 뒤에 깔려
+  // entity 구간에만 파란 배경 pill 을 그린다. 스크롤은 onScroll 로 동기화.
+  const highlighterRef = useRef<HTMLDivElement>(null);
 
   // Debounced search whenever the picker query changes.
   useEffect(() => {
@@ -114,6 +119,16 @@ export function MessageComposer({ roomId, roomName, projectId }: MessageComposer
     }, 80);
     return () => clearTimeout(t);
   }, [picker]);
+
+  // 백드롭이 늦게 마운트되거나(첫 멘션 추가) 값이 바뀐 직후에도 textarea
+  // 의 현재 스크롤 위치와 어긋나지 않도록 동기화.
+  useEffect(() => {
+    const ta = textareaRef.current;
+    const hl = highlighterRef.current;
+    if (!ta || !hl) return;
+    hl.scrollTop = ta.scrollTop;
+    hl.scrollLeft = ta.scrollLeft;
+  }, [value, entities]);
 
   // Phase 10 — close emoji picker on outside click or Escape.
   // NOTE: KeyboardEvent 는 위에서 React 타입으로 import 했기 때문에
@@ -385,6 +400,36 @@ export function MessageComposer({ roomId, roomName, projectId }: MessageComposer
     });
   };
 
+  // Phase 5 H-2 보강 — 태그가 실제로 걸렸는지 입력창에서 바로 보이도록,
+  // entity 구간을 <mark> 로 감싼 백드롭용 노드를 만든다. 글자는 투명
+  // (textarea 의 실제 텍스트가 위에 겹침), 배경 pill 만 보인다.
+  const renderHighlightNodes = (): ReactNode[] => {
+    const nodes: ReactNode[] = [];
+    const sorted = [...entities].sort((a, b) => a.offset - b.offset);
+    let cursor = 0;
+    for (const e of sorted) {
+      if (e.offset < cursor) continue; // 겹침 안전장치 — reconcile 상 발생 안 함
+      if (e.offset > cursor) nodes.push(value.slice(cursor, e.offset));
+      nodes.push(
+        <mark key={`${e.type}:${e.id}:${e.offset}`} className={styles.highlightToken}>
+          {value.slice(e.offset, e.offset + e.length)}
+        </mark>
+      );
+      cursor = e.offset + e.length;
+    }
+    nodes.push(value.slice(cursor));
+    // 후행 개행도 textarea 와 같은 높이로 렌더되도록 zero-width space.
+    nodes.push("​");
+    return nodes;
+  };
+
+  const syncHighlightScroll = (e: UIEvent<HTMLTextAreaElement>) => {
+    const hl = highlighterRef.current;
+    if (!hl) return;
+    hl.scrollTop = e.currentTarget.scrollTop;
+    hl.scrollLeft = e.currentTarget.scrollLeft;
+  };
+
   const send = async () => {
     const trimmed = value.trim();
     if ((!trimmed && !attachment) || sending) return;
@@ -429,7 +474,8 @@ export function MessageComposer({ roomId, roomName, projectId }: MessageComposer
         setPickerIndex((i) => Math.max(i - 1, 0));
         return;
       }
-      if (event.key === "Enter" && !event.shiftKey) {
+      // Tab 도 Enter 와 동일하게 확정 — 자동완성 관성 (IDE/카카오워크 등).
+      if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
         event.preventDefault();
         const result = pickerResults[pickerIndex];
         if (result) insertMention(result);
@@ -452,7 +498,7 @@ export function MessageComposer({ roomId, roomName, projectId }: MessageComposer
         setSlashIndex((i) => Math.max(i - 1, 0));
         return;
       }
-      if (event.key === "Enter" && !event.shiftKey) {
+      if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
         event.preventDefault();
         const choice = slashMatches[slashIndex];
         if (choice) triggerSlashCommand(choice.command);
@@ -594,6 +640,11 @@ export function MessageComposer({ roomId, roomName, projectId }: MessageComposer
           ) : null}
         </div>
         <div className={styles.inputWrap}>
+          {entities.length > 0 ? (
+            <div ref={highlighterRef} className={styles.highlighter} aria-hidden="true">
+              {renderHighlightNodes()}
+            </div>
+          ) : null}
           <textarea
             ref={textareaRef}
             className={styles.input}
@@ -602,6 +653,7 @@ export function MessageComposer({ roomId, roomName, projectId }: MessageComposer
             value={value}
             onChange={(e) => onValueChange(e.target.value)}
             onKeyDown={onKeyDown}
+            onScroll={syncHighlightScroll}
             disabled={sending}
           />
           {slashPicker && slashMatches.length > 0 ? (
@@ -718,7 +770,8 @@ export function MessageComposer({ roomId, roomName, projectId }: MessageComposer
         <div className={styles.foot}>
           <div className={styles.hint}>
             <span className="kbd">Enter</span> 전송 · <span className="kbd">Shift + Enter</span>{" "}
-            줄바꿈 · <span className="kbd">@</span> 멘션 ·{" "}
+            줄바꿈 · <span className="kbd">@</span> 멘션 (<span className="kbd">↑↓</span> 이동,{" "}
+            <span className="kbd">Tab</span>/<span className="kbd">Enter</span> 선택) ·{" "}
             <span className="kbd">/</span> AI 명령
           </div>
           <div className={styles.send}>

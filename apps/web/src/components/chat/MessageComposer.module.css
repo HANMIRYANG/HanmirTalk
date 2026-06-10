@@ -97,6 +97,8 @@
   resize: none;
   padding: 12px 14px;
   font-size: 14px;
+  /* .highlighter 와 줄바꿈 위치가 정확히 일치해야 함 — 둘 다 명시 고정 */
+  line-height: 1.5;
   min-height: 48px;
   background: transparent;
   color: var(--text-1);
@@ -104,6 +106,33 @@
      이후 textarea가 기본 cols(약 20자) 너비로 줄어든 회귀를 차단. */
   width: 100%;
   box-sizing: border-box;
+  /* 멘션 하이라이트 백드롭 위에 텍스트가 오도록 */
+  position: relative;
+  z-index: 1;
+}
+
+/* 멘션 하이라이트 백드롭 — textarea 와 동일한 박스/글꼴 메트릭으로 뒤에
+   깔린다. 글자는 투명, entity 구간의 배경 pill 만 비쳐 보인다. */
+.highlighter {
+  position: absolute;
+  inset: 0;
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  overflow: hidden;
+  pointer-events: none;
+  color: transparent;
+  box-sizing: border-box;
+}
+.highlightToken {
+  /* MessageItem .mention 과 같은 톤. 단, 텍스트 정렬이 어긋나면 안 되므로
+     padding 없이 배경/라운드만. */
+  background: var(--brand-blue-50);
+  border-radius: 3px;
+  color: transparent;
+  box-shadow: 0 0 0 1px rgba(31, 79, 168, 0.18);
 }
 .error {
   margin: 0 12px 4px;

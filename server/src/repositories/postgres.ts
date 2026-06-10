@@ -571,16 +571,14 @@ class PgProjectRepository implements ProjectRepository {
         createdBy
       ]
     );
-    // initial member list, if any
+    // initial member list, if any — 한 번의 멀티행 INSERT 로.
     if (input.memberIds && input.memberIds.length > 0) {
-      for (const memberId of input.memberIds) {
-        await this.pool.query(
-          `INSERT INTO project_members (project_id, user_id, role)
-           VALUES ($1, $2, 'member')
-           ON CONFLICT (project_id, user_id) DO NOTHING`,
-          [rows[0].id, memberId]
-        );
-      }
+      await this.pool.query(
+        `INSERT INTO project_members (project_id, user_id, role)
+         SELECT $1, unnest($2::uuid[]), 'member'
+         ON CONFLICT (project_id, user_id) DO NOTHING`,
+        [rows[0].id, [...new Set(input.memberIds)]]
+      );
     }
     const created = await this.findById(rows[0].id);
     if (!created) throw new Error("[postgres] failed to read back created project");
@@ -707,6 +705,15 @@ class PgTaskRepository implements TaskRepository {
   async list(): Promise<TaskItem[]> {
     const { rows } = await this.pool.query<TaskRow>(
       `${TASK_SELECT} ORDER BY created_at ASC`
+    );
+    return rows.map(rowToTask);
+  }
+
+  async listDueCandidates(): Promise<TaskItem[]> {
+    const { rows } = await this.pool.query<TaskRow>(
+      `${TASK_SELECT}
+       WHERE due_date IS NOT NULL AND status <> 'done'
+       ORDER BY created_at ASC`
     );
     return rows.map(rowToTask);
   }
@@ -2930,6 +2937,30 @@ class PgNotificationRepository implements NotificationRepository {
       [userId]
     );
     return rowToSettings(rows[0]);
+  }
+
+  async getSettingsMany(userIds: string[]): Promise<Map<string, NotificationSettings>> {
+    const out = new Map<string, NotificationSettings>();
+    const unique = [...new Set(userIds)];
+    if (unique.length === 0) return out;
+    await this.pool.query(
+      `INSERT INTO user_notification_settings (user_id)
+       SELECT unnest($1::uuid[])
+       ON CONFLICT (user_id) DO NOTHING`,
+      [unique]
+    );
+    const { rows } = await this.pool.query<SettingsRow>(
+      `SELECT user_id, all_enabled, per_room, per_project,
+              web_push_enabled, browser_enabled
+         FROM user_notification_settings
+        WHERE user_id = ANY($1::uuid[])`,
+      [unique]
+    );
+    for (const row of rows) {
+      const s = rowToSettings(row);
+      out.set(s.userId, s);
+    }
+    return out;
   }
 
   async updateSettings(

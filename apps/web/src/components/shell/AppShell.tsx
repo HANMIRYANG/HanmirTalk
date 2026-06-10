@@ -4,6 +4,7 @@ import { MobileNav } from "./MobileNav";
 import { NoticeLive } from "./NoticeLive";
 import { PasswordChangeGuard } from "./PasswordChangeGuard";
 import { PwaRegister } from "./PwaRegister";
+import { UnreadBadgesProvider } from "./UnreadBadgesProvider";
 
 interface AppShellProps {
   children: ReactNode;
@@ -12,15 +13,17 @@ interface AppShellProps {
 
 export function AppShell({ children, mustChangePassword = false }: AppShellProps) {
   return (
-    <div className="app">
-      <Sidebar />
-      <div className="main">
-        {children}
-        <MobileNav />
+    <UnreadBadgesProvider>
+      <div className="app">
+        <Sidebar />
+        <div className="main">
+          {children}
+          <MobileNav />
+        </div>
+        <NoticeLive />
+        <PwaRegister />
+        <PasswordChangeGuard mustChangePassword={mustChangePassword} />
       </div>
-      <NoticeLive />
-      <PwaRegister />
-      <PasswordChangeGuard mustChangePassword={mustChangePassword} />
-    </div>
+    </UnreadBadgesProvider>
   );
 }

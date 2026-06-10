@@ -6,6 +6,7 @@
 - access token 짧은 만료 시간
 - refresh token rotation 고려
 - 비활성화 계정 로그인 차단
+- 로그인 rate limit (IP+계정 기준, in-app 구현)
 
 ## 권한
 

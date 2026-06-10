@@ -242,6 +242,9 @@ export interface ProjectRepository {
 
 export interface TaskRepository {
   list(): Promise<TaskItem[]>;
+  // 마감 임박 폴러 전용 — dueDate 가 있고 status != 'done' 인 task 만.
+  // PG 에서는 WHERE 로 걸러 전체 스캔을 피한다.
+  listDueCandidates(): Promise<TaskItem[]>;
   listByProject(projectId: string): Promise<TaskItem[]>;
   findById(id: string): Promise<TaskItem | undefined>;
   create(projectId: string, input: CreateTaskInput): Promise<TaskItem>;
@@ -509,6 +512,8 @@ export interface NotificationRepository {
   markRead(id: string, userId: string): Promise<Notification | undefined>;
   markAllRead(userId: string): Promise<{ count: number }>;
   getSettings(userId: string): Promise<NotificationSettings>;
+  // notify 훅의 N+1 회피용 일괄 조회. 누락 사용자는 default 로 lazy-create.
+  getSettingsMany(userIds: string[]): Promise<Map<string, NotificationSettings>>;
   updateSettings(
     userId: string,
     input: UpdateNotificationSettingsInput

@@ -27,6 +27,23 @@
 - 제한적 영업 가능: 특정 조건 하에서 제안 가능
 - 정식 영업 가능: 공식 영업 가능
 
+## 제품 사양 (specs)
+
+- 제품별 key-value 사양 목록 (예: 인장강도=520 N/mm², 두께=2.0mm)
+- 제품 내 key 중복 불가(upsert), 정렬 순서 지원
+- 재고용 판매/포장 규격(`product_variants`)과는 별개 — ERP 명세(`23_ERP_INVENTORY_SPEC.md`) 참고
+
+## 생산 LOT (lots)
+
+- 제품별 생산 LOT 기록: LOT 번호(제품 내 중복 불가), 생산일, 수량(kg), 시험일, 비고
+- 시험 판정(verdict): pass / hold / retest
+
+## 영업 상태 이력 (sales_status_events)
+
+- 영업 가능 상태 변경 타임라인. `PATCH /products/:id`에서 salesStatus가 실제로
+  바뀌면 자동 기록 (이전 상태 → 새 상태, 사유, 변경자, 시각)
+- `GET /products/:id/sales-history`로 조회
+
 ## 제품 문서 유형
 
 - 카탈로그

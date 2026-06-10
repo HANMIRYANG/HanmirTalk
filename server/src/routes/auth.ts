@@ -35,6 +35,43 @@ function clientContext(req: Request): { userAgent?: string; ip?: string } {
   };
 }
 
+// 로그인 brute-force 방어 — in-app fixed-window 카운터 (단일 프로세스
+// 운영 전제, ai.ts 의 rate limiter 와 같은 접근. Redis 도입 시 교체).
+// 시도 자체를 세므로 비밀번호 검증 전에 호출한다. 성공 로그인은 해당
+// IP×계정 카운터를 초기화해, 몇 번 오타 후 성공한 사용자가 윈도우가
+// 끝날 때까지 잠기지 않도록 한다.
+const LOGIN_WINDOW_MS = 60 * 1000;
+const LOGIN_MAX_PER_ACCOUNT = 5; // IP×계정 기준
+const LOGIN_MAX_PER_IP = 30; // IP 전체 기준 (사무실 공용 NAT 고려)
+const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+
+function bumpLoginCounter(key: string, max: number, now: number): boolean {
+  const bucket = loginAttempts.get(key);
+  if (!bucket || bucket.resetAt <= now) {
+    loginAttempts.set(key, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+    return true;
+  }
+  bucket.count += 1;
+  return bucket.count <= max;
+}
+
+function loginAccountKey(ip: string | undefined, lookup: string): string {
+  return `acct:${ip ?? "unknown"}|${lookup.toLowerCase()}`;
+}
+
+function checkLoginRate(ip: string | undefined, lookup: string): boolean {
+  const now = Date.now();
+  // 만료 버킷 정리 — 맵이 커졌을 때만 (평상시 비용 0).
+  if (loginAttempts.size > 10_000) {
+    for (const [k, v] of loginAttempts) {
+      if (v.resetAt <= now) loginAttempts.delete(k);
+    }
+  }
+  const ipOk = bumpLoginCounter(`ip:${ip ?? "unknown"}`, LOGIN_MAX_PER_IP, now);
+  const acctOk = bumpLoginCounter(loginAccountKey(ip, lookup), LOGIN_MAX_PER_ACCOUNT, now);
+  return ipOk && acctOk;
+}
+
 async function issueSessionFor(
   repos: Repositories,
   res: Response,
@@ -60,6 +97,11 @@ export function createAuthRouter(repos: Repositories): Router {
     const lookup = (typeof email === "string" && email) || (typeof id === "string" && id) || "";
     if (!lookup || typeof password !== "string") {
       res.status(400).json({ error: "invalid_request" });
+      return;
+    }
+    const ctx = clientContext(req);
+    if (!checkLoginRate(ctx.ip, lookup)) {
+      res.status(429).json({ error: "too_many_attempts" });
       return;
     }
     const user = lookup.includes("@")
@@ -97,7 +139,9 @@ export function createAuthRouter(repos: Repositories): Router {
       res.status(401).json({ error: "invalid_credentials" });
       return;
     }
-    const { accessToken } = await issueSessionFor(repos, res, user.id, clientContext(req));
+    // 성공 — 해당 IP×계정의 실패 카운터 초기화.
+    loginAttempts.delete(loginAccountKey(ctx.ip, lookup));
+    const { accessToken } = await issueSessionFor(repos, res, user.id, ctx);
     if (user.role === "admin" || user.role === "super_admin") {
       await auditLog(
         repos,

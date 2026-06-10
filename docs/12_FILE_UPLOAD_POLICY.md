@@ -2,7 +2,7 @@
 
 ## 허용 파일
 
-- 이미지: jpg, jpeg, png, webp
+- 이미지: jpg, jpeg, png, webp, gif
 - 문서: pdf, doc, docx, hwp, hwpx
 - 스프레드시트: xls, xlsx, csv
 - 발표자료: ppt, pptx

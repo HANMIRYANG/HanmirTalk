@@ -11,7 +11,7 @@
 - service worker
 - 홈 화면 아이콘
 - 로그인 유지
-- 모바일에서 채팅 목록으로 바로 진입
+- 홈 화면 실행 시 초기 진입점은 `/dashboard` (manifest `start_url`)
 - PC와 모바일 동일 계정 사용
 
 ## 로고 사용

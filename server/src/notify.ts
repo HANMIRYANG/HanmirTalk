@@ -3,6 +3,7 @@ import type {
   MessageEntity,
   Notice,
   Notification,
+  NotificationSettings,
   Decision,
   TaskItem,
   Project
@@ -17,38 +18,50 @@ import { pushNotification } from "./push";
 //
 // 실패는 silent — 알림 누락이 본 작업(메시지 전송 등)을 깨면 안 됨.
 
-// 한 row를 in-app socket + (설정 켜져있으면) OS push로 발사. 두 채널
-// 모두 실패해도 본 hook은 throw하지 않는다.
-async function dispatch(repos: Repositories, n: Notification): Promise<void> {
-  realtime.emitNotificationNew(n);
+type SettingsMap = Map<string, NotificationSettings>;
+
+// 수신 후보 전체의 설정을 한 번에 조회 — 루프 내 개별 getSettings 로 인한
+// N+1 회피. 실패 시 undefined (= 조회 실패, 호출부에서 default 처리).
+async function loadSettings(
+  repos: Repositories,
+  userIds: string[]
+): Promise<SettingsMap | undefined> {
+  if (userIds.length === 0) return new Map();
   try {
-    const s = await repos.notifications.getSettings(n.userId);
-    if (s.webPushEnabled) {
-      void pushNotification(repos, n);
-    }
+    return await repos.notifications.getSettingsMany(userIds);
   } catch {
-    // settings 조회 실패는 default(push off)로 처리 — 안전한 방향
+    return undefined;
   }
 }
 
-async function dispatchAll(repos: Repositories, list: Notification[]): Promise<void> {
-  for (const n of list) await dispatch(repos, n);
+// 설정 조회 실패(s === undefined)는 default(true)로 알림 발송 — 기존
+// shouldNotify 의 catch 동작과 동일.
+function settingsAllow(
+  s: NotificationSettings | undefined,
+  ctx: { roomId?: string; projectId?: string }
+): boolean {
+  if (!s) return true;
+  if (!s.allEnabled) return false;
+  if (ctx.roomId && s.perRoom[ctx.roomId] === false) return false;
+  if (ctx.projectId && s.perProject[ctx.projectId] === false) return false;
+  return true;
 }
 
-async function shouldNotify(
+// 생성된 알림들을 in-app socket + (설정 켜져있으면) OS push로 발사.
+// settings 를 호출부에서 이미 조회했으면 재사용한다. 조회 실패는
+// default(push off)로 처리 — 안전한 방향. throw 하지 않는다.
+async function dispatchAll(
   repos: Repositories,
-  userId: string,
-  ctx: { roomId?: string; projectId?: string }
-): Promise<boolean> {
-  try {
-    const s = await repos.notifications.getSettings(userId);
-    if (!s.allEnabled) return false;
-    if (ctx.roomId && s.perRoom[ctx.roomId] === false) return false;
-    if (ctx.projectId && s.perProject[ctx.projectId] === false) return false;
-    return true;
-  } catch {
-    // 설정 조회 실패하면 default(true)로 알림 발송.
-    return true;
+  list: Notification[],
+  settings?: SettingsMap
+): Promise<void> {
+  if (list.length === 0) return;
+  const s = settings ?? (await loadSettings(repos, list.map((n) => n.userId)));
+  for (const n of list) {
+    realtime.emitNotificationNew(n);
+    if (s?.get(n.userId)?.webPushEnabled) {
+      void pushNotification(repos, n);
+    }
   }
 }
 
@@ -78,12 +91,16 @@ export async function notifyMessageNew(
       repos.orgNotifications.isCategoryEnabled("mention")
     ]);
 
+    if (!messageEnabled && !mentionEnabled) return;
+
+    // 멤버 전체 설정을 한 번에 조회 (메시지/멘션 수신자 모두 멤버의 부분집합).
+    const settings = await loadSettings(repos, memberIds);
+
     // 일반 메시지 알림 — settings 존중
     if (messageEnabled) {
-      const allowedRecipients: string[] = [];
-      for (const uid of messageRecipients) {
-        if (await shouldNotify(repos, uid, { roomId })) allowedRecipients.push(uid);
-      }
+      const allowedRecipients = messageRecipients.filter((uid) =>
+        settingsAllow(settings?.get(uid), { roomId })
+      );
       if (allowedRecipients.length > 0) {
         const created = await repos.notifications.createMany(allowedRecipients, {
           kind: "message:new",
@@ -92,18 +109,15 @@ export async function notifyMessageNew(
           link: `/chat/${roomId}`,
           payload: { roomId, messageId: message.id, roomName: room.name }
         });
-        await dispatchAll(repos, created);
+        await dispatchAll(repos, created, settings);
       }
     }
 
     // 멘션 알림 — 별도, 더 우선순위 높은 kind
     if (mentionEnabled) {
-      const allowedMentioned: string[] = [];
-      for (const uid of mentionedIds) {
-        if (memberIds.includes(uid) && (await shouldNotify(repos, uid, { roomId }))) {
-          allowedMentioned.push(uid);
-        }
-      }
+      const allowedMentioned = mentionedIds.filter(
+        (uid) => memberIds.includes(uid) && settingsAllow(settings?.get(uid), { roomId })
+      );
       if (allowedMentioned.length > 0) {
         const created = await repos.notifications.createMany(allowedMentioned, {
           kind: "mention",
@@ -112,7 +126,7 @@ export async function notifyMessageNew(
           link: `/chat/${roomId}`,
           payload: { roomId, messageId: message.id }
         });
-        await dispatchAll(repos, created);
+        await dispatchAll(repos, created, settings);
       }
     }
   } catch (err) {
@@ -133,10 +147,8 @@ export async function notifyNoticeNew(
     const recipients = users
       .filter((u) => u.isActive !== false && u.id !== authorUserId)
       .map((u) => u.id);
-    const allowed: string[] = [];
-    for (const uid of recipients) {
-      if (await shouldNotify(repos, uid, {})) allowed.push(uid);
-    }
+    const settings = await loadSettings(repos, recipients);
+    const allowed = recipients.filter((uid) => settingsAllow(settings?.get(uid), {}));
     if (allowed.length === 0) return;
     const created = await repos.notifications.createMany(allowed, {
       kind: notice.isMandatory ? "notice:mandatory" : "notice:new",
@@ -145,7 +157,7 @@ export async function notifyNoticeNew(
       link: `/notices`,
       payload: { noticeId: notice.id, isMandatory: notice.isMandatory }
     });
-    await dispatchAll(repos, created);
+    await dispatchAll(repos, created, settings);
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("[hanmir-server] notifyNoticeNew failed:", err);
@@ -162,10 +174,10 @@ export async function notifyTaskAssigned(
   try {
     if (!(await repos.orgNotifications.isCategoryEnabled("task"))) return;
     const recipients = newAssigneeIds.filter((uid) => uid !== actorUserId);
-    const allowed: string[] = [];
-    for (const uid of recipients) {
-      if (await shouldNotify(repos, uid, { projectId: task.projectId })) allowed.push(uid);
-    }
+    const settings = await loadSettings(repos, recipients);
+    const allowed = recipients.filter((uid) =>
+      settingsAllow(settings?.get(uid), { projectId: task.projectId })
+    );
     if (allowed.length === 0) return;
     const created = await repos.notifications.createMany(allowed, {
       kind: "task:assigned",
@@ -174,7 +186,7 @@ export async function notifyTaskAssigned(
       link: `/projects/${task.projectId}/tasks`,
       payload: { projectId: task.projectId, taskId: task.id }
     });
-    await dispatchAll(repos, created);
+    await dispatchAll(repos, created, settings);
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("[hanmir-server] notifyTaskAssigned failed:", err);
@@ -191,10 +203,10 @@ export async function notifyProjectUpdated(
   try {
     if (!(await repos.orgNotifications.isCategoryEnabled("project"))) return;
     const recipients = project.memberIds.filter((uid) => uid !== actorUserId);
-    const allowed: string[] = [];
-    for (const uid of recipients) {
-      if (await shouldNotify(repos, uid, { projectId: project.id })) allowed.push(uid);
-    }
+    const settings = await loadSettings(repos, recipients);
+    const allowed = recipients.filter((uid) =>
+      settingsAllow(settings?.get(uid), { projectId: project.id })
+    );
     if (allowed.length === 0) return;
     const created = await repos.notifications.createMany(allowed, {
       kind: "project:updated",
@@ -203,7 +215,7 @@ export async function notifyProjectUpdated(
       link: `/projects/${project.id}`,
       payload: { projectId: project.id, reason }
     });
-    await dispatchAll(repos, created);
+    await dispatchAll(repos, created, settings);
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("[hanmir-server] notifyProjectUpdated failed:", err);
@@ -261,7 +273,11 @@ export async function notifyTaskDueSoonForAll(repos: Repositories): Promise<void
       // 카테고리 자체가 꺼져 있으면 스캔도 건너뛴다 (PG 부하 절감).
       return;
     }
-    const tasks = await repos.tasks.list();
+    // dueDate 없는/완료된 task 는 DB 단에서 걸러 전체 스캔 회피.
+    const tasks = await repos.tasks.listDueCandidates();
+    // 사용자 전체를 한 번만 로드 — assignee 마다 findById 반복 회피.
+    const allUsers = await repos.users.list();
+    const userById = new Map(allUsers.map((u) => [u.id, u]));
     // project 캐시 — 같은 프로젝트 task 가 여러 건일 때 반복 조회 회피.
     const projectCache = new Map<string, Project | undefined>();
     const getProject = async (projectId: string) => {
@@ -289,19 +305,24 @@ export async function notifyTaskDueSoonForAll(repos: Repositories): Promise<void
         overdueDays === 0 ? "오늘 마감" : `${overdueDays}일 지남`
       }`;
 
-      const allowed: string[] = [];
+      const candidates: string[] = [];
       for (const uid of task.assigneeIds) {
         // 같은 날 같은 사용자×task 에는 한 번만 — 부팅 직후 재발사도 방지.
-        const dedupKey = `${uid}-${task.id}-${today}`;
-        if (dueSoonSentToday.has(dedupKey)) continue;
+        if (dueSoonSentToday.has(`${uid}-${task.id}-${today}`)) continue;
         // 멤버십·활성 재검증 (project_members 에서 빠졌거나 휴직 처리된
         // 사용자에게 알림이 가지 않도록).
         if (!project.memberIds.includes(uid)) continue;
-        const user = await repos.users.findById(uid);
+        const user = userById.get(uid);
         if (!user || user.isActive === false) continue;
-        if (!(await shouldNotify(repos, uid, { projectId: project.id }))) continue;
+        candidates.push(uid);
+      }
+      if (candidates.length === 0) continue;
+      const settings = await loadSettings(repos, candidates);
+      const allowed: string[] = [];
+      for (const uid of candidates) {
+        if (!settingsAllow(settings?.get(uid), { projectId: project.id })) continue;
         allowed.push(uid);
-        dueSoonSentToday.add(dedupKey);
+        dueSoonSentToday.add(`${uid}-${task.id}-${today}`);
       }
       if (allowed.length === 0) continue;
       const created = await repos.notifications.createMany(allowed, {
@@ -315,7 +336,7 @@ export async function notifyTaskDueSoonForAll(repos: Repositories): Promise<void
           overdueDays
         }
       });
-      await dispatchAll(repos, created);
+      await dispatchAll(repos, created, settings);
       dispatched += created.length;
     }
     // eslint-disable-next-line no-console
@@ -356,15 +377,25 @@ export async function notifyReplyNew(
       .map((e) => e.id)
       .filter((uid) => uid !== reply.authorId);
     const mentionSet = new Set(mentionedIds);
+    // 멤버십 강화 — 비멤버에게는 alert 가지 않음.
+    const memberMentioned = mentionedIds.filter((uid) =>
+      room.members.some((m) => m.userId === uid)
+    );
+
+    const notifyParent =
+      messageEnabled &&
+      parentMessage.authorId !== reply.authorId &&
+      !mentionSet.has(parentMessage.authorId);
+    const settingsTargets = [
+      ...(notifyParent ? [parentMessage.authorId] : []),
+      ...(mentionEnabled ? memberMentioned : [])
+    ];
+    const settings = await loadSettings(repos, settingsTargets);
 
     // 부모 작성자 알림 — 단, 멘션 대상에 이미 포함돼 있으면 멘션 알림
     // 한 건만 가도록 (이중 노이즈 회피).
-    if (
-      messageEnabled &&
-      parentMessage.authorId !== reply.authorId &&
-      !mentionSet.has(parentMessage.authorId)
-    ) {
-      if (await shouldNotify(repos, parentMessage.authorId, { roomId })) {
+    if (notifyParent) {
+      if (settingsAllow(settings?.get(parentMessage.authorId), { roomId })) {
         const created = await repos.notifications.createMany([parentMessage.authorId], {
           kind: "message:reply:new",
           title: `${reply.authorName}님이 회신했습니다`,
@@ -377,17 +408,14 @@ export async function notifyReplyNew(
             roomName: room.name
           }
         });
-        await dispatchAll(repos, created);
+        await dispatchAll(repos, created, settings);
       }
     }
 
-    if (mentionEnabled && mentionedIds.length > 0) {
-      const allowed: string[] = [];
-      for (const uid of mentionedIds) {
-        // 멤버십 강화 — 비멤버에게는 alert 가지 않음.
-        if (!room.members.some((m) => m.userId === uid)) continue;
-        if (await shouldNotify(repos, uid, { roomId })) allowed.push(uid);
-      }
+    if (mentionEnabled && memberMentioned.length > 0) {
+      const allowed = memberMentioned.filter((uid) =>
+        settingsAllow(settings?.get(uid), { roomId })
+      );
       if (allowed.length > 0) {
         const created = await repos.notifications.createMany(allowed, {
           kind: "mention",
@@ -396,7 +424,7 @@ export async function notifyReplyNew(
           link: `/chat/${roomId}#m-${parentMessage.id}`,
           payload: { roomId, parentMessageId: parentMessage.id, messageId: reply.id }
         });
-        await dispatchAll(repos, created);
+        await dispatchAll(repos, created, settings);
       }
     }
   } catch (err) {
@@ -415,10 +443,10 @@ export async function notifyDecisionNew(
     const project = await repos.projects.findById(decision.projectId);
     if (!project) return;
     const recipients = project.memberIds.filter((uid) => uid !== decision.decidedById);
-    const allowed: string[] = [];
-    for (const uid of recipients) {
-      if (await shouldNotify(repos, uid, { projectId: project.id })) allowed.push(uid);
-    }
+    const settings = await loadSettings(repos, recipients);
+    const allowed = recipients.filter((uid) =>
+      settingsAllow(settings?.get(uid), { projectId: project.id })
+    );
     if (allowed.length === 0) return;
     const created = await repos.notifications.createMany(allowed, {
       kind: "decision:new",
@@ -427,7 +455,7 @@ export async function notifyDecisionNew(
       link: `/projects/${project.id}/decisions`,
       payload: { projectId: project.id, decisionId: decision.id }
     });
-    await dispatchAll(repos, created);
+    await dispatchAll(repos, created, settings);
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("[hanmir-server] notifyDecisionNew failed:", err);
