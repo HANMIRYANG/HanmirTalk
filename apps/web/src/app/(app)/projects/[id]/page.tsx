@@ -84,14 +84,14 @@ export default async function ProjectDetailPage({ params }: Props) {
                   {project.delayedCount}
                 </div>
                 <div className="t-xs muted" style={{ marginTop: 10 }}>
-                  시험성적서 v0.3 등
+                  마감일 경과 업무 기준
                 </div>
               </div>
               <div className="stat">
                 <div className="stat__label">마감까지</div>
-                <div className="stat__value">D-109</div>
+                <div className="stat__value">{project.dueDate ? "확인" : "-"}</div>
                 <div className="t-xs muted" style={{ marginTop: 10 }}>
-                  {project.dueDate} 종료 예정
+                  {project.dueDate ? `${project.dueDate} 종료 예정` : "마감일 미정"}
                 </div>
               </div>
             </div>
@@ -99,7 +99,7 @@ export default async function ProjectDetailPage({ params }: Props) {
             <section className={cn("card", styles.section)}>
               <div className="card__head">
                 <h3>프로젝트 개요</h3>
-                <span className="muted">최근 수정: 박지영 · 5월 11일</span>
+                <span className="muted">프로젝트 기본 정보</span>
                 <div className="right">
                   <IconButton aria-label="편집">
                     <span style={{ fontSize: 14 }}>✎</span>
@@ -188,7 +188,7 @@ export default async function ProjectDetailPage({ params }: Props) {
                   {project.relatedProductIds && project.relatedProductIds.length > 0 ? (
                     <>
                       <dt>관련 제품</dt>
-                      <dd>SUS304 강판, SUS316 강판</dd>
+                      <dd>{project.relatedProductIds.length}개 제품 연결</dd>
                     </>
                   ) : null}
                   {project.externalPartners ? (

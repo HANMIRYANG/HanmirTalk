@@ -37,10 +37,16 @@ export default async function ChatRoomPage({ params }: Props) {
   ]);
 
   const memberUsers = users.filter((u) => room.members.some((m) => m.userId === u.id));
-  const relevantFiles = files
-    .filter((f) => room.projectId && f.scope === room.projectId.toUpperCase().replace("P-", "P-"))
+  const messageAttachmentIds = new Set(
+    messages.map((m) => m.attachment?.id).filter((id): id is string => Boolean(id))
+  );
+  const visibleFiles = files
+    .filter((f) =>
+      room.projectId
+        ? f.projectId === room.projectId || messageAttachmentIds.has(f.id)
+        : messageAttachmentIds.has(f.id)
+    )
     .slice(0, 4);
-  const visibleFiles = relevantFiles.length > 0 ? relevantFiles : files.slice(0, 4);
   const uploaders: Record<string, (typeof users)[number] | undefined> = {};
   for (const f of visibleFiles) {
     uploaders[f.uploaderId] = users.find((u) => u.id === f.uploaderId);
@@ -101,7 +107,7 @@ export default async function ChatRoomPage({ params }: Props) {
         ) : null}
 
         <div className={styles.msgs}>
-          <div className={styles.daySep}>2026년 5월 13일 수요일</div>
+          {messages.length > 0 ? <div className={styles.daySep}>최근 대화</div> : null}
           <ChatRoomMessages
             roomId={room.id}
             messages={messages}

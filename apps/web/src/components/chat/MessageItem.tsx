@@ -247,7 +247,7 @@ export function MessageItem({
           className={styles.avatar}
         />
       </div>
-      <div>
+      <div className={styles.content}>
         <div className={styles.head}>
           <span className={styles.name}>{message.authorName}</span>
           {message.authorRole ? <span className={styles.role}>{message.authorRole}</span> : null}

@@ -111,29 +111,9 @@ export function ProductTabs({
     }
   };
 
-  // DB 우선 + 비어있으면 product의 mock data로 fallback.
-  const specs = initialSpecs.length > 0
-    ? initialSpecs
-    : product.spec.map((s, i) => ({
-        id: `mock-${i}`,
-        productId: product.id,
-        key: s.key,
-        value: s.value,
-        sortOrder: i
-      }));
-  const lots = initialLots.length > 0 ? initialLots : product.lots;
-  const history = salesHistory.length > 0
-    ? salesHistory
-    : (product.history ?? []).map((h) => ({
-        id: h.id,
-        productId: product.id,
-        toStatus: h.toStatus ?? (h.status as SalesStatus),
-        fromStatus: h.fromStatus,
-        reason: h.reason ?? h.meta,
-        changedById: h.changedById ?? "",
-        changedByName: h.changedByName ?? "",
-        changedAt: h.changedAt ?? h.date ?? ""
-      }));
+  const specs = initialSpecs;
+  const lots = initialLots;
+  const history = salesHistory;
 
   // Phase 7 J-2 — DB-backed product_documents (document_type='test_report').
   const testReports = documents.filter((d) => d.documentType === "test_report");

@@ -23,6 +23,10 @@ export default async function NoticesPage() {
   const canManage = MANAGE_ROLES.has(me.role);
 
   const mandatoryUnread = notices.filter((n) => n.isMandatory && !n.myConfirmed);
+  const mandatoryCount = notices.filter((n) => n.isMandatory).length;
+  const totalRecipients = notices.reduce((acc, n) => acc + n.totalRecipients, 0);
+  const confirmedTotal = notices.reduce((acc, n) => acc + n.confirmedCount, 0);
+  const averageConfirmRate = totalRecipients > 0 ? Math.round((confirmedTotal / totalRecipients) * 100) : 0;
 
   return (
     <>
@@ -45,16 +49,12 @@ export default async function NoticesPage() {
           <div className="stat">
             <div className="stat__label">이번 달 등록된 공지</div>
             <div className="stat__value">{notices.length}</div>
-            <div className="stat__sub">필독 2건 · 일반 1건</div>
+            <div className="stat__sub">필독 {mandatoryCount}건 · 일반 {notices.length - mandatoryCount}건</div>
           </div>
           <div className="stat">
             <div className="stat__label">전사 평균 확인율</div>
             <div className="stat__value">
-              {Math.round(
-                (notices.reduce((acc, n) => acc + n.confirmedCount, 0) /
-                  notices.reduce((acc, n) => acc + n.totalRecipients, 0)) *
-                  100
-              )}
+              {averageConfirmRate}
               %
             </div>
             <div className="stat__sub">최근 30일 기준</div>
@@ -88,7 +88,7 @@ function NoticeCard({
   notice: Awaited<ReturnType<typeof noticeService.listNotices>>[number];
   canManage: boolean;
 }) {
-  const ratio = Math.round((notice.confirmedCount / notice.totalRecipients) * 100);
+  const ratio = notice.totalRecipients > 0 ? Math.round((notice.confirmedCount / notice.totalRecipients) * 100) : 0;
 
   return (
     <article className={cn("card", styles.card)}>

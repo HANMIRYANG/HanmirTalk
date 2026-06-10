@@ -11,10 +11,10 @@ interface LoginFormProps {
   defaultEmail?: string;
 }
 
-export function LoginForm({ defaultEmail = "kim.minjun@hanmir.co.kr" }: LoginFormProps) {
+export function LoginForm({ defaultEmail = "" }: LoginFormProps) {
   const router = useRouter();
   const [idOrEmail, setIdOrEmail] = useState(defaultEmail);
-  const [password, setPassword] = useState("hanmir1234");
+  const [password, setPassword] = useState("");
   // `remember` is kept for UX continuity but no longer changes cookie
   // expiry — the server controls the refresh-token TTL (30d) and the
   // access cookie (15min). A future "remember me" off path would call a
@@ -66,7 +66,7 @@ export function LoginForm({ defaultEmail = "kim.minjun@hanmir.co.kr" }: LoginFor
             id="login-id"
             className={`field ${styles.fieldInset}`}
             type="text"
-            placeholder="hanmir-12345 또는 name@hanmir.co.kr"
+            placeholder="name@hanmirfe.com"
             value={idOrEmail}
             onChange={(e) => setIdOrEmail(e.target.value)}
             autoComplete="username"
@@ -133,7 +133,7 @@ export function LoginForm({ defaultEmail = "kim.minjun@hanmir.co.kr" }: LoginFor
       <div className={styles.foot}>
         © 2026 한미르주식회사 · v2.4.1
         <br />
-        문의: 정보지원팀 (내선 1234) · support@hanmir.co.kr
+        문의: 총무IT팀
       </div>
     </form>
   );

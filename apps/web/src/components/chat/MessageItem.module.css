@@ -19,12 +19,13 @@
 }
 
 .avatarBlock {}
+.content { min-width: 0; }
 .avatar { width: 40px; height: 40px; border-radius: 10px; font-size: 13px; }
 
-.head { display: flex; align-items: baseline; gap: 8px; }
-.name { font-weight: 700; font-size: 13.5px; color: var(--text-1); }
-.role { font-size: 11px; color: var(--text-3); }
-.time { font-size: 11px; color: var(--text-4); margin-left: 4px; }
+.head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.name { font-weight: 700; font-size: 13.5px; color: var(--text-1); white-space: nowrap; }
+.role { font-size: 11px; color: var(--text-3); white-space: nowrap; }
+.time { font-size: 11px; color: var(--text-4); margin-left: 4px; white-space: nowrap; }
 .pinTag {
   display: inline-flex;
   align-items: center;

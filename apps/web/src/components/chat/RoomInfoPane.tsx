@@ -129,21 +129,25 @@ export function RoomInfoPane({
       </div>
 
       <div className={styles.section}>
-        <h4>공유 파일 최근 24건</h4>
-        {files.map((f) => {
-          const uploader = uploaders[f.uploaderId];
-          return (
-            <div key={f.id} className={styles.fileRow}>
-              <div className={cn(styles.fileIc, fileColor[f.kind])}>{fileLabel[f.kind]}</div>
-              <div className="flex-1" style={{ minWidth: 0 }}>
-                <div className={styles.fileName}>{f.name}</div>
-                <div className={styles.fileMeta}>
-                  {uploader?.name ?? "—"} · {f.uploadedAt}
+        <h4>공유 파일 {files.length}건</h4>
+        {files.length === 0 ? (
+          <div className={styles.empty}>공유된 파일이 없습니다.</div>
+        ) : (
+          files.map((f) => {
+            const uploader = uploaders[f.uploaderId];
+            return (
+              <div key={f.id} className={styles.fileRow}>
+                <div className={cn(styles.fileIc, fileColor[f.kind])}>{fileLabel[f.kind]}</div>
+                <div className="flex-1" style={{ minWidth: 0 }}>
+                  <div className={styles.fileName}>{f.name}</div>
+                  <div className={styles.fileMeta}>
+                    {uploader?.name ?? "—"} · {f.uploadedAt}
+                  </div>
                 </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
     </aside>
   );

@@ -45,7 +45,7 @@ export default async function ProductListPage() {
                 </Tag>
               </div>
               <div className={styles.foot}>
-                담당: 최도현 책임 · 분기 매출 {p.quarter.revenue}
+                {p.quarter?.revenue ? `분기 매출 ${p.quarter.revenue}` : "등록된 제품 정보"}
               </div>
             </Link>
           ))}

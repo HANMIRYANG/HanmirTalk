@@ -23,8 +23,6 @@ export default async function ProductDetailPage({ params }: Props) {
   if (!product) notFound();
 
   // Phase 7 J-3 — DB-backed specs / lots / sales-history.
-  // listSalesHistory가 비어 있으면 product.history(mock)로 fallback해서
-  // 데모 데이터 호환 유지.
   const [owner, relatedProjects, dbSpecs, dbLots, dbHistory, dbDocuments, inventory] =
     await Promise.all([
       product.ownerId
@@ -63,7 +61,6 @@ export default async function ProductDetailPage({ params }: Props) {
               <Tag tone="blue">{product.category}</Tag>
               <span>{product.subCategory}</span>
               <span>·</span>
-              <span>주관 부서: 영업본부 1팀</span>
               {owner ? (
                 <>
                   <span>·</span>

@@ -30,7 +30,7 @@ export default async function AdminPage() {
       <section className={styles.ahead} id="dashboard-top">
         <h1>관리자 대시보드</h1>
         <div className={styles.aheadSub}>
-          한미르주식회사 전사 한미르톡 운영 현황 · 2026.05.13 기준
+          한미르주식회사 전사 한미르톡 운영 현황 · 실시간 기준
         </div>
       </section>
 
