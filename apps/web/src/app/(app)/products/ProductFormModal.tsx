@@ -6,7 +6,8 @@ import type {
   CreateProductInput,
   Product,
   SalesStatus,
-  UpdateProductInput
+  UpdateProductInput,
+  User
 } from "@hanmir/shared";
 import { salesStatusLabel } from "@hanmir/shared";
 import { Modal } from "@/components/ui/Modal";
@@ -25,7 +26,10 @@ const SALES_OPTIONS: SalesStatus[] = [
 
 interface FormState {
   name: string;
+  code: string;
   category: string;
+  subCategory: string;
+  ownerId: string;
   description: string;
   featuresText: string;
   applicationsText: string;
@@ -36,7 +40,10 @@ interface FormState {
 
 const EMPTY_FORM: FormState = {
   name: "",
+  code: "",
   category: "",
+  subCategory: "",
+  ownerId: "",
   description: "",
   featuresText: "",
   applicationsText: "",
@@ -48,7 +55,10 @@ const EMPTY_FORM: FormState = {
 function productToForm(p: Product): FormState {
   return {
     name: p.name,
+    code: p.code ?? "",
     category: p.category ?? "",
+    subCategory: p.subCategory ?? "",
+    ownerId: p.ownerId ?? "",
     description: p.description ?? "",
     featuresText: (p.features ?? []).join("\n"),
     applicationsText: (p.applications ?? []).join("\n"),
@@ -79,6 +89,7 @@ export type ProductFormMode =
 interface ProductFormModalProps {
   open: boolean;
   mode: ProductFormMode;
+  users: User[];
   onClose: () => void;
   onSubmitted?: (p: Product) => void;
 }
@@ -86,6 +97,7 @@ interface ProductFormModalProps {
 export function ProductFormModal({
   open,
   mode,
+  users,
   onClose,
   onSubmitted
 }: ProductFormModalProps) {
@@ -118,6 +130,9 @@ export function ProductFormModal({
 
     const common = {
       name,
+      code: form.code.trim(),
+      subCategory: form.subCategory.trim(),
+      ...(form.ownerId ? { ownerId: form.ownerId } : {}),
       ...(form.category.trim() ? { category: form.category.trim() } : {}),
       ...(form.description.trim() ? { description: form.description.trim() } : {}),
       ...(lines(form.featuresText).length > 0 ? { features: lines(form.featuresText) } : {}),
@@ -193,6 +208,31 @@ export function ProductFormModal({
             />
           </label>
           <label>
+            제품 코드
+            <input
+              className="field"
+              placeholder="예: HM-SUS304-CR"
+              value={form.code}
+              onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
+              maxLength={80}
+            />
+          </label>
+          <label>
+            담당자
+            <select
+              className="field"
+              value={form.ownerId}
+              onChange={(e) => setForm((f) => ({ ...f, ownerId: e.target.value }))}
+            >
+              <option value="">(미지정)</option>
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name} {u.position}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
             카테고리
             <input
               className="field"
@@ -203,6 +243,16 @@ export function ProductFormModal({
             />
           </label>
           <label>
+            소분류
+            <input
+              className="field"
+              placeholder="예: 냉간압연 / 2B 마감"
+              value={form.subCategory}
+              onChange={(e) => setForm((f) => ({ ...f, subCategory: e.target.value }))}
+              maxLength={120}
+            />
+          </label>
+          <label className={fstyles.span2}>
             영업 상태
             <select
               className="field"

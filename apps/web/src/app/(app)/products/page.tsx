@@ -1,5 +1,6 @@
 import { Topbar } from "@/components/shell/Topbar";
 import { productService } from "@/services/product.service";
+import { userService } from "@/services/user.service";
 import { requireServerMe } from "@/lib/server-auth";
 import { ProductCreateButton } from "./ProductCreateButton";
 import { ProductsPagedGrid } from "./ProductsPagedGrid";
@@ -9,8 +10,11 @@ const WRITER_ROLES = new Set(["admin", "super_admin", "manager", "project_owner"
 
 export default async function ProductListPage() {
   const { me, token } = await requireServerMe();
-  const products = await productService.listProducts({ token });
   const canManage = WRITER_ROLES.has(me.role);
+  const [products, users] = await Promise.all([
+    productService.listProducts({ token }),
+    canManage ? userService.listUsers({ token }) : Promise.resolve([])
+  ]);
 
   return (
     <>
@@ -18,7 +22,7 @@ export default async function ProductListPage() {
       <div className="content">
         <div className={styles.toolbar}>
           <div className={styles.toolbarMeta}>{products.length}개 제품</div>
-          {canManage ? <ProductCreateButton /> : null}
+          {canManage ? <ProductCreateButton users={users} /> : null}
         </div>
         <ProductsPagedGrid products={products} />
       </div>

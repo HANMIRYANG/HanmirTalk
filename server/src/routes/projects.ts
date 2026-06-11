@@ -1,11 +1,14 @@
 import { Router } from "express";
 import type {
+  CreateMilestoneInput,
   CreateProjectInput,
   CreateTaskInput,
+  Milestone,
   ProjectStatus,
   SalesStatus,
   TaskPriority,
   TaskStatus,
+  UpdateMilestoneInput,
   UpdateProjectInput
 } from "@hanmir/shared";
 import type { Repositories } from "../repositories/types";
@@ -82,6 +85,56 @@ function isStringArray(value: unknown): value is string[] {
 
 function isNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+const VALID_MILESTONE_STATUS: Milestone["status"][] = [
+  "done",
+  "in_progress",
+  "pending",
+  "delayed"
+];
+
+const DATE_RE = /^\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}$/;
+
+function parseCreateMilestone(body: unknown): CreateMilestoneInput | { error: string } {
+  if (!body || typeof body !== "object") return { error: "invalid_body" };
+  const b = body as Record<string, unknown>;
+  if (!isString(b.title) || !b.title.trim()) return { error: "title_required" };
+  if (!isString(b.date) || !DATE_RE.test(b.date.trim())) return { error: "date_invalid" };
+  if (b.status !== undefined) {
+    if (!isString(b.status) || !VALID_MILESTONE_STATUS.includes(b.status as Milestone["status"]))
+      return { error: "status_invalid" };
+  }
+  return {
+    title: b.title.trim(),
+    subtitle: isString(b.subtitle) ? b.subtitle.trim() : undefined,
+    date: b.date.trim(),
+    status: isString(b.status) ? (b.status as Milestone["status"]) : undefined
+  };
+}
+
+function parseUpdateMilestone(body: unknown): UpdateMilestoneInput | { error: string } {
+  if (!body || typeof body !== "object") return { error: "invalid_body" };
+  const b = body as Record<string, unknown>;
+  const out: UpdateMilestoneInput = {};
+  if (b.title !== undefined) {
+    if (!isString(b.title) || !b.title.trim()) return { error: "title_invalid" };
+    out.title = b.title.trim();
+  }
+  if (b.subtitle !== undefined) {
+    if (!isString(b.subtitle)) return { error: "subtitle_invalid" };
+    out.subtitle = b.subtitle.trim();
+  }
+  if (b.date !== undefined) {
+    if (!isString(b.date) || !DATE_RE.test(b.date.trim())) return { error: "date_invalid" };
+    out.date = b.date.trim();
+  }
+  if (b.status !== undefined) {
+    if (!isString(b.status) || !VALID_MILESTONE_STATUS.includes(b.status as Milestone["status"]))
+      return { error: "status_invalid" };
+    out.status = b.status as Milestone["status"];
+  }
+  return out;
 }
 
 function parseCreateProject(body: unknown): CreateProjectInput | { error: string } {
@@ -373,6 +426,65 @@ export function createProjectsRouter(repos: Repositories): Router {
     res.json(updated);
   });
 
+  // ── project_milestones — 상세 "주요 일정" / 간트 마일스톤 ─────────
+
+  router.post("/:id/milestones", writers, async (req, res) => {
+    const access = await ensureProjectAccess(repos, req, res, req.params.id);
+    if (!access.allowed) return;
+    const parsed = parseCreateMilestone(req.body);
+    if ("error" in parsed) {
+      res.status(400).json({ error: parsed.error });
+      return;
+    }
+    const milestone = await repos.projects.addMilestone(req.params.id, parsed);
+    await auditLog(repos, req, {
+      action: "project.milestone.create",
+      targetType: "project",
+      targetId: req.params.id,
+      targetLabel: milestone.title,
+      meta: { milestoneId: milestone.id, date: milestone.date }
+    });
+    res.status(201).json(milestone);
+  });
+
+  router.patch("/:id/milestones/:milestoneId", writers, async (req, res) => {
+    const access = await ensureProjectAccess(repos, req, res, req.params.id);
+    if (!access.allowed) return;
+    const parsed = parseUpdateMilestone(req.body);
+    if ("error" in parsed) {
+      res.status(400).json({ error: parsed.error });
+      return;
+    }
+    const updated = await repos.projects.updateMilestone(
+      req.params.id,
+      req.params.milestoneId,
+      parsed
+    );
+    if (!updated) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    res.json(updated);
+  });
+
+  router.delete("/:id/milestones/:milestoneId", writers, async (req, res) => {
+    const access = await ensureProjectAccess(repos, req, res, req.params.id);
+    if (!access.allowed) return;
+    const ok = await repos.projects.deleteMilestone(req.params.id, req.params.milestoneId);
+    if (!ok) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    await auditLog(repos, req, {
+      action: "project.milestone.delete",
+      targetType: "project",
+      targetId: req.params.id,
+      targetLabel: req.params.milestoneId,
+      level: "warn"
+    });
+    res.json({ ok: true });
+  });
+
   router.get("/:projectId/tasks", async (req, res) => {
     const project = await repos.projects.findById(req.params.projectId);
     if (!project) {
@@ -391,7 +503,9 @@ export function createProjectsRouter(repos: Repositories): Router {
       res.status(400).json({ error: parsed.error });
       return;
     }
-    const task = await repos.tasks.create(req.params.projectId, parsed);
+    const task = await repos.tasks.create(req.params.projectId, parsed, {
+      id: req.currentUser!.id
+    });
     await auditLog(repos, req, {
       action: "task.create",
       targetType: "task",

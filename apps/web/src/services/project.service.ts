@@ -1,6 +1,9 @@
 import type {
+  CreateMilestoneInput,
   CreateProjectInput,
+  Milestone,
   Project,
+  UpdateMilestoneInput,
   UpdateProjectInput
 } from "@hanmir/shared";
 import { apiRequest, apiRequestOrNull } from "./api-client";
@@ -58,6 +61,38 @@ export const projectService = {
   ): Promise<Project> {
     return apiRequest<Project>(
       `/projects/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
+      { method: "DELETE", token: opts.token }
+    );
+  },
+  async addMilestone(
+    projectId: string,
+    input: CreateMilestoneInput,
+    opts: AuthOptions = {}
+  ): Promise<Milestone> {
+    return apiRequest<Milestone>(`/projects/${encodeURIComponent(projectId)}/milestones`, {
+      method: "POST",
+      body: input,
+      token: opts.token
+    });
+  },
+  async updateMilestone(
+    projectId: string,
+    milestoneId: string,
+    input: UpdateMilestoneInput,
+    opts: AuthOptions = {}
+  ): Promise<Milestone> {
+    return apiRequest<Milestone>(
+      `/projects/${encodeURIComponent(projectId)}/milestones/${encodeURIComponent(milestoneId)}`,
+      { method: "PATCH", body: input, token: opts.token }
+    );
+  },
+  async deleteMilestone(
+    projectId: string,
+    milestoneId: string,
+    opts: AuthOptions = {}
+  ): Promise<{ ok: boolean }> {
+    return apiRequest<{ ok: boolean }>(
+      `/projects/${encodeURIComponent(projectId)}/milestones/${encodeURIComponent(milestoneId)}`,
       { method: "DELETE", token: opts.token }
     );
   }

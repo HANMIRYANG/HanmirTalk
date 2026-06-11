@@ -9,6 +9,7 @@ import type {
   CreateDecisionInput,
   CreateDepartmentInput,
   CreateFileInput,
+  CreateMilestoneInput,
   CreateNoticeInput,
   PinnedMessageRef,
   CreateProductInput,
@@ -25,6 +26,7 @@ import type {
   FileFolder,
   FileKind,
   ListFilesFilter,
+  Milestone,
   Notice,
   NoticeReadStatus,
   NoticeReadStatusEntry,
@@ -49,6 +51,7 @@ import type {
   TaskItem,
   UpdateDecisionInput,
   UpdateDepartmentInput,
+  UpdateMilestoneInput,
   UpdateNotificationSettingsInput,
   UpdateProductInput,
   UpdateProjectInput,
@@ -1017,6 +1020,46 @@ class MemoryProjectRepository implements ProjectRepository {
     return clone(this._data[idx]);
   }
 
+  async addMilestone(projectId: string, input: CreateMilestoneInput): Promise<Milestone> {
+    const project = this._data.find((p) => p.id === projectId);
+    if (!project) throw new Error("[memory] project not found");
+    const milestone: Milestone = {
+      id: newId("ms"),
+      title: input.title,
+      subtitle: input.subtitle ?? "",
+      date: input.date,
+      status: input.status ?? "pending"
+    };
+    project.milestones.push(milestone);
+    project.milestones.sort((a, b) => a.date.localeCompare(b.date));
+    return clone(milestone);
+  }
+
+  async updateMilestone(
+    projectId: string,
+    milestoneId: string,
+    input: UpdateMilestoneInput
+  ): Promise<Milestone | undefined> {
+    const project = this._data.find((p) => p.id === projectId);
+    const target = project?.milestones.find((m) => m.id === milestoneId);
+    if (!project || !target) return undefined;
+    if (input.title !== undefined) target.title = input.title;
+    if (input.subtitle !== undefined) target.subtitle = input.subtitle;
+    if (input.date !== undefined) target.date = input.date;
+    if (input.status !== undefined) target.status = input.status;
+    project.milestones.sort((a, b) => a.date.localeCompare(b.date));
+    return clone(target);
+  }
+
+  async deleteMilestone(projectId: string, milestoneId: string): Promise<boolean> {
+    const project = this._data.find((p) => p.id === projectId);
+    if (!project) return false;
+    const idx = project.milestones.findIndex((m) => m.id === milestoneId);
+    if (idx < 0) return false;
+    project.milestones.splice(idx, 1);
+    return true;
+  }
+
   async addMember(id: string, userId: string): Promise<Project | undefined> {
     const idx = this._data.findIndex((p) => p.id === id);
     if (idx < 0) return undefined;
@@ -1082,7 +1125,11 @@ class MemoryTaskRepository implements TaskRepository {
     return found ? clone(found) : undefined;
   }
 
-  async create(projectId: string, input: CreateTaskInput): Promise<TaskItem> {
+  async create(
+    projectId: string,
+    input: CreateTaskInput,
+    _createdBy: { id: string }
+  ): Promise<TaskItem> {
     const id = newId("t");
     const task: TaskItem = {
       id,
@@ -1148,11 +1195,11 @@ class MemoryProductRepository implements ProductRepository {
     const today = new Date().toISOString().slice(0, 10);
     const product: Product = {
       id: newId("pr"),
-      code: "",
+      code: input.code ?? "",
       name: input.name,
       fullName: input.name,
       category: input.category ?? "",
-      subCategory: "",
+      subCategory: input.subCategory ?? "",
       description: input.description ?? "",
       features: input.features ?? [],
       applications: input.applications ?? [],
@@ -1179,7 +1226,9 @@ class MemoryProductRepository implements ProductRepository {
       target.name = input.name;
       target.fullName = input.name;
     }
+    if (input.code !== undefined) target.code = input.code;
     if (input.category !== undefined) target.category = input.category;
+    if (input.subCategory !== undefined) target.subCategory = input.subCategory;
     if (input.description !== undefined) target.description = input.description;
     if (input.features !== undefined) target.features = input.features;
     if (input.applications !== undefined) target.applications = input.applications;
@@ -2048,7 +2097,6 @@ class MemoryFileRepository implements FileRepository {
       kind: deriveFileKind(safeName, input.fileType),
       name: safeName,
       scope,
-      scopeTone: input.projectId ? "blue" : "default",
       size: formatBytes(input.fileSize),
       uploaderId,
       uploadedAt: stamp,

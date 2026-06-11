@@ -479,6 +479,18 @@ export function createFilesRouter(repos: Repositories): Router {
   });
 
   router.delete("/:id", requireAuth, async (req, res) => {
+    const me = req.currentUser!;
+    const file = await repos.files.findById(req.params.id);
+    if (!file) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    // 업로더 본인 또는 admin만 삭제 가능 (메시지 삭제와 동일한 정책).
+    const isAdmin = me.role === "admin" || me.role === "super_admin";
+    if (!isAdmin && file.uploaderId !== me.id) {
+      res.status(403).json({ error: "not_uploader_or_admin" });
+      return;
+    }
     const storage = await repos.files.findStorage(req.params.id);
     const ok = await repos.files.delete(req.params.id);
     if (!ok) {

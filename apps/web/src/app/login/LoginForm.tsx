@@ -105,9 +105,12 @@ export function LoginForm({ defaultEmail = "" }: LoginFormProps) {
           />{" "}
           로그인 상태 유지
         </label>
-        <a className={styles.link} href="#">
-          비밀번호 찾기
-        </a>
+        <span
+          className={styles.link}
+          title="비밀번호를 잊으셨다면 시스템 관리자에게 초기화를 요청하세요."
+        >
+          비밀번호 분실 시 관리자 문의
+        </span>
       </div>
 
       {error ? (

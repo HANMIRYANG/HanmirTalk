@@ -14,6 +14,7 @@ import type {
   CreateWarehouseInput,
   CreateErpDocumentInput,
   CreateMesProductMappingInput,
+  CreateMilestoneInput,
   CreateProjectInput,
   CreateRoomInput,
   CreateScheduledMessageInput,
@@ -26,6 +27,7 @@ import type {
   FileEntry,
   FileFolder,
   ListFilesFilter,
+  Milestone,
   Notice,
   NoticeReadStatus,
   Notification,
@@ -59,6 +61,7 @@ import type {
   UpdateProductVariantInput,
   UpdateWarehouseInput,
   UpdateMesProductMappingInput,
+  UpdateMilestoneInput,
   UpdateProjectInput,
   UpdateRoomInput,
   UpdateTaskInput,
@@ -259,6 +262,15 @@ export interface ProjectRepository {
   cancel(id: string): Promise<Project | undefined>;
   addMember(id: string, userId: string): Promise<Project | undefined>;
   removeMember(id: string, userId: string): Promise<Project | undefined>;
+  // project_milestones — 상세/간트의 "주요 일정". list()는 성능상
+  // milestones를 비워두고 findById만 채운다.
+  addMilestone(projectId: string, input: CreateMilestoneInput): Promise<Milestone>;
+  updateMilestone(
+    projectId: string,
+    milestoneId: string,
+    input: UpdateMilestoneInput
+  ): Promise<Milestone | undefined>;
+  deleteMilestone(projectId: string, milestoneId: string): Promise<boolean>;
 }
 
 export interface TaskRepository {
@@ -268,7 +280,8 @@ export interface TaskRepository {
   listDueCandidates(): Promise<TaskItem[]>;
   listByProject(projectId: string): Promise<TaskItem[]>;
   findById(id: string): Promise<TaskItem | undefined>;
-  create(projectId: string, input: CreateTaskInput): Promise<TaskItem>;
+  // createdBy is recorded as `tasks.created_by` (the actual requester).
+  create(projectId: string, input: CreateTaskInput, createdBy: { id: string }): Promise<TaskItem>;
   update(id: string, input: UpdateTaskInput): Promise<TaskItem | undefined>;
   delete(id: string): Promise<boolean>;
 }

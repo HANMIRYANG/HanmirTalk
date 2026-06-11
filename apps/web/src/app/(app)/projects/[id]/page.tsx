@@ -1,11 +1,8 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Topbar } from "@/components/shell/Topbar";
 import { ProjectHeader } from "@/components/project/ProjectHeader";
-import { Tag } from "@/components/ui/Tag";
 import { Avatar } from "@/components/ui/Avatar";
 import { ProgressBar } from "@/components/ui/ProgressBar";
-import { IconButton } from "@/components/ui/IconButton";
 import { projectService } from "@/services/project.service";
 import { userService } from "@/services/user.service";
 import { dashboardService } from "@/services/dashboard.service";
@@ -13,25 +10,14 @@ import { requireServerMe } from "@/lib/server-auth";
 import { cn } from "@/lib/classNames";
 import { ProjectActions } from "./ProjectActions";
 import { ProjectMembersCard } from "./ProjectMembersCard";
+import { MilestonesCard } from "./MilestonesCard";
 import styles from "./detail.module.css";
 
 interface Props {
   params: { id: string };
 }
 
-const milestoneTone: Record<string, "default" | "amber" | "green" | "red"> = {
-  done: "green",
-  in_progress: "amber",
-  delayed: "amber",
-  pending: "default"
-};
-
-const milestoneLabel: Record<string, string> = {
-  done: "완료",
-  in_progress: "진행중",
-  delayed: "진행중",
-  pending: "대기"
-};
+const WRITER_ROLES = new Set(["admin", "super_admin", "manager", "project_owner"]);
 
 export default async function ProjectDetailPage({ params }: Props) {
   const { me, token } = await requireServerMe();
@@ -45,6 +31,8 @@ export default async function ProjectDetailPage({ params }: Props) {
 
   const isAdmin = me.role === "admin" || me.role === "super_admin";
   const isMember = isAdmin || project.memberIds.includes(me.id);
+  // 서버는 writers 역할 + 프로젝트 멤버십을 모두 요구한다 (마일스톤 CRUD).
+  const canManageMilestones = WRITER_ROLES.has(me.role) && isMember;
 
   return (
     <>
@@ -100,11 +88,6 @@ export default async function ProjectDetailPage({ params }: Props) {
               <div className="card__head">
                 <h3>프로젝트 개요</h3>
                 <span className="muted">프로젝트 기본 정보</span>
-                <div className="right">
-                  <IconButton aria-label="편집">
-                    <span style={{ fontSize: 14 }}>✎</span>
-                  </IconButton>
-                </div>
               </div>
               <div className={cn("card__body", styles.desc)}>
                 <p>{project.description}</p>
@@ -125,41 +108,11 @@ export default async function ProjectDetailPage({ params }: Props) {
               </div>
             </section>
 
-            <section className={cn("card", styles.section)}>
-              <div className="card__head">
-                <h3>주요 일정</h3>
-                <span className="muted">
-                  {project.milestones.length}개 마일스톤 ·{" "}
-                  {project.milestones.filter((m) => m.status === "done").length}개 완료
-                </span>
-                <div className="right">
-                  <Link href={`/projects/${project.id}/gantt`} className="btn btn--ghost btn--sm">
-                    간트 보기 →
-                  </Link>
-                </div>
-              </div>
-              <div className={styles.milestoneList}>
-                {project.milestones.map((m) => (
-                  <div key={m.id} className={styles.milestone}>
-                    <div
-                      className={cn(
-                        styles.dot,
-                        m.status === "done" && styles.dotDone,
-                        (m.status === "in_progress" || m.status === "delayed") &&
-                          styles.dotCurrent,
-                        m.status === "pending" && styles.dotFuture
-                      )}
-                    />
-                    <div>
-                      <div className={styles.mTitle}>{m.title}</div>
-                      <div className={styles.mSub}>{m.subtitle}</div>
-                    </div>
-                    <Tag tone={milestoneTone[m.status]}>{milestoneLabel[m.status]}</Tag>
-                    <div className={styles.mDate}>{m.date}</div>
-                  </div>
-                ))}
-              </div>
-            </section>
+            <MilestonesCard
+              projectId={project.id}
+              milestones={project.milestones}
+              canManage={canManageMilestones}
+            />
           </div>
 
           <aside className={styles.side}>

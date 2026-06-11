@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Product } from "@hanmir/shared";
+import type { Product, User } from "@hanmir/shared";
 import { productService } from "@/services/product.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
@@ -20,9 +20,10 @@ function describeError(err: unknown): string {
 
 interface ProductActionsProps {
   product: Product;
+  users: User[];
 }
 
-export function ProductActions({ product }: ProductActionsProps) {
+export function ProductActions({ product, users }: ProductActionsProps) {
   const router = useRouter();
   const [editOpen, setEditOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
@@ -80,6 +81,7 @@ export function ProductActions({ product }: ProductActionsProps) {
       <ProductFormModal
         open={editOpen}
         mode={{ kind: "edit", product }}
+        users={users}
         onClose={() => setEditOpen(false)}
       />
       {statusOpen ? (

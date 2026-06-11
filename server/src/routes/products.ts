@@ -58,7 +58,9 @@ function parseCreate(body: unknown): CreateProductInput | { error: string } {
     return { error: "cautions_invalid" };
   return {
     name: b.name.trim(),
+    code: isString(b.code) ? b.code.trim() : undefined,
     category: isString(b.category) ? b.category : undefined,
+    subCategory: isString(b.subCategory) ? b.subCategory.trim() : undefined,
     description: isString(b.description) ? b.description : undefined,
     features: isStringArray(b.features) ? b.features : undefined,
     applications: isStringArray(b.applications) ? b.applications : undefined,
@@ -77,9 +79,17 @@ function parseUpdate(body: unknown): UpdateProductInput | { error: string } {
     if (!isString(b.name) || !b.name.trim()) return { error: "name_invalid" };
     out.name = b.name.trim();
   }
+  if (b.code !== undefined) {
+    if (!isString(b.code)) return { error: "code_invalid" };
+    out.code = b.code.trim();
+  }
   if (b.category !== undefined) {
     if (!isString(b.category)) return { error: "category_invalid" };
     out.category = b.category;
+  }
+  if (b.subCategory !== undefined) {
+    if (!isString(b.subCategory)) return { error: "subCategory_invalid" };
+    out.subCategory = b.subCategory.trim();
   }
   if (b.description !== undefined) {
     if (!isString(b.description)) return { error: "description_invalid" };

@@ -381,11 +381,21 @@ export function ProductTabs({
                 <span className={styles.k}>상위 거래처</span>
                 <span className={styles.v}>{product.quarter.topClient || "—"}</span>
               </div>
-              <ProgressBar
-                value={product.quarter.targetRatio}
-                className={styles.sideProgress}
-              />
-              <div className="t-xs muted mt-4">분기 목표 대비 {product.quarter.targetRatio}%</div>
+              {product.quarter.targetRatio > 0 ? (
+                <>
+                  <ProgressBar
+                    value={product.quarter.targetRatio}
+                    className={styles.sideProgress}
+                  />
+                  <div className="t-xs muted mt-4">
+                    분기 목표 대비 {product.quarter.targetRatio}%
+                  </div>
+                </>
+              ) : (
+                <div className="t-xs muted mt-4">
+                  이번 분기 판매 전표(ERP) 기준 집계입니다.
+                </div>
+              )}
             </section>
 
             {owner ? (

@@ -29,6 +29,7 @@ import type {
   CreateDecisionInput,
   CreateDepartmentInput,
   CreateFileInput,
+  CreateMilestoneInput,
   CreateNoticeInput,
   CreateProductInput,
   CreateProjectInput,
@@ -48,6 +49,7 @@ import type {
   MessageReactionDetail,
   MessageReadStatus,
   MessageReadStatusEntry,
+  Milestone,
   Notice,
   NoticeReadStatus,
   NoticeReadStatusEntry,
@@ -73,6 +75,7 @@ import type {
   CreateProductSpecInput,
   UpdateDecisionInput,
   UpdateDepartmentInput,
+  UpdateMilestoneInput,
   UpdateNotificationSettingsInput,
   UpdateProductInput,
   UpdateProductSpecInput,
@@ -475,9 +478,35 @@ function rowToProject(row: ProjectRow): Project {
     type: row.type ?? undefined,
     externalPartners: row.external_partners ?? undefined,
     relatedProductIds: row.related_product_ids ?? undefined,
+    // findById가 project_milestones에서 채움. list()는 성능상 빈 배열 유지
+    // (목록 화면은 milestones를 쓰지 않음).
     milestones: [],
     salesStatus: (row.sales_status as SalesStatus | null) ?? undefined
   };
+}
+
+interface MilestoneRow {
+  id: string;
+  title: string;
+  subtitle: string | null;
+  milestone_date: Date;
+  status: string;
+}
+
+function rowToMilestone(row: MilestoneRow): Milestone {
+  return {
+    id: row.id,
+    title: row.title,
+    subtitle: row.subtitle ?? "",
+    date: formatDate(row.milestone_date),
+    status: row.status as Milestone["status"]
+  };
+}
+
+// 클라이언트 날짜 문자열("YYYY.MM.DD" 또는 "YYYY-MM-DD")을 DATE 파라미터로
+// 안전하게 넘기기 위한 정규화.
+function toSqlDate(value: string): string {
+  return value.trim().replace(/[./]/g, "-").slice(0, 10);
 }
 
 const PROJECT_SELECT = `
@@ -520,7 +549,73 @@ class PgProjectRepository implements ProjectRepository {
       `${PROJECT_SELECT} WHERE p.id = $1`,
       [id]
     );
-    return rows[0] ? rowToProject(rows[0]) : undefined;
+    if (!rows[0]) return undefined;
+    const project = rowToProject(rows[0]);
+    project.milestones = await this.loadMilestones(id);
+    return project;
+  }
+
+  private async loadMilestones(projectId: string): Promise<Milestone[]> {
+    const { rows } = await this.pool.query<MilestoneRow>(
+      `SELECT id, title, subtitle, milestone_date, status
+         FROM project_milestones
+        WHERE project_id = $1
+        ORDER BY milestone_date ASC, created_at ASC`,
+      [projectId]
+    );
+    return rows.map(rowToMilestone);
+  }
+
+  async addMilestone(projectId: string, input: CreateMilestoneInput): Promise<Milestone> {
+    const { rows } = await this.pool.query<MilestoneRow>(
+      `INSERT INTO project_milestones (project_id, title, subtitle, milestone_date, status)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, title, subtitle, milestone_date, status`,
+      [projectId, input.title, input.subtitle ?? null, toSqlDate(input.date), input.status ?? "pending"]
+    );
+    return rowToMilestone(rows[0]);
+  }
+
+  async updateMilestone(
+    projectId: string,
+    milestoneId: string,
+    input: UpdateMilestoneInput
+  ): Promise<Milestone | undefined> {
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    const add = (col: string, val: unknown) => {
+      params.push(val);
+      sets.push(`${col} = $${params.length}`);
+    };
+    if (input.title !== undefined) add("title", input.title);
+    if (input.subtitle !== undefined) add("subtitle", input.subtitle || null);
+    if (input.date !== undefined) add("milestone_date", toSqlDate(input.date));
+    if (input.status !== undefined) add("status", input.status);
+    if (sets.length === 0) {
+      const cur = await this.pool.query<MilestoneRow>(
+        `SELECT id, title, subtitle, milestone_date, status
+           FROM project_milestones WHERE id = $1 AND project_id = $2`,
+        [milestoneId, projectId]
+      );
+      return cur.rows[0] ? rowToMilestone(cur.rows[0]) : undefined;
+    }
+    sets.push("updated_at = NOW()");
+    params.push(milestoneId, projectId);
+    const { rows } = await this.pool.query<MilestoneRow>(
+      `UPDATE project_milestones SET ${sets.join(", ")}
+        WHERE id = $${params.length - 1} AND project_id = $${params.length}
+       RETURNING id, title, subtitle, milestone_date, status`,
+      params
+    );
+    return rows[0] ? rowToMilestone(rows[0]) : undefined;
+  }
+
+  async deleteMilestone(projectId: string, milestoneId: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      `DELETE FROM project_milestones WHERE id = $1 AND project_id = $2`,
+      [milestoneId, projectId]
+    );
+    return (rowCount ?? 0) > 0;
   }
 
   async create(input: CreateProjectInput, createdBy: { id: string }): Promise<Project> {
@@ -669,6 +764,7 @@ interface TaskRow {
   status: string;
   priority: string;
   assignee_id: string | null;
+  assignee_ids: string[] | null;
   reviewer_id: string | null;
   start_date: Date | null;
   due_date: Date | null;
@@ -678,6 +774,12 @@ interface TaskRow {
 
 function rowToTask(row: TaskRow): TaskItem {
   const dueDate = formatDate(row.due_date);
+  const assigneeIds =
+    row.assignee_ids && row.assignee_ids.length > 0
+      ? row.assignee_ids
+      : row.assignee_id
+      ? [row.assignee_id]
+      : [];
   return {
     id: row.id,
     code: row.code ?? "",
@@ -685,7 +787,7 @@ function rowToTask(row: TaskRow): TaskItem {
     title: row.title,
     status: row.status as TaskStatus,
     priority: row.priority as TaskPriority,
-    assigneeIds: row.assignee_id ? [row.assignee_id] : [],
+    assigneeIds,
     reviewerId: row.reviewer_id ?? undefined,
     startDate: row.start_date ? formatDate(row.start_date) : undefined,
     dueDate: row.due_date ? dueDate : undefined,
@@ -695,9 +797,13 @@ function rowToTask(row: TaskRow): TaskItem {
   };
 }
 
+// 다중 담당자는 task_assignees 가 원본. tasks.assignee_id 는 백필 전
+// 레거시 행을 위한 fallback (rowToTask 참고).
 const TASK_SELECT = `
   SELECT id, code, project_id, title, status, priority, assignee_id,
-         reviewer_id, start_date, due_date, due_label, progress
+         reviewer_id, start_date, due_date, due_label, progress,
+         (SELECT array_agg(ta.user_id ORDER BY ta.created_at)
+            FROM task_assignees ta WHERE ta.task_id = tasks.id) AS assignee_ids
   FROM tasks
 `;
 
@@ -733,19 +839,14 @@ class PgTaskRepository implements TaskRepository {
     return rows[0] ? rowToTask(rows[0]) : undefined;
   }
 
-  async create(projectId: string, input: CreateTaskInput): Promise<TaskItem> {
-    // Same created_by limitation as Project.create — pick any admin until the
-    // current-user context is plumbed in.
-    const { rows: anyUser } = await this.pool.query<{ id: string }>(
-      `SELECT id FROM users WHERE role IN ('super_admin','admin') AND is_active LIMIT 1`
-    );
-    if (anyUser.length === 0) {
-      throw new Error("[postgres] cannot create a task: no admin user available as created_by");
-    }
-    const createdBy = anyUser[0].id;
-    // TODO(assignees): schema stores a single `assignee_id`; persist only the
-    // first id from the request and document the limitation in README.
-    const firstAssignee = input.assigneeIds?.[0] ?? null;
+  async create(
+    projectId: string,
+    input: CreateTaskInput,
+    createdBy: { id: string }
+  ): Promise<TaskItem> {
+    // tasks.assignee_id 는 호환용 첫 담당자, 전체 목록은 task_assignees.
+    const assigneeIds = [...new Set(input.assigneeIds ?? [])];
+    const firstAssignee = assigneeIds[0] ?? null;
     const { rows } = await this.pool.query<{ id: string }>(
       `INSERT INTO tasks (
          code, project_id, title, description, assignee_id, reviewer_id,
@@ -769,9 +870,17 @@ class PgTaskRepository implements TaskRepository {
         input.dueDate || null,
         input.dueLabel ?? input.dueDate ?? null,
         input.progress ?? null,
-        createdBy
+        createdBy.id
       ]
     );
+    if (assigneeIds.length > 0) {
+      await this.pool.query(
+        `INSERT INTO task_assignees (task_id, user_id)
+         SELECT $1, unnest($2::uuid[])
+         ON CONFLICT DO NOTHING`,
+        [rows[0].id, assigneeIds]
+      );
+    }
     const created = await this.findById(rows[0].id);
     if (!created) throw new Error("[postgres] failed to read back created task");
     return created;
@@ -804,6 +913,18 @@ class PgTaskRepository implements TaskRepository {
       values
     );
     if (!rowCount) return undefined;
+    if (input.assigneeIds !== undefined) {
+      const assigneeIds = [...new Set(input.assigneeIds)];
+      await this.pool.query(`DELETE FROM task_assignees WHERE task_id = $1`, [id]);
+      if (assigneeIds.length > 0) {
+        await this.pool.query(
+          `INSERT INTO task_assignees (task_id, user_id)
+           SELECT $1, unnest($2::uuid[])
+           ON CONFLICT DO NOTHING`,
+          [id, assigneeIds]
+        );
+      }
+    }
     return this.findById(id);
   }
 
@@ -1659,6 +1780,8 @@ interface ProductRow {
   sales_status: string | null;
   sales_block_reason: string | null;
   owner_id: string | null;
+  code: string | null;
+  sub_category: string | null;
 }
 
 function rowToProduct(row: ProductRow): Product {
@@ -1666,11 +1789,11 @@ function rowToProduct(row: ProductRow): Product {
     s ? s.split(/\r?\n/).map((x) => x.trim()).filter(Boolean) : [];
   return {
     id: row.id,
-    code: "",
+    code: row.code ?? "",
     name: row.name,
     fullName: row.name,
     category: row.category ?? "",
-    subCategory: "",
+    subCategory: row.sub_category ?? "",
     description: row.description ?? "",
     features: splitToList(row.features),
     applications: splitToList(row.application_area),
@@ -1699,8 +1822,8 @@ function rowToProduct(row: ProductRow): Product {
 }
 
 const PRODUCT_SELECT = `
-  SELECT id, name, category, description, features, application_area,
-         caution, sales_status, sales_block_reason, owner_id
+  SELECT id, code, name, category, sub_category, description, features,
+         application_area, caution, sales_status, sales_block_reason, owner_id
   FROM products
 `;
 
@@ -1719,7 +1842,106 @@ class PgProductRepository implements ProductRepository {
       `${PRODUCT_SELECT} WHERE id = $1`,
       [id]
     );
-    return rows[0] ? rowToProduct(rows[0]) : undefined;
+    if (!rows[0]) return undefined;
+    const product = rowToProduct(rows[0]);
+    // 상세 화면용 부가 정보 — 영업상태 최종 변경(sales_status_events), 역방향
+    // 관련 프로젝트(projects.related_product_ids), 이번 분기 판매 집계(ERP).
+    const [salesMeta, related, quarter] = await Promise.all([
+      this.loadLatestSalesEvent(id),
+      this.loadRelatedProjectIds(id),
+      this.loadQuarterStats(id)
+    ]);
+    if (salesMeta) {
+      product.salesUpdatedAt = salesMeta.changedAt;
+      product.salesUpdatedBy = salesMeta.changedByName;
+    }
+    product.relatedProjectIds = related;
+    product.quarter = quarter;
+    return product;
+  }
+
+  private async loadLatestSalesEvent(
+    productId: string
+  ): Promise<{ changedAt: string; changedByName: string } | undefined> {
+    const { rows } = await this.pool.query<{ changed_at: Date; name: string | null }>(
+      `SELECT e.changed_at, u.name
+         FROM sales_status_events e
+         LEFT JOIN users u ON u.id = e.changed_by
+        WHERE e.product_id = $1
+        ORDER BY e.changed_at DESC
+        LIMIT 1`,
+      [productId]
+    );
+    if (!rows[0]) return undefined;
+    const d = rows[0].changed_at;
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return {
+      changedAt: `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`,
+      changedByName: rows[0].name ?? ""
+    };
+  }
+
+  private async loadRelatedProjectIds(productId: string): Promise<string[]> {
+    const { rows } = await this.pool.query<{ id: string }>(
+      `SELECT id FROM projects WHERE related_product_ids @> ARRAY[$1]::uuid[]`,
+      [productId]
+    );
+    return rows.map((r) => r.id);
+  }
+
+  // 이번 분기 활성 판매 전표(erp_documents/lines) 기준 집계. 판매 실적이
+  // 없으면 빈 문자열을 유지해 UI가 "—"를 표시한다. targetRatio는 목표값
+  // 저장처가 아직 없어 0으로 둔다 (UI는 0이면 게이지를 숨김).
+  private async loadQuarterStats(productId: string): Promise<Product["quarter"]> {
+    const now = new Date();
+    const qStartMonth = Math.floor(now.getMonth() / 3) * 3;
+    const start = `${now.getFullYear()}-${String(qStartMonth + 1).padStart(2, "0")}-01`;
+    const endDate = new Date(now.getFullYear(), qStartMonth + 3, 1);
+    const end = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, "0")}-01`;
+
+    const empty = { totalKg: "", revenue: "", avgPrice: "", topClient: "", targetRatio: 0 };
+    const { rows } = await this.pool.query<{ revenue: string; total_kg: string }>(
+      `SELECT COALESCE(SUM(l.supply_amount), 0) AS revenue,
+              COALESCE(SUM(l.quantity * COALESCE(v.kg_per_unit, 0)), 0) AS total_kg
+         FROM erp_document_lines l
+         JOIN erp_documents d ON d.id = l.document_id
+         LEFT JOIN product_variants v ON v.id = l.product_variant_id
+        WHERE l.product_id = $1
+          AND d.status = 'active'
+          AND d.document_type = 'sale'
+          AND d.document_date >= $2 AND d.document_date < $3`,
+      [productId, start, end]
+    );
+    const revenue = Number(rows[0]?.revenue) || 0;
+    const totalKg = Number(rows[0]?.total_kg) || 0;
+    if (revenue <= 0 && totalKg <= 0) return empty;
+
+    const { rows: top } = await this.pool.query<{ customer_name: string | null; amt: string }>(
+      `SELECT d.customer_name, SUM(l.supply_amount) AS amt
+         FROM erp_document_lines l
+         JOIN erp_documents d ON d.id = l.document_id
+        WHERE l.product_id = $1
+          AND d.status = 'active'
+          AND d.document_type = 'sale'
+          AND d.document_date >= $2 AND d.document_date < $3
+        GROUP BY d.customer_name
+        ORDER BY amt DESC
+        LIMIT 1`,
+      [productId, start, end]
+    );
+    const won = (n: number) => `₩ ${Math.round(n).toLocaleString("ko-KR")}`;
+    const topAmt = Number(top[0]?.amt) || 0;
+    const topShare = revenue > 0 ? Math.round((topAmt / revenue) * 100) : 0;
+    return {
+      totalKg:
+        totalKg > 0
+          ? `${totalKg.toLocaleString("ko-KR", { maximumFractionDigits: 1 })} kg`
+          : "",
+      revenue: revenue > 0 ? won(revenue) : "",
+      avgPrice: revenue > 0 && totalKg > 0 ? `${won(revenue / totalKg)} / kg` : "",
+      topClient: top[0]?.customer_name ? `${top[0].customer_name}(${topShare}%)` : "",
+      targetRatio: 0
+    };
   }
 
   async create(input: CreateProductInput): Promise<Product> {
@@ -1728,13 +1950,15 @@ class PgProductRepository implements ProductRepository {
     const cautionsText = input.cautions?.join("\n") ?? null;
     const { rows } = await this.pool.query<{ id: string }>(
       `INSERT INTO products (
-         name, category, description, features, application_area,
-         caution, sales_status, sales_block_reason, owner_id
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         code, name, category, sub_category, description, features,
+         application_area, caution, sales_status, sales_block_reason, owner_id
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING id`,
       [
+        input.code || null,
         input.name,
         input.category ?? null,
+        input.subCategory || null,
         input.description ?? null,
         featuresText,
         applicationsText,
@@ -1759,7 +1983,9 @@ class PgProductRepository implements ProductRepository {
       sets.push(`${col} = $${params.length}`);
     };
     if (input.name !== undefined) add("name", input.name);
+    if (input.code !== undefined) add("code", input.code || null);
     if (input.category !== undefined) add("category", input.category);
+    if (input.subCategory !== undefined) add("sub_category", input.subCategory || null);
     if (input.description !== undefined) add("description", input.description);
     if (input.features !== undefined) add("features", input.features.join("\n"));
     if (input.applications !== undefined)

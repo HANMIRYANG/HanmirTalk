@@ -14,7 +14,6 @@ import {
   CheckIcon,
   ClockIcon,
   FolderIcon,
-  LockIcon,
   PinIcon,
   SearchIcon
 } from "@/components/ui/icons";
@@ -35,7 +34,6 @@ type ScopeKind =
   | "recent"
   | "starred"
   | "mine"
-  | "private"
   | { kind: "project"; id: string; name: string }
   | { kind: "folder"; id: string }
   | { kind: "type"; type: FileKind };
@@ -281,7 +279,6 @@ export function FileLibrary({
       recent: files.filter((f) => isInPeriod(f.uploadedAt, "week")).length,
       starred: files.filter((f) => f.starred).length,
       mine: files.filter((f) => f.uploaderId === meId).length,
-      private: 0,
       perProject: new Map<string, number>(),
       perType: { doc: 0, xls: 0, img: 0, zip: 0, pdf: 0, ppt: 0 } as Record<FileKind, number>
     };
@@ -299,7 +296,6 @@ export function FileLibrary({
     if (scope === "recent") return files.filter((f) => isInPeriod(f.uploadedAt, "week"));
     if (scope === "starred") return files.filter((f) => f.starred);
     if (scope === "mine") return files.filter((f) => f.uploaderId === meId);
-    if (scope === "private") return [];
     if (typeof scope === "object" && scope.kind === "project")
       return files.filter((f) => f.projectId === scope.id);
     if (typeof scope === "object" && scope.kind === "folder")
@@ -356,8 +352,6 @@ export function FileLibrary({
       ? "즐겨찾기"
       : scope === "mine"
       ? "내가 공유한 항목"
-      : scope === "private"
-      ? "개인 보관함"
       : scope.kind === "project"
       ? `${scope.name}`
       : scope.kind === "folder"
@@ -425,14 +419,6 @@ export function FileLibrary({
           active={scope === "mine"}
           onClick={() => setScope("mine")}
         />
-        <ScopeBtn
-          icon={<LockIcon size={14} />}
-          label="개인 보관함"
-          count={counts.private}
-          active={scope === "private"}
-          onClick={() => setScope("private")}
-        />
-
         <div className={styles.scopeTitle} style={{ marginTop: 14 }}>
           폴더
         </div>

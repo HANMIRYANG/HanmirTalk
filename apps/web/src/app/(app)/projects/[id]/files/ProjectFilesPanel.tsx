@@ -3,7 +3,6 @@
 import { useRef, useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import type { FileEntry, User } from "@hanmir/shared";
-import { Tag } from "@/components/ui/Tag";
 import { Avatar } from "@/components/ui/Avatar";
 import { UploadIcon } from "@/components/ui/icons";
 import { fileService } from "@/services/file.service";
@@ -167,11 +166,6 @@ export function ProjectFilesPanel({ projectId, initialFiles, users }: ProjectFil
                     >
                       {f.name}
                     </a>
-                    {f.scopeExtra ? (
-                      <Tag tone={(f.scopeExtra.tone as "amber") ?? "default"}>
-                        {f.scopeExtra.label}
-                      </Tag>
-                    ) : null}
                   </td>
                   <td className="muted">{f.size}</td>
                   <td>

@@ -25,7 +25,7 @@ interface ChatListProps {
   currentUserId: string;
 }
 
-type Filter = "all" | "unread" | "pinned" | "mention";
+type Filter = "all" | "unread" | "pinned";
 
 interface CtxMenuState {
   room: Room;
@@ -82,9 +82,6 @@ export function ChatList({ rooms, activeRoomId, currentUserId }: ChatListProps) 
         return rooms.filter((r) => r.unread > 0);
       case "pinned":
         return rooms.filter((r) => r.pinned);
-      case "mention":
-        // 멘션은 Phase 5에서 messages.entities 도입 시 활성화. 그때까지 빈 목록.
-        return [] as Room[];
       default:
         return rooms;
     }
@@ -134,22 +131,12 @@ export function ChatList({ rooms, activeRoomId, currentUserId }: ChatListProps) 
         >
           고정<span className={styles.pillCount}>{counts.pinned}</span>
         </button>
-        <button
-          type="button"
-          onClick={() => setFilter("mention")}
-          className={cn(styles.pill, filter === "mention" && styles.pillActive)}
-          title="멘션 기능은 추후 도입 예정"
-        >
-          멘션
-        </button>
       </div>
 
       <div className={styles.scroll}>
         {visible.length === 0 ? (
           <div className={styles.empty}>
-            {filter === "mention"
-              ? "멘션 기능은 추후 도입 예정입니다."
-              : filter === "unread"
+            {filter === "unread"
               ? "안 읽은 대화가 없습니다."
               : filter === "pinned"
               ? "고정된 대화가 없습니다."
@@ -332,15 +319,6 @@ function ChatRow({
           tone={room.avatarTone ?? "default"}
           className={styles.rowAvatar}
         />
-        {room.presence ? (
-          <span
-            className={cn(
-              styles.presence,
-              room.presence === "away" && styles.presenceAway,
-              room.presence === "off" && styles.presenceOff
-            )}
-          />
-        ) : null}
       </div>
       <div className={styles.main}>
         <div className={styles.name}>

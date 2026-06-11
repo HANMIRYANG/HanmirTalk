@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { FileEntry, Project, Room, User } from "@hanmir/shared";
 import { Avatar } from "@/components/ui/Avatar";
 import { Tag } from "@/components/ui/Tag";
@@ -91,9 +92,12 @@ export function RoomInfoPane({
             <span className={styles.k}>담당</span>
             <span className={styles.v}>{project.ownerName}</span>
           </div>
-          <button className={cn("btn btn--outline btn--sm", styles.fullBtn)} type="button">
+          <Link
+            href={`/projects/${project.id}`}
+            className={cn("btn btn--outline btn--sm", styles.fullBtn)}
+          >
             프로젝트 페이지 열기 →
-          </button>
+          </Link>
         </div>
       ) : null}
 

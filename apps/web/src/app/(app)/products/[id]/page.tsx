@@ -23,11 +23,9 @@ export default async function ProductDetailPage({ params }: Props) {
   if (!product) notFound();
 
   // Phase 7 J-3 — DB-backed specs / sales-history.
-  const [owner, relatedProjects, dbSpecs, dbHistory, dbDocuments, inventory] =
+  const [users, relatedProjects, dbSpecs, dbHistory, dbDocuments, inventory] =
     await Promise.all([
-      product.ownerId
-        ? userService.getUser(product.ownerId, { token })
-        : Promise.resolve(undefined),
+      userService.listUsers({ token }),
       Promise.all(
         product.relatedProjectIds.map((id) => projectService.getProject(id, { token }))
       ).then((items) => items.filter((p): p is NonNullable<typeof p> => Boolean(p))),
@@ -36,6 +34,7 @@ export default async function ProductDetailPage({ params }: Props) {
       productService.listDocuments(params.id, { token }).catch(() => []),
       erpService.getInventorySummary(params.id, { token }).catch(() => undefined)
     ]);
+  const owner = product.ownerId ? users.find((u) => u.id === product.ownerId) : undefined;
   const canManage = WRITER_ROLES.has(me.role);
 
   return (
@@ -69,7 +68,7 @@ export default async function ProductDetailPage({ params }: Props) {
             </div>
           </div>
           <div className={styles.actions}>
-            {canManage ? <ProductActions product={product} /> : null}
+            {canManage ? <ProductActions product={product} users={users} /> : null}
           </div>
         </div>
       </section>

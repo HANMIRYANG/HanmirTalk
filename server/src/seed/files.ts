@@ -25,8 +25,6 @@ export const seedFiles: FileEntry[] = [
     kind: "pdf",
     name: "시험성적서_SUS304_v0.3.pdf",
     scope: "P-2410",
-    scopeTone: "blue",
-    scopeExtra: { label: "검토중", tone: "amber" },
     size: "2.4 MB",
     uploaderId: "u-park-jiyoung",
     uploadedAt: "오늘 10:24",
@@ -37,7 +35,6 @@ export const seedFiles: FileEntry[] = [
     kind: "xls",
     name: "시험성적서_의견정리_v0.3.xlsx",
     scope: "P-2410",
-    scopeTone: "blue",
     size: "128 KB",
     uploaderId: "u-park-jiyoung",
     uploadedAt: "오늘 13:18"
@@ -47,7 +44,6 @@ export const seedFiles: FileEntry[] = [
     kind: "doc",
     name: "P-2410_라인설계_변경요청서.docx",
     scope: "P-2410",
-    scopeTone: "blue",
     size: "348 KB",
     uploaderId: "u-yoon-seoyeon",
     uploadedAt: "어제 16:55"
@@ -66,7 +62,6 @@ export const seedFiles: FileEntry[] = [
     kind: "img",
     name: "결재본_예시_2025-12.png",
     scope: "P-2410",
-    scopeTone: "blue",
     size: "316 KB",
     uploaderId: "u-lee-suhyun",
     uploadedAt: "5월 12일"
@@ -76,7 +71,6 @@ export const seedFiles: FileEntry[] = [
     kind: "pdf",
     name: "7월_안전교육_이수_안내.pdf",
     scope: "필독 공지",
-    scopeTone: "amber",
     size: "412 KB",
     uploaderId: "u-kang-eunhye",
     uploadedAt: "5월 12일"
@@ -95,8 +89,6 @@ export const seedFiles: FileEntry[] = [
     kind: "pdf",
     name: "SOP_자동검사라인_v0.4.pdf",
     scope: "P-2410",
-    scopeTone: "blue",
-    scopeExtra: { label: "표준양식" },
     size: "3.1 MB",
     uploaderId: "u-park-jiyoung",
     uploadedAt: "5월 10일"
@@ -106,7 +98,6 @@ export const seedFiles: FileEntry[] = [
     kind: "zip",
     name: "외주_다온테크_PoC_결과.zip",
     scope: "P-2410",
-    scopeTone: "blue",
     size: "38.4 MB",
     uploaderId: "u-yoon-seoyeon",
     uploadedAt: "5월 09일"
@@ -116,7 +107,6 @@ export const seedFiles: FileEntry[] = [
     kind: "doc",
     name: "사내_보안정책_개정_v3.2.docx",
     scope: "필독 공지",
-    scopeTone: "amber",
     size: "220 KB",
     uploaderId: "u-kang-eunhye",
     uploadedAt: "5월 09일"
@@ -126,7 +116,6 @@ export const seedFiles: FileEntry[] = [
     kind: "img",
     name: "라인_설치_사진_20260508.jpg",
     scope: "P-2410",
-    scopeTone: "blue",
     size: "2.0 MB",
     uploaderId: "u-park-jiyoung",
     uploadedAt: "5월 08일"
@@ -136,7 +125,6 @@ export const seedFiles: FileEntry[] = [
     kind: "pdf",
     name: "시험성적서_SUS304_v0.2.pdf",
     scope: "결재완료",
-    scopeTone: "green",
     size: "2.1 MB",
     uploaderId: "u-park-jiyoung",
     uploadedAt: "4월 18일"

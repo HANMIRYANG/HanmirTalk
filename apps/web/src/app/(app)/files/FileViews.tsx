@@ -117,12 +117,7 @@ export function ListTable({
                   </a>
                 </td>
                 <td>
-                  <Tag tone={(f.scopeTone as "blue") ?? "default"}>{f.scope}</Tag>
-                  {f.scopeExtra ? (
-                    <Tag tone={(f.scopeExtra.tone as "amber") ?? "default"}>
-                      {f.scopeExtra.label}
-                    </Tag>
-                  ) : null}
+                  <Tag tone="default">{f.scope}</Tag>
                 </td>
                 <td className="muted">{f.size}</td>
                 <td>
@@ -178,7 +173,7 @@ export function CardView({
             </div>
             <div className={styles.cardName}>{f.name}</div>
             <div className={styles.cardMeta}>
-              <Tag tone={(f.scopeTone as "blue") ?? "default"}>{f.scope}</Tag>
+              <Tag tone="default">{f.scope}</Tag>
               <span className="muted">{f.size}</span>
             </div>
             <div className={styles.cardFoot}>

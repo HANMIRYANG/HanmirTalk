@@ -15,7 +15,8 @@ function kg(n: number): string {
 }
 
 export default async function ErpHomePage() {
-  const { token } = await requireServerMe();
+  const { me, token } = await requireServerMe();
+  const isAdmin = me.role === "admin" || me.role === "super_admin";
   const [inventory, documents] = await Promise.all([
     erpService.listInventory({ token }).catch(() => []),
     erpService.listDocuments({ token, limit: 12 }).catch(() => [])
@@ -54,9 +55,11 @@ export default async function ErpHomePage() {
             <a href={`${apiBaseUrl}/erp/exports/inventory`} className="btn btn--ghost btn--sm">
               재고 Excel
             </a>
-            <Link href="/admin/erp" className="btn btn--ghost btn--sm">
-              ERP 설정
-            </Link>
+            {isAdmin ? (
+              <Link href="/admin/erp" className="btn btn--ghost btn--sm">
+                ERP 설정
+              </Link>
+            ) : null}
           </div>
         </div>
 

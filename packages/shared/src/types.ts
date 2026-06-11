@@ -350,6 +350,20 @@ export interface Milestone {
   status: "done" | "in_progress" | "pending" | "delayed";
 }
 
+export interface CreateMilestoneInput {
+  title: string;
+  subtitle?: string;
+  date: string;
+  status?: Milestone["status"];
+}
+
+export interface UpdateMilestoneInput {
+  title?: string;
+  subtitle?: string;
+  date?: string;
+  status?: Milestone["status"];
+}
+
 export interface Project {
   id: string;
   code: string;
@@ -545,11 +559,13 @@ export interface CreateProductDocumentInput {
 
 export interface CreateProductInput {
   // Only `name` is required; the rest map to the columns the current
-  // products table actually has. DTO-only fields (code, fullName, spec,
-  // history, quarter) are ignored at the persistence layer until
-  // their own tables/columns are added.
+  // products table actually has. DTO-only fields (fullName, spec, history,
+  // quarter) are ignored at the persistence layer until their own
+  // tables/columns are added.
   name: string;
+  code?: string;
   category?: string;
+  subCategory?: string;
   description?: string;
   features?: string[];
   applications?: string[];
@@ -561,7 +577,9 @@ export interface CreateProductInput {
 
 export interface UpdateProductInput {
   name?: string;
+  code?: string;
   category?: string;
+  subCategory?: string;
   description?: string;
   features?: string[];
   applications?: string[];
@@ -617,8 +635,6 @@ export interface FileEntry {
   kind: FileKind;
   name: string;
   scope: string;
-  scopeTone?: "blue" | "green" | "amber" | "red" | "orange" | "default";
-  scopeExtra?: { label: string; tone?: "blue" | "green" | "amber" | "red" | "orange" | "default" };
   size: string;
   uploaderId: string;
   uploadedAt: string;

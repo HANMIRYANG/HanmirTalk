@@ -1,7 +1,6 @@
 import Link from "next/link";
 import type { Project } from "@hanmir/shared";
 import { Tag } from "@/components/ui/Tag";
-import { PinIcon } from "@/components/ui/icons";
 import { cn } from "@/lib/classNames";
 import styles from "./ProjectHeader.module.css";
 
@@ -88,22 +87,7 @@ export function ProjectHeader({
             </span>
           </div>
         </div>
-        <div className={styles.actions}>
-          {rightActions ?? (
-            <>
-              <button className="btn btn--outline btn--sm" type="button">
-                <PinIcon size={14} />
-                즐겨찾기
-              </button>
-              <button className="btn btn--outline btn--sm" type="button">
-                상태 변경
-              </button>
-              <button className="btn btn--primary btn--sm" type="button">
-                + 업무 추가
-              </button>
-            </>
-          )}
-        </div>
+        <div className={styles.actions}>{rightActions}</div>
       </div>
 
       <nav className={styles.tabs}>
