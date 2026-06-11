@@ -268,6 +268,30 @@ export function createMessagesRouter(repos: Repositories): Router {
     res.json({ ok: true, reactions });
   });
 
+  // GET /messages/:id/reactions — 반응 상세 (이모지별 누가 반응했는지).
+  // 방 멤버 누구나 조회 가능 (loadAccessibleMessage 가 멤버십 검증).
+  router.get("/:id/reactions", async (req, res) => {
+    const access = await loadAccessibleMessage(repos, req, res, req.params.id);
+    if (!access.allowed) return;
+    const details = await repos.messageReactions.listDetailForMessage(
+      access.message.id
+    );
+    res.json(details);
+  });
+
+  // GET /messages/:id/read-status — 방 멤버(작성자 제외) 기준 읽음/안 읽음.
+  // last_read 포인터 비교라 별도 read-receipt 테이블 없이 동작한다.
+  router.get("/:id/read-status", async (req, res) => {
+    const access = await loadAccessibleMessage(repos, req, res, req.params.id);
+    if (!access.allowed) return;
+    const status = await repos.messages.getReadStatus(access.message.id);
+    if (!status) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    res.json(status);
+  });
+
   // PATCH /messages/:id — edit body. Author only (admins cannot rewrite
   // other people's messages; they can soft-delete via DELETE which keeps
   // a tombstone).

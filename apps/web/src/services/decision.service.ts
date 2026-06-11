@@ -1,9 +1,10 @@
 import type {
   CreateDecisionInput,
   Decision,
+  DecisionReadStatus,
   UpdateDecisionInput
 } from "@hanmir/shared";
-import { apiRequest } from "./api-client";
+import { apiRequest, apiRequestOrNull } from "./api-client";
 
 export interface AuthOptions {
   token?: string;
@@ -67,6 +68,17 @@ export const decisionService = {
     return apiRequest<Decision>(
       `/decisions/${encodeURIComponent(id)}/confirm`,
       { method: "POST", token: opts.token }
+    );
+  },
+
+  // 확인 현황 — 작성자(decidedBy) 또는 admin 만 서버가 허용 (403).
+  async getReadStatus(
+    id: string,
+    opts: AuthOptions = {}
+  ): Promise<DecisionReadStatus | undefined> {
+    return apiRequestOrNull<DecisionReadStatus>(
+      `/decisions/${encodeURIComponent(id)}/read-status`,
+      { token: opts.token }
     );
   },
 

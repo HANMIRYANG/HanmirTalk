@@ -84,6 +84,7 @@ export function ChatRoomMounter({ roomId, latestMessageId }: ChatRoomMounterProp
     socket.on("message:updated", onEvent);
     socket.on("message:deleted", onEvent);
     socket.on("room:pin", onEvent);
+    socket.on("room:updated", onEvent);
     socket.on("message:thread:updated", onEvent);
     socket.on("message:reaction:updated", onEvent);
     return () => {
@@ -92,6 +93,7 @@ export function ChatRoomMounter({ roomId, latestMessageId }: ChatRoomMounterProp
       socket.off("message:updated", onEvent);
       socket.off("message:deleted", onEvent);
       socket.off("room:pin", onEvent);
+      socket.off("room:updated", onEvent);
       socket.off("message:thread:updated", onEvent);
       socket.off("message:reaction:updated", onEvent);
     };

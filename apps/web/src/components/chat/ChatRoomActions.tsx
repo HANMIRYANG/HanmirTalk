@@ -9,6 +9,8 @@ import { chatService } from "@/services/chat.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
 import { cn } from "@/lib/classNames";
+import { RoomEditModal } from "./RoomEditModal";
+import { AddMemberModal } from "./AddMemberModal";
 import styles from "./ChatRoomActions.module.css";
 
 interface Props {
@@ -21,6 +23,8 @@ export function ChatRoomActions({ room }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [addMemberOpen, setAddMemberOpen] = useState(false);
   // Track muted state locally so the menu label flips immediately after
   // a successful toggle without waiting for router.refresh.
   const [muted, setMuted] = useState(!!room.muted);
@@ -97,6 +101,9 @@ export function ChatRoomActions({ room }: Props) {
   };
 
   const canLeave = room.type !== "direct";
+  // direct 방은 이름이 상대방 이름으로 표시되고 멤버가 고정(서버 거부)
+  // 이라 수정/추가 진입점을 모두 숨긴다.
+  const canManageRoom = room.type !== "direct";
 
   return (
     <div className={styles.wrap} ref={popRef}>
@@ -110,6 +117,34 @@ export function ChatRoomActions({ room }: Props) {
       </IconButton>
       {open ? (
         <div className={styles.popover} role="menu">
+          {canManageRoom ? (
+            <button
+              type="button"
+              className={styles.menuItem}
+              onClick={() => {
+                setOpen(false);
+                setEditOpen(true);
+              }}
+              disabled={busy}
+              role="menuitem"
+            >
+              채팅방 정보 수정
+            </button>
+          ) : null}
+          {canManageRoom ? (
+            <button
+              type="button"
+              className={styles.menuItem}
+              onClick={() => {
+                setOpen(false);
+                setAddMemberOpen(true);
+              }}
+              disabled={busy}
+              role="menuitem"
+            >
+              멤버 추가
+            </button>
+          ) : null}
           <button
             type="button"
             className={styles.menuItem}
@@ -131,6 +166,10 @@ export function ChatRoomActions({ room }: Props) {
             </button>
           ) : null}
         </div>
+      ) : null}
+      {editOpen ? <RoomEditModal room={room} onClose={() => setEditOpen(false)} /> : null}
+      {addMemberOpen ? (
+        <AddMemberModal room={room} onClose={() => setAddMemberOpen(false)} />
       ) : null}
     </div>
   );

@@ -38,6 +38,9 @@ import type {
   ProductSpec,
   Project,
   MessageReaction,
+  MessageReactionDetail,
+  MessageReadStatus,
+  MessageReadStatusEntry,
   Room,
   SalesStatusEvent,
   ScheduledMessage,
@@ -342,6 +345,11 @@ class MemoryRoomRepository implements RoomRepository {
     this.messages = messages;
   }
 
+  // 메시지 읽음 확인용 — message repo 가 방 멤버 목록을 동기 조회.
+  membersByRoomIdSync(roomId: string): Room["members"] {
+    return this.data.find((r) => r.id === roomId)?.members ?? [];
+  }
+
   private decorate(room: Room, userId?: string): Room {
     const out = clone(room);
     if (this.messages) {
@@ -490,6 +498,12 @@ class MemoryMessageReactionRepository implements MessageReactionRepository {
   // messageId -> Map<userId, Set<emoji>>. 한 사용자가 같은 이모지를 두 번
   // 누르면 두 번째 add 는 false (no-op).
   private readonly rows = new Map<string, Map<string, Set<string>>>();
+  // createMemoryRepositories 가 연결 — 반응 상세에 사용자 이름을 채운다.
+  private getUserName: (id: string) => string = () => "";
+
+  setUserAccessor(getName: (id: string) => string): void {
+    this.getUserName = getName;
+  }
 
   async add(messageId: string, userId: string, emoji: string): Promise<boolean> {
     let byUser = this.rows.get(messageId);
@@ -548,6 +562,26 @@ class MemoryMessageReactionRepository implements MessageReactionRepository {
     }
     return out;
   }
+
+  async listDetailForMessage(messageId: string): Promise<MessageReactionDetail[]> {
+    const byUser = this.rows.get(messageId);
+    if (!byUser) return [];
+    const byEmoji = new Map<string, MessageReactionDetail>();
+    for (const [userId, emojis] of byUser) {
+      for (const emoji of emojis) {
+        let detail = byEmoji.get(emoji);
+        if (!detail) {
+          detail = { emoji, users: [] };
+          byEmoji.set(emoji, detail);
+        }
+        detail.users.push({ userId, name: this.getUserName(userId) });
+      }
+    }
+    // 칩 표시(listForMessage)와 동일하게 반응 수 내림차순.
+    return Array.from(byEmoji.values()).sort(
+      (a, b) => b.users.length - a.users.length
+    );
+  }
 }
 
 class MemoryMessageRepository implements MessageRepository {
@@ -576,6 +610,19 @@ class MemoryMessageRepository implements MessageRepository {
 
   setReactionsRepo(repo: MessageReactionRepository): void {
     this.reactionsRepo = repo;
+  }
+
+  // 읽음 확인 — 방 멤버/사용자 조회 accessor. createMemoryRepositories 가
+  // closure 로 연결한다 (rooms/users repo 와의 순환 import 회피).
+  private getRoomMembers: (roomId: string) => Room["members"] = () => [];
+  private getUserById: (id: string) => User | undefined = () => undefined;
+
+  setReadStatusAccessors(accessors: {
+    getRoomMembers: (roomId: string) => Room["members"];
+    getUserById: (id: string) => User | undefined;
+  }): void {
+    this.getRoomMembers = accessors.getRoomMembers;
+    this.getUserById = accessors.getUserById;
   }
 
   // 모든 방 / 모든 자식에서 parent_message_id = parentId 인 메시지를 모은다.
@@ -793,6 +840,38 @@ class MemoryMessageRepository implements MessageRepository {
       this.lastRead.set(userId, userMap);
     }
     userMap.set(roomId, lastMessageId);
+  }
+
+  async getReadStatus(messageId: string): Promise<MessageReadStatus | undefined> {
+    // 방 배열은 append 순서 = 시간순이므로 last_read 포인터의 인덱스가
+    // 대상 메시지 인덱스 이상이면 읽음. 작성자 본인·비활성 계정 제외.
+    for (const [roomId, list] of Object.entries(this.data)) {
+      const idx = list.findIndex((m) => m.id === messageId);
+      if (idx < 0) continue;
+      const target = list[idx];
+      const readers: MessageReadStatusEntry[] = [];
+      const unread: MessageReadStatusEntry[] = [];
+      for (const member of this.getRoomMembers(roomId)) {
+        if (member.userId === target.authorId) continue;
+        const user = this.getUserById(member.userId);
+        if (!user || user.isActive === false) continue;
+        const entry = {
+          userId: user.id,
+          name: user.name,
+          departmentName: user.departmentName ?? ""
+        };
+        const lastReadId = this.lastRead.get(member.userId)?.get(roomId);
+        const lastIdx = lastReadId
+          ? list.findIndex((m) => m.id === lastReadId)
+          : -1;
+        if (lastIdx >= idx) readers.push(entry);
+        else unread.push(entry);
+      }
+      readers.sort((a, b) => a.name.localeCompare(b.name, "ko"));
+      unread.sort((a, b) => a.name.localeCompare(b.name, "ko"));
+      return { messageId, readers, unread };
+    }
+    return undefined;
   }
 
   async pin(
@@ -2952,6 +3031,14 @@ export function createMemoryRepositories(): Repositories {
   // reactions[] 를 채울 때 사용 (배치 lookup).
   const messageReactions = new MemoryMessageReactionRepository();
   messages.setReactionsRepo(messageReactions);
+  // 반응 상세 + 읽음 확인 — 사용자 이름/방 멤버를 closure 로 연결.
+  messageReactions.setUserAccessor(
+    (id) => users._data.find((u) => u.id === id)?.name ?? ""
+  );
+  messages.setReadStatusAccessors({
+    getRoomMembers: (roomId) => rooms.membersByRoomIdSync(roomId),
+    getUserById: (id) => users._data.find((u) => u.id === id)
+  });
   // Rooms decorate themselves with per-user unread + pinned message id from
   // the message repo; wire that here.
   rooms.setMessageAccessor(messages);

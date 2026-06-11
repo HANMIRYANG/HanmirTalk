@@ -31,6 +31,11 @@ const CreateDecisionFromMessageModal = dynamic(
     ),
   { ssr: false }
 );
+const MessageInfoModal = dynamic(
+  () =>
+    import("./message-item/MessageInfoModal").then((m) => m.MessageInfoModal),
+  { ssr: false }
+);
 
 interface MessageItemProps {
   message: ChatMessage;
@@ -86,6 +91,7 @@ export function MessageItem({
   } = useMessageActions(message);
   const [decisionModalOpen, setDecisionModalOpen] = useState(false);
   const [taskModalOpen, setTaskModalOpen] = useState(false);
+  const [infoModalOpen, setInfoModalOpen] = useState(false);
 
   if (message.isSystem) {
     return (
@@ -98,6 +104,9 @@ export function MessageItem({
   const isMine = !!currentUserId && message.authorId === currentUserId;
   const canEdit = isMine && !message.isDeleted;
   const canDelete = (isMine || isAdmin) && !message.isDeleted;
+  // 읽음/반응 확인 — 방 컨텍스트가 있는 메시지면 멤버 누구나 (서버도
+  // 멤버십만 검증).
+  const canViewInfo = !!roomId && !!currentUserId && !message.isDeleted;
 
   return (
     <div
@@ -138,10 +147,22 @@ export function MessageItem({
           ) : null}
           {(canEdit ||
             canDelete ||
+            canViewInfo ||
             (canCreateDecision && !message.isDeleted) ||
             (canCreateTask && !message.isDeleted && projectId && users)) &&
           !editing ? (
             <span className={styles.actions}>
+              {canViewInfo ? (
+                <button
+                  type="button"
+                  className={styles.actionBtn}
+                  onClick={() => setInfoModalOpen(true)}
+                  aria-label="읽음·반응 확인"
+                  title="누가 읽었고 누가 반응했는지 확인"
+                >
+                  읽음
+                </button>
+              ) : null}
               {canCreateTask && !message.isDeleted && projectId && users ? (
                 <button
                   type="button"
@@ -240,6 +261,12 @@ export function MessageItem({
           defaultStatus="todo"
           initialTitle={message.body.split("\n")[0]?.slice(0, 80) ?? ""}
           initialDescription={message.body}
+        />
+      ) : null}
+      {infoModalOpen ? (
+        <MessageInfoModal
+          messageId={message.id}
+          onClose={() => setInfoModalOpen(false)}
         />
       ) : null}
     </div>

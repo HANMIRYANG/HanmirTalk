@@ -230,6 +230,32 @@ export const REACTION_EMOJI_ALLOWLIST: readonly string[] = [
   "📌"
 ];
 
+// 반응 상세 — 이모지별 누가 반응했는지. GET /messages/:id/reactions 응답.
+export interface MessageReactionDetailUser {
+  userId: string;
+  name: string;
+}
+
+export interface MessageReactionDetail {
+  emoji: string;
+  users: MessageReactionDetailUser[];
+}
+
+// 메시지 읽음 확인 — 방 멤버(작성자 제외) 기준으로 last_read 포인터가
+// 이 메시지 이후인지 비교해 읽음/안 읽음을 가른다.
+// GET /messages/:id/read-status 응답.
+export interface MessageReadStatusEntry {
+  userId: string;
+  name: string;
+  departmentName: string;
+}
+
+export interface MessageReadStatus {
+  messageId: string;
+  readers: MessageReadStatusEntry[];
+  unread: MessageReadStatusEntry[];
+}
+
 // Phase 5 H-1 — structured entity reference inside a message body.
 // Tracks @mentions, project/task/file pointers, etc. The body is plain
 // text; entities tell the renderer which substring to wrap.

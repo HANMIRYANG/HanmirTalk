@@ -10,6 +10,7 @@ import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
 import { getSocket } from "@/lib/socket";
 import { cn } from "@/lib/classNames";
+import { DecisionReadStatusButton } from "./DecisionReadStatusButton";
 import styles from "./decisions.module.css";
 
 interface Props {
@@ -213,6 +214,9 @@ function DecisionCard({
                 >
                   확인
                 </button>
+              ) : null}
+              {(isAuthor || isAdmin) && !decision.isDeleted ? (
+                <DecisionReadStatusButton decisionId={decision.id} />
               ) : null}
               {canEdit ? (
                 <button

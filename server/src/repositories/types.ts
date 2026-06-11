@@ -205,6 +205,11 @@ export interface MessageRepository {
   // Memory: keeps a Map. PG: updates room_members.last_read_message_id.
   // Caller-side responsibility to send the latest visible id from the UI.
   markRead(roomId: string, userId: string, lastMessageId: string): Promise<void>;
+  // 메시지 읽음 확인 — 방 멤버(작성자·비활성 제외) 를 last_read 포인터의
+  // 시간 비교로 읽음/안 읽음 둘로 가른다. 메시지가 없으면 undefined.
+  getReadStatus(
+    messageId: string
+  ): Promise<import("@hanmir/shared").MessageReadStatus | undefined>;
   // Single pinned message per room. `pin` validates that the message
   // belongs to the room and sets `rooms.pinned_message_id`. `unpin`
   // clears it. Both return whether the room was found.
@@ -233,6 +238,11 @@ export interface MessageReactionRepository {
     messageIds: string[],
     viewerUserId?: string
   ): Promise<Map<string, import("@hanmir/shared").MessageReaction[]>>;
+  // 반응 상세 — 이모지별 누가 반응했는지 (사용자 이름 포함). 반응 수
+  // 내림차순 정렬.
+  listDetailForMessage(
+    messageId: string
+  ): Promise<import("@hanmir/shared").MessageReactionDetail[]>;
 }
 
 export interface ProjectRepository {

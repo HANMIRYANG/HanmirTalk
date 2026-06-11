@@ -45,6 +45,9 @@ import type {
   ListFilesFilter,
   MessageEntity,
   MessageReaction,
+  MessageReactionDetail,
+  MessageReadStatus,
+  MessageReadStatusEntry,
   Notice,
   NoticeReadStatus,
   NoticeReadStatusEntry,
@@ -1517,6 +1520,48 @@ class PgMessageRepository implements MessageRepository {
         WHERE room_id = $1 AND user_id = $2`,
       [roomId, userId, lastMessageId]
     );
+  }
+
+  async getReadStatus(messageId: string): Promise<MessageReadStatus | undefined> {
+    const exists = await this.pool.query<{ id: string }>(
+      `SELECT id FROM messages WHERE id = $1`,
+      [messageId]
+    );
+    if (exists.rows.length === 0) return undefined;
+    // 멤버의 last_read_message_id 가 가리키는 메시지(lr)의 created_at 이
+    // 대상 메시지(m) 이상이면 읽음. 포인터가 대상 메시지 자신이어도 읽음.
+    // 작성자 본인과 비활성 계정은 양쪽 목록 모두에서 제외.
+    const { rows } = await this.pool.query<{
+      user_id: string;
+      name: string;
+      department_name: string | null;
+      has_read: boolean;
+    }>(
+      `SELECT u.id AS user_id, u.name, d.name AS department_name,
+              COALESCE(lr.created_at >= m.created_at, false) AS has_read
+         FROM messages m
+         JOIN room_members rm ON rm.room_id = m.room_id
+         JOIN users u ON u.id = rm.user_id
+         LEFT JOIN departments d ON d.id = u.department_id
+         LEFT JOIN messages lr ON lr.id = rm.last_read_message_id
+        WHERE m.id = $1
+          AND rm.user_id <> m.user_id
+          AND u.is_active IS NOT FALSE
+        ORDER BY u.name`,
+      [messageId]
+    );
+    const readers: MessageReadStatusEntry[] = [];
+    const unread: MessageReadStatusEntry[] = [];
+    for (const r of rows) {
+      const entry = {
+        userId: r.user_id,
+        name: r.name,
+        departmentName: r.department_name ?? ""
+      };
+      if (r.has_read) readers.push(entry);
+      else unread.push(entry);
+    }
+    return { messageId, readers, unread };
   }
 
   async pin(
@@ -3678,6 +3723,34 @@ class PgMessageReactionRepository implements MessageReactionRepository {
       out.set(r.message_id, list);
     }
     return out;
+  }
+
+  async listDetailForMessage(messageId: string): Promise<MessageReactionDetail[]> {
+    const { rows } = await this.pool.query<{
+      emoji: string;
+      user_id: string;
+      name: string;
+    }>(
+      `SELECT mr.emoji, mr.user_id, u.name
+         FROM message_reactions mr
+         JOIN users u ON u.id = mr.user_id
+        WHERE mr.message_id = $1
+        ORDER BY mr.emoji, mr.created_at ASC`,
+      [messageId]
+    );
+    const byEmoji = new Map<string, MessageReactionDetail>();
+    for (const r of rows) {
+      let detail = byEmoji.get(r.emoji);
+      if (!detail) {
+        detail = { emoji: r.emoji, users: [] };
+        byEmoji.set(r.emoji, detail);
+      }
+      detail.users.push({ userId: r.user_id, name: r.name });
+    }
+    // 칩 표시(listForMessage)와 동일하게 반응 수 내림차순.
+    return Array.from(byEmoji.values()).sort(
+      (a, b) => b.users.length - a.users.length
+    );
   }
 }
 

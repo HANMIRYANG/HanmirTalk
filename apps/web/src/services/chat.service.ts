@@ -7,9 +7,12 @@ import type {
   MentionSearchScope,
   MessageEntity,
   MessageReaction,
+  MessageReactionDetail,
+  MessageReadStatus,
   PinnedMessageRef,
   Room,
-  ScheduledMessage
+  ScheduledMessage,
+  UpdateRoomInput
 } from "@hanmir/shared";
 import { apiRequest, apiRequestOrNull } from "./api-client";
 
@@ -177,6 +180,18 @@ export const chatService = {
     });
   },
 
+  async updateRoom(
+    roomId: string,
+    input: UpdateRoomInput,
+    opts: AuthOptions = {}
+  ): Promise<Room> {
+    return apiRequest<Room>(`/rooms/${encodeURIComponent(roomId)}`, {
+      method: "PATCH",
+      body: input,
+      token: opts.token
+    });
+  },
+
   // Find or create the DM room between caller and `userId`. Idempotent —
   // safe to call from a "1:1 대화 시작" button without checking first.
   async openDirectMessage(userId: string, opts: AuthOptions = {}): Promise<Room> {
@@ -186,6 +201,18 @@ export const chatService = {
       token: opts.token,
       // Server returns 200 (existing) or 201 (newly created).
       expectStatus: [200, 201]
+    });
+  },
+
+  async addMember(
+    roomId: string,
+    userId: string,
+    opts: AuthOptions = {}
+  ): Promise<Room> {
+    return apiRequest<Room>(`/rooms/${encodeURIComponent(roomId)}/members`, {
+      method: "POST",
+      body: { userId },
+      token: opts.token
     });
   },
 
@@ -315,5 +342,27 @@ export const chatService = {
       { method: "DELETE", token: opts.token }
     );
     return response.reactions;
+  },
+
+  // 반응 상세 — 이모지별 누가 반응했는지.
+  async listReactionDetails(
+    messageId: string,
+    opts: AuthOptions = {}
+  ): Promise<MessageReactionDetail[]> {
+    return apiRequest<MessageReactionDetail[]>(
+      `/messages/${encodeURIComponent(messageId)}/reactions`,
+      { token: opts.token }
+    );
+  },
+
+  // 읽음 확인 — 방 멤버(작성자 제외) 기준 읽음/안 읽음 목록.
+  async getMessageReadStatus(
+    messageId: string,
+    opts: AuthOptions = {}
+  ): Promise<MessageReadStatus> {
+    return apiRequest<MessageReadStatus>(
+      `/messages/${encodeURIComponent(messageId)}/read-status`,
+      { token: opts.token }
+    );
   }
 };
