@@ -10,7 +10,7 @@
  * messages, products, files, notices. Write surface implemented: every
  * write that the routes currently invoke (user CRUD, department CRUD,
  * project CRUD + members, task CRUD, message append, notice confirm). Several
- * DTO fields (room presence/unread, product spec/lots/history, file folders,
+ * DTO fields (room presence/unread, product spec/history, file folders,
  * notice tone) intentionally fall back to defaults until the underlying
  * tables exist — see README "Postgres adapter 구현 범위" for the matrix.
  */
@@ -58,7 +58,6 @@ import type {
   Product,
   ProductDocument,
   ProductDocumentType,
-  ProductLot,
   ProductSpec,
   Project,
   ProjectStatus,
@@ -71,13 +70,11 @@ import type {
   TaskItem,
   TaskPriority,
   TaskStatus,
-  CreateProductLotInput,
   CreateProductSpecInput,
   UpdateDecisionInput,
   UpdateDepartmentInput,
   UpdateNotificationSettingsInput,
   UpdateProductInput,
-  UpdateProductLotInput,
   UpdateProductSpecInput,
   UpdateProjectInput,
   UpdateRoomInput,
@@ -526,19 +523,7 @@ class PgProjectRepository implements ProjectRepository {
     return rows[0] ? rowToProject(rows[0]) : undefined;
   }
 
-  async create(input: CreateProjectInput): Promise<Project> {
-    // `created_by` is NOT NULL in the schema. For MVP we look up any
-    // super_admin (or the first user) since there is no `currentUser` plumbed
-    // into the repository. The audit story is tracked in TODO.
-    const { rows: anyUser } = await this.pool.query<{ id: string }>(
-      `SELECT id FROM users WHERE role IN ('super_admin','admin') AND is_active LIMIT 1`
-    );
-    if (anyUser.length === 0) {
-      throw new Error(
-        "[postgres] cannot create a project: no admin user available as created_by"
-      );
-    }
-    const createdBy = anyUser[0].id;
+  async create(input: CreateProjectInput, createdBy: { id: string }): Promise<Project> {
     const { rows } = await this.pool.query<{ id: string }>(
       `INSERT INTO projects (
          code, name, full_name, status, stage_label, department, owner_name,
@@ -573,16 +558,28 @@ class PgProjectRepository implements ProjectRepository {
         // (preparing/unavailable/internal/conditional/available). Default to
         // the enum value here so reads round-trip cleanly through SalesStatus.
         input.salesStatus ?? "preparing",
-        createdBy
+        createdBy.id
       ]
     );
+    // The creator joins automatically as project_owner; without this row the
+    // membership check in ensureProjectAccess locks creators out of their
+    // own project.
+    await this.pool.query(
+      `INSERT INTO project_members (project_id, user_id, role)
+       VALUES ($1, $2, 'project_owner')
+       ON CONFLICT (project_id, user_id) DO NOTHING`,
+      [rows[0].id, createdBy.id]
+    );
     // initial member list, if any — 한 번의 멀티행 INSERT 로.
-    if (input.memberIds && input.memberIds.length > 0) {
+    const extraMemberIds = [...new Set(input.memberIds ?? [])].filter(
+      (id) => id !== createdBy.id
+    );
+    if (extraMemberIds.length > 0) {
       await this.pool.query(
         `INSERT INTO project_members (project_id, user_id, role)
          SELECT $1, unnest($2::uuid[]), 'member'
          ON CONFLICT (project_id, user_id) DO NOTHING`,
-        [rows[0].id, [...new Set(input.memberIds)]]
+        [rows[0].id, extraMemberIds]
       );
     }
     const created = await this.findById(rows[0].id);
@@ -1684,11 +1681,10 @@ function rowToProduct(row: ProductRow): Product {
     salesUpdatedBy: "",
     ownerId: row.owner_id ?? "",
     // The DTO carries denormalized aggregates that the current schema does not
-    // back. Until product_documents / product_lots / sales_status_events are
-    // joined in, we return empty arrays so the UI renders an empty state
-    // instead of crashing.
+    // back. Until product_documents / sales_status_events are joined in, we
+    // return empty arrays so the UI renders an empty state instead of
+    // crashing.
     spec: [],
-    lots: [],
     history: [],
     relatedProjectIds: [],
     documents: [],
@@ -1897,80 +1893,6 @@ class PgProductRepository implements ProductRepository {
     return (rowCount ?? 0) > 0;
   }
 
-  // ── Phase 7 J-1 — product_lots ───────────────────────────────────
-
-  async listLots(productId: string): Promise<ProductLot[]> {
-    const { rows } = await this.pool.query<LotRow>(
-      `${LOT_SELECT} WHERE product_id = $1 ORDER BY produced_at DESC NULLS LAST, created_at DESC`,
-      [productId]
-    );
-    return rows.map(rowToLot);
-  }
-
-  async createLot(productId: string, input: CreateProductLotInput): Promise<ProductLot> {
-    const { rows } = await this.pool.query<LotRow>(
-      `INSERT INTO product_lots
-         (product_id, lot_no, produced_at, quantity_kg, verdict, tested_at, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, product_id, lot_no, produced_at, quantity_kg,
-                 verdict, tested_at, notes, created_at`,
-      [
-        productId,
-        input.number,
-        input.producedAt || null,
-        input.quantity ?? null,
-        input.verdict ?? null,
-        input.testedAt || null,
-        input.note ?? null
-      ]
-    );
-    return rowToLot(rows[0]);
-  }
-
-  async updateLot(
-    productId: string,
-    lotId: string,
-    input: UpdateProductLotInput
-  ): Promise<ProductLot | undefined> {
-    const sets: string[] = [];
-    const params: unknown[] = [];
-    const add = (col: string, val: unknown) => {
-      params.push(val);
-      sets.push(`${col} = $${params.length}`);
-    };
-    if (input.number !== undefined) add("lot_no", input.number);
-    if (input.producedAt !== undefined) add("produced_at", input.producedAt || null);
-    if (input.quantity !== undefined) add("quantity_kg", input.quantity ?? null);
-    if (input.verdict !== undefined) add("verdict", input.verdict ?? null);
-    if (input.testedAt !== undefined) add("tested_at", input.testedAt || null);
-    if (input.note !== undefined) add("notes", input.note ?? null);
-    if (sets.length === 0) {
-      const cur = await this.pool.query<LotRow>(
-        `${LOT_SELECT} WHERE id = $1 AND product_id = $2`,
-        [lotId, productId]
-      );
-      return cur.rows[0] ? rowToLot(cur.rows[0]) : undefined;
-    }
-    sets.push("updated_at = NOW()");
-    params.push(lotId, productId);
-    const { rows } = await this.pool.query<LotRow>(
-      `UPDATE product_lots SET ${sets.join(", ")}
-        WHERE id = $${params.length - 1} AND product_id = $${params.length}
-       RETURNING id, product_id, lot_no, produced_at, quantity_kg,
-                 verdict, tested_at, notes, created_at`,
-      params
-    );
-    return rows[0] ? rowToLot(rows[0]) : undefined;
-  }
-
-  async deleteLot(productId: string, lotId: string): Promise<boolean> {
-    const { rowCount } = await this.pool.query(
-      `DELETE FROM product_lots WHERE id = $1 AND product_id = $2`,
-      [lotId, productId]
-    );
-    return (rowCount ?? 0) > 0;
-  }
-
   // ── Phase 7 J-1 — sales_status_events ─────────────────────────────
 
   async listSalesEvents(productId: string): Promise<SalesStatusEvent[]> {
@@ -2101,39 +2023,6 @@ function rowToProductDoc(row: ProductDocRow): ProductDocument {
     sizeLabel: row.file_size != null ? formatBytes(Number(row.file_size)) : "",
     uploadedById: row.uploaded_by,
     uploadedByName: row.uploaded_by_name ?? undefined,
-    createdAt:
-      row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at)
-  };
-}
-
-interface LotRow {
-  id: string;
-  product_id: string;
-  lot_no: string;
-  produced_at: Date | null;
-  quantity_kg: string | number | null;
-  verdict: string | null;
-  tested_at: Date | null;
-  notes: string | null;
-  created_at: Date;
-}
-
-const LOT_SELECT = `
-  SELECT id, product_id, lot_no, produced_at, quantity_kg,
-         verdict, tested_at, notes, created_at
-    FROM product_lots
-`;
-
-function rowToLot(row: LotRow): ProductLot {
-  return {
-    id: row.id,
-    productId: row.product_id,
-    number: row.lot_no,
-    producedAt: row.produced_at ? formatDate(row.produced_at) : undefined,
-    quantity: row.quantity_kg != null ? String(row.quantity_kg) : undefined,
-    verdict: (row.verdict as ProductLot["verdict"]) ?? undefined,
-    testedAt: row.tested_at ? formatDate(row.tested_at) : undefined,
-    note: row.notes ?? undefined,
     createdAt:
       row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at)
   };
@@ -3840,7 +3729,6 @@ function rowToTransaction(r: any): InventoryTransaction {
     quantityKg: num(r.quantity_kg),
     sourceType: r.source_type ?? undefined,
     sourceId: r.source_id ?? undefined,
-    lotId: r.lot_id ?? undefined,
     note: r.note ?? undefined,
     createdById: r.created_by,
     createdByName: r.created_by_name ?? undefined,

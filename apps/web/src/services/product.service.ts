@@ -1,16 +1,13 @@
 import type {
   CreateProductDocumentInput,
   CreateProductInput,
-  CreateProductLotInput,
   CreateProductSpecInput,
   Product,
   ProductDocument,
   ProductDocumentType,
-  ProductLot,
   ProductSpec,
   SalesStatusEvent,
   UpdateProductInput,
-  UpdateProductLotInput,
   UpdateProductSpecInput
 } from "@hanmir/shared";
 import { apiRequest, apiRequestOrNull } from "./api-client";
@@ -47,7 +44,7 @@ export const productService = {
     });
   },
 
-  // ── Phase 7 J-2 — specs / lots / sales-history ────────────────────
+  // ── Phase 7 J-2 — specs / sales-history ────────────────────
 
   async listSpecs(productId: string, opts: AuthOptions = {}): Promise<ProductSpec[]> {
     return apiRequest<ProductSpec[]>(
@@ -84,45 +81,6 @@ export const productService = {
   ): Promise<{ ok: boolean }> {
     return apiRequest<{ ok: boolean }>(
       `/products/${encodeURIComponent(productId)}/specs/${encodeURIComponent(specId)}`,
-      { method: "DELETE", token: opts.token }
-    );
-  },
-
-  async listLots(productId: string, opts: AuthOptions = {}): Promise<ProductLot[]> {
-    return apiRequest<ProductLot[]>(
-      `/products/${encodeURIComponent(productId)}/lots`,
-      { token: opts.token }
-    );
-  },
-  async createLot(
-    productId: string,
-    input: CreateProductLotInput,
-    opts: AuthOptions = {}
-  ): Promise<ProductLot> {
-    return apiRequest<ProductLot>(`/products/${encodeURIComponent(productId)}/lots`, {
-      method: "POST",
-      body: input,
-      token: opts.token
-    });
-  },
-  async updateLot(
-    productId: string,
-    lotId: string,
-    input: UpdateProductLotInput,
-    opts: AuthOptions = {}
-  ): Promise<ProductLot> {
-    return apiRequest<ProductLot>(
-      `/products/${encodeURIComponent(productId)}/lots/${encodeURIComponent(lotId)}`,
-      { method: "PATCH", body: input, token: opts.token }
-    );
-  },
-  async deleteLot(
-    productId: string,
-    lotId: string,
-    opts: AuthOptions = {}
-  ): Promise<{ ok: boolean }> {
-    return apiRequest<{ ok: boolean }>(
-      `/products/${encodeURIComponent(productId)}/lots/${encodeURIComponent(lotId)}`,
       { method: "DELETE", token: opts.token }
     );
   },

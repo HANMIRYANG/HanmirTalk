@@ -1,22 +1,36 @@
 "use client";
 
-import { useState } from "react";
 import { cn } from "@/lib/classNames";
 import styles from "./gantt.module.css";
 
-type Scale = "day" | "week" | "month" | "quarter";
-type Period = "current" | "next" | "prev" | "all";
-type AssigneeFilter = "all" | "me";
-type StatusFilter = "all" | "open" | "done" | "late";
+export type Scale = "day" | "week" | "month" | "quarter";
+export type Period = "all" | "prev" | "current" | "next";
+export type AssigneeFilter = "all" | "me";
+export type StatusFilter = "all" | "open" | "done" | "late";
 
-export function GanttToolbar() {
-  const [scale, setScale] = useState<Scale>("week");
-  const [period, setPeriod] = useState<Period>("current");
-  const [assignee, setAssignee] = useState<AssigneeFilter>("all");
-  const [status, setStatus] = useState<StatusFilter>("open");
+interface Props {
+  scale: Scale;
+  onScaleChange: (scale: Scale) => void;
+  period: Period;
+  onPeriodChange: (period: Period) => void;
+  periodLabels: Record<Period, string>;
+  assignee: AssigneeFilter;
+  onAssigneeChange: (assignee: AssigneeFilter) => void;
+  status: StatusFilter;
+  onStatusChange: (status: StatusFilter) => void;
+}
 
-  const periodLabel =
-    period === "current" ? "5월 — 6월" : period === "next" ? "7월 — 8월" : period === "prev" ? "3월 — 4월" : "전체";
+export function GanttToolbar({
+  scale,
+  onScaleChange,
+  period,
+  onPeriodChange,
+  periodLabels,
+  assignee,
+  onAssigneeChange,
+  status,
+  onStatusChange
+}: Props) {
   const assigneeLabel = assignee === "me" ? "나" : "전체";
   const statusLabel =
     status === "all"
@@ -34,7 +48,7 @@ export function GanttToolbar() {
           <button
             key={s}
             type="button"
-            onClick={() => setScale(s)}
+            onClick={() => onScaleChange(s)}
             className={cn(styles.segBtn, scale === s && styles.segActive)}
           >
             {s === "day" ? "일" : s === "week" ? "주" : s === "month" ? "월" : "분기"}
@@ -44,18 +58,18 @@ export function GanttToolbar() {
 
       <div className={styles.filterSlot}>
         <span className={styles.filterLabel}>
-          기간: <b>{periodLabel}</b>
+          기간: <b>{periodLabels[period]}</b>
         </span>
         <select
           className={styles.nativeSelect}
           value={period}
-          onChange={(e) => setPeriod(e.target.value as Period)}
+          onChange={(e) => onPeriodChange(e.target.value as Period)}
           aria-label="기간 필터"
         >
-          <option value="prev">3월 — 4월</option>
-          <option value="current">5월 — 6월</option>
-          <option value="next">7월 — 8월</option>
-          <option value="all">전체</option>
+          <option value="all">{periodLabels.all}</option>
+          <option value="prev">{periodLabels.prev}</option>
+          <option value="current">{periodLabels.current}</option>
+          <option value="next">{periodLabels.next}</option>
         </select>
       </div>
 
@@ -66,7 +80,7 @@ export function GanttToolbar() {
         <select
           className={styles.nativeSelect}
           value={assignee}
-          onChange={(e) => setAssignee(e.target.value as AssigneeFilter)}
+          onChange={(e) => onAssigneeChange(e.target.value as AssigneeFilter)}
           aria-label="담당자 필터"
         >
           <option value="all">전체</option>
@@ -81,7 +95,7 @@ export function GanttToolbar() {
         <select
           className={styles.nativeSelect}
           value={status}
-          onChange={(e) => setStatus(e.target.value as StatusFilter)}
+          onChange={(e) => onStatusChange(e.target.value as StatusFilter)}
           aria-label="상태 필터"
         >
           <option value="open">완료 제외</option>

@@ -467,47 +467,6 @@ export interface UpdateTaskInput {
   description?: string;
 }
 
-// Phase 7 J-1 — DB-backed product lot. Maps to product_lots row.
-// `number`는 DB의 lot_no. `quantity`는 NUMERIC(12,2)를 string으로
-// 전달 (소수점/포맷 보존). verdict / testedAt / note 모두 optional.
-//
-// trcVersion / trcStatus는 deprecated — 시험성적서는 product_documents
-// (document_type='test_report')에서 별도 관리하므로 lot 자체에는 두지 않음.
-// 기존 seed/mock UI 호환을 위해 optional로 남김.
-export interface ProductLot {
-  id: string;
-  productId?: string;
-  number: string;
-  producedAt?: string;
-  quantity?: string;
-  verdict?: "pass" | "hold" | "retest";
-  testedAt?: string;
-  note?: string;
-  createdAt?: string;
-  // Deprecated — Phase 7에서 시험성적서를 product_documents로 분리. 기존
-  // seed mock UI는 이 두 필드를 표시하므로 optional로 유지 (DB 안 들어감).
-  trcVersion?: string;
-  trcStatus?: "in_review" | "approved" | "pending";
-}
-
-export interface CreateProductLotInput {
-  number: string;
-  producedAt?: string;
-  quantity?: string;
-  verdict?: "pass" | "hold" | "retest";
-  testedAt?: string;
-  note?: string;
-}
-
-export interface UpdateProductLotInput {
-  number?: string;
-  producedAt?: string;
-  quantity?: string;
-  verdict?: "pass" | "hold" | "retest";
-  testedAt?: string;
-  note?: string;
-}
-
 // Phase 7 J-1 — DB-backed sales status event. PATCH /products/:id 의
 // salesStatus 변경 시 hook이 자동 insert. changedByName은 server-side
 // JOIN 결과 (UI 표시용).
@@ -587,7 +546,7 @@ export interface CreateProductDocumentInput {
 export interface CreateProductInput {
   // Only `name` is required; the rest map to the columns the current
   // products table actually has. DTO-only fields (code, fullName, spec,
-  // lots, history, quarter) are ignored at the persistence layer until
+  // history, quarter) are ignored at the persistence layer until
   // their own tables/columns are added.
   name: string;
   category?: string;
@@ -631,7 +590,6 @@ export interface Product {
   ownerId: string;
   imageLabel?: string;
   spec: { key: string; value: string }[];
-  lots: ProductLot[];
   history: SalesStatusEvent[];
   relatedProjectIds: string[];
   documents: { id: string; kind: FileKind; name: string; meta: string }[];
@@ -1204,7 +1162,6 @@ export interface InventoryTransaction {
   quantityKg: number;
   sourceType?: string;
   sourceId?: string;
-  lotId?: string;
   note?: string;
   createdById: string;
   createdByName?: string;

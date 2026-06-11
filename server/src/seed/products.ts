@@ -39,68 +39,6 @@ export const seedProducts: Product[] = [
       { key: "기본 납기", value: "발주 후 7영업일 (현재 +5영업일 적용 중)" },
       { key: "최소 주문 수량", value: "500 kg" }
     ],
-    lots: [
-      {
-        id: "lot-1",
-        number: "L-26-0512-A",
-        producedAt: "2026.05.12",
-        quantity: "1,820 kg",
-        trcVersion: "v0.3 검토중",
-        trcStatus: "in_review",
-        verdict: "hold",
-        note: "v1.0 확정 후 출하 예정"
-      },
-      {
-        id: "lot-2",
-        number: "L-26-0509-A",
-        producedAt: "2026.05.09",
-        quantity: "2,140 kg",
-        trcVersion: "v0.2 결재",
-        trcStatus: "approved",
-        verdict: "pass",
-        note: "출하 완료 (대성정밀)"
-      },
-      {
-        id: "lot-3",
-        number: "L-26-0505-A",
-        producedAt: "2026.05.05",
-        quantity: "980 kg",
-        trcVersion: "v0.2 결재",
-        trcStatus: "approved",
-        verdict: "pass",
-        note: "출하 완료 (한진금속)"
-      },
-      {
-        id: "lot-4",
-        number: "L-26-0428-B",
-        producedAt: "2026.04.28",
-        quantity: "1,560 kg",
-        trcVersion: "v0.1 결재",
-        trcStatus: "approved",
-        verdict: "pass",
-        note: "출하 완료"
-      },
-      {
-        id: "lot-5",
-        number: "L-26-0425-A",
-        producedAt: "2026.04.25",
-        quantity: "820 kg",
-        trcVersion: "결과 미확정",
-        trcStatus: "pending",
-        verdict: "retest",
-        note: "표면조도 항목 재측정 필요"
-      },
-      {
-        id: "lot-6",
-        number: "L-26-0418-C",
-        producedAt: "2026.04.18",
-        quantity: "2,200 kg",
-        trcVersion: "v0.1 결재",
-        trcStatus: "approved",
-        verdict: "pass",
-        note: "출하 완료"
-      }
-    ],
     history: [
       // Phase 7 J-1 — new shape (fromStatus/toStatus/reason/changedAt).
       // Deprecated UI 필드(title/meta/date/state)는 mock fallback용으로

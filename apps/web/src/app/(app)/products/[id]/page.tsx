@@ -22,8 +22,8 @@ export default async function ProductDetailPage({ params }: Props) {
   const product = await productService.getProduct(params.id, { token });
   if (!product) notFound();
 
-  // Phase 7 J-3 — DB-backed specs / lots / sales-history.
-  const [owner, relatedProjects, dbSpecs, dbLots, dbHistory, dbDocuments, inventory] =
+  // Phase 7 J-3 — DB-backed specs / sales-history.
+  const [owner, relatedProjects, dbSpecs, dbHistory, dbDocuments, inventory] =
     await Promise.all([
       product.ownerId
         ? userService.getUser(product.ownerId, { token })
@@ -32,7 +32,6 @@ export default async function ProductDetailPage({ params }: Props) {
         product.relatedProjectIds.map((id) => projectService.getProject(id, { token }))
       ).then((items) => items.filter((p): p is NonNullable<typeof p> => Boolean(p))),
       productService.listSpecs(params.id, { token }).catch(() => []),
-      productService.listLots(params.id, { token }).catch(() => []),
       productService.listSalesHistory(params.id, { token }).catch(() => []),
       productService.listDocuments(params.id, { token }).catch(() => []),
       erpService.getInventorySummary(params.id, { token }).catch(() => undefined)
@@ -129,7 +128,6 @@ export default async function ProductDetailPage({ params }: Props) {
       <ProductTabs
         product={product}
         specs={dbSpecs}
-        lots={dbLots}
         salesHistory={dbHistory}
         documents={dbDocuments}
         relatedProjects={relatedProjects}

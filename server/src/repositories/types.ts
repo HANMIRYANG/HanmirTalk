@@ -9,7 +9,6 @@ import type {
   CreateFileInput,
   CreateNoticeInput,
   CreateProductInput,
-  CreateProductLotInput,
   CreateProductSpecInput,
   CreateProductVariantInput,
   CreateWarehouseInput,
@@ -36,7 +35,6 @@ import type {
   Product,
   ProductDocument,
   ProductDocumentType,
-  ProductLot,
   ProductSpec,
   ProductVariant,
   ProductInventorySummary,
@@ -57,7 +55,6 @@ import type {
   UpdateNotificationSettingsInput,
   UpdateDepartmentInput,
   UpdateProductInput,
-  UpdateProductLotInput,
   UpdateProductSpecInput,
   UpdateProductVariantInput,
   UpdateWarehouseInput,
@@ -254,7 +251,9 @@ export interface MessageReactionRepository {
 export interface ProjectRepository {
   list(): Promise<Project[]>;
   findById(id: string): Promise<Project | undefined>;
-  create(input: CreateProjectInput): Promise<Project>;
+  // createdBy is recorded as `projects.created_by` and auto-enrolled as a
+  // project member so creators pass the ensureProjectAccess membership check.
+  create(input: CreateProjectInput, createdBy: { id: string }): Promise<Project>;
   update(id: string, input: UpdateProjectInput): Promise<Project | undefined>;
   // Soft delete: status -> "cancelled". Returns undefined when not found.
   cancel(id: string): Promise<Project | undefined>;
@@ -290,16 +289,6 @@ export interface ProductRepository {
     input: UpdateProductSpecInput
   ): Promise<ProductSpec | undefined>;
   deleteSpec(productId: string, specId: string): Promise<boolean>;
-
-  // Phase 7 J-1 — product_lots. (lot_no, product_id) UNIQUE.
-  listLots(productId: string): Promise<ProductLot[]>;
-  createLot(productId: string, input: CreateProductLotInput): Promise<ProductLot>;
-  updateLot(
-    productId: string,
-    lotId: string,
-    input: UpdateProductLotInput
-  ): Promise<ProductLot | undefined>;
-  deleteLot(productId: string, lotId: string): Promise<boolean>;
 
   // Phase 7 J-1 — sales_status_events 타임라인. PATCH /products/:id 의
   // salesStatus 변경 hook이 append를 호출.

@@ -100,7 +100,7 @@ const MATRIX: AreaRow[] = [
   },
   {
     area: "제품정보 등록 · 수정",
-    note: "제품·사양·LOT·문서·영업상태",
+    note: "제품·사양·문서·영업상태",
     access: {
       super_admin: "write",
       admin: "write",

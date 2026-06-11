@@ -134,6 +134,8 @@ export function GanttTimeline({
           <div className={styles.daysRow}>
             {days.map((d, idx) => {
               const dow = d.getDay();
+              // 좁은 컬럼(월/분기 스케일)에서는 숫자가 겹치므로 월요일만 표기.
+              const showNumber = colWidth >= 22 || dow === 1;
               return (
                 <div
                   key={idx}
@@ -144,7 +146,7 @@ export function GanttTimeline({
                     idx === todayIndex && styles.dayToday
                   )}
                 >
-                  {d.getDate()}
+                  {showNumber ? d.getDate() : ""}
                 </div>
               );
             })}

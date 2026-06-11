@@ -257,7 +257,7 @@ export function createProjectsRouter(repos: Repositories): Router {
       res.status(400).json({ error: parsed.error });
       return;
     }
-    const project = await repos.projects.create(parsed);
+    const project = await repos.projects.create(parsed, { id: req.currentUser!.id });
     await auditLog(repos, req, {
       action: "project.create",
       targetType: "project",

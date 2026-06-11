@@ -3,20 +3,16 @@ import fs from "fs/promises";
 import path from "path";
 import type {
   CreateProductInput,
-  CreateProductLotInput,
   CreateProductSpecInput,
   ProductDocumentType,
   SalesStatus,
   UpdateProductInput,
-  UpdateProductLotInput,
   UpdateProductSpecInput
 } from "@hanmir/shared";
 import type { Repositories } from "../repositories/types";
 import { requireRole } from "../auth/middleware";
 import { auditLog } from "../audit";
 import { config } from "../config";
-
-const VALID_VERDICT = ["pass", "hold", "retest"] as const;
 
 // Phase 7 J-2 — 8 product document types from docs/06_PRODUCT_INFO_SPEC.
 const VALID_DOCUMENT_TYPE: ProductDocumentType[] = [
@@ -222,7 +218,7 @@ export function createProductsRouter(repos: Repositories): Router {
     res.json({ ok: true });
   });
 
-  // ── Phase 7 J-2 — specs / lots / sales-history ──────────────────
+  // ── Phase 7 J-2 — specs / sales-history ──────────────────
 
   router.get("/:id/specs", async (req, res) => {
     const product = await repos.products.findById(req.params.id);
@@ -281,76 +277,6 @@ export function createProductsRouter(repos: Repositories): Router {
       targetType: "product",
       targetId: req.params.id,
       targetLabel: req.params.specId,
-      level: "warn"
-    });
-    res.json({ ok: true });
-  });
-
-  router.get("/:id/lots", async (req, res) => {
-    const product = await repos.products.findById(req.params.id);
-    if (!product) {
-      res.status(404).json({ error: "not_found" });
-      return;
-    }
-    const lots = await repos.products.listLots(req.params.id);
-    res.json(lots);
-  });
-
-  router.post("/:id/lots", writers, async (req, res) => {
-    const parsed = parseLot(req.body);
-    if ("error" in parsed) {
-      res.status(400).json({ error: parsed.error });
-      return;
-    }
-    const product = await repos.products.findById(req.params.id);
-    if (!product) {
-      res.status(404).json({ error: "not_found" });
-      return;
-    }
-    try {
-      const lot = await repos.products.createLot(req.params.id, parsed);
-      await auditLog(repos, req, {
-        action: "product.lot.create",
-        targetType: "product",
-        targetId: req.params.id,
-        targetLabel: `${product.name} LOT ${lot.number}`,
-        meta: { lotId: lot.id, verdict: lot.verdict }
-      });
-      res.status(201).json(lot);
-    } catch (err) {
-      if (err instanceof Error && err.message === "duplicate_lot_number") {
-        res.status(409).json({ error: "duplicate_lot_number" });
-        return;
-      }
-      throw err;
-    }
-  });
-
-  router.patch("/:id/lots/:lotId", writers, async (req, res) => {
-    const parsed = parseLotUpdate(req.body);
-    if ("error" in parsed) {
-      res.status(400).json({ error: parsed.error });
-      return;
-    }
-    const updated = await repos.products.updateLot(req.params.id, req.params.lotId, parsed);
-    if (!updated) {
-      res.status(404).json({ error: "not_found" });
-      return;
-    }
-    res.json(updated);
-  });
-
-  router.delete("/:id/lots/:lotId", writers, async (req, res) => {
-    const ok = await repos.products.deleteLot(req.params.id, req.params.lotId);
-    if (!ok) {
-      res.status(404).json({ error: "not_found" });
-      return;
-    }
-    await auditLog(repos, req, {
-      action: "product.lot.delete",
-      targetType: "product",
-      targetId: req.params.id,
-      targetLabel: req.params.lotId,
       level: "warn"
     });
     res.json({ ok: true });
@@ -489,58 +415,3 @@ function parseSpecUpdate(body: unknown): UpdateProductSpecInput | { error: strin
   return out;
 }
 
-function parseLot(body: unknown): CreateProductLotInput | { error: string } {
-  if (!body || typeof body !== "object") return { error: "invalid_body" };
-  const b = body as Record<string, unknown>;
-  if (!isString(b.number) || !b.number.trim()) return { error: "number_required" };
-  if (b.verdict !== undefined) {
-    if (
-      !isString(b.verdict) ||
-      !(VALID_VERDICT as readonly string[]).includes(b.verdict)
-    )
-      return { error: "verdict_invalid" };
-  }
-  return {
-    number: b.number.trim(),
-    producedAt: isString(b.producedAt) ? b.producedAt : undefined,
-    quantity: isString(b.quantity) ? b.quantity : undefined,
-    verdict: isString(b.verdict) ? (b.verdict as CreateProductLotInput["verdict"]) : undefined,
-    testedAt: isString(b.testedAt) ? b.testedAt : undefined,
-    note: isString(b.note) ? b.note : undefined
-  };
-}
-
-function parseLotUpdate(body: unknown): UpdateProductLotInput | { error: string } {
-  if (!body || typeof body !== "object") return { error: "invalid_body" };
-  const b = body as Record<string, unknown>;
-  const out: UpdateProductLotInput = {};
-  if (b.number !== undefined) {
-    if (!isString(b.number) || !b.number.trim()) return { error: "number_invalid" };
-    out.number = b.number.trim();
-  }
-  if (b.producedAt !== undefined) {
-    if (!isString(b.producedAt)) return { error: "producedAt_invalid" };
-    out.producedAt = b.producedAt;
-  }
-  if (b.quantity !== undefined) {
-    if (!isString(b.quantity)) return { error: "quantity_invalid" };
-    out.quantity = b.quantity;
-  }
-  if (b.verdict !== undefined) {
-    if (
-      !isString(b.verdict) ||
-      !(VALID_VERDICT as readonly string[]).includes(b.verdict)
-    )
-      return { error: "verdict_invalid" };
-    out.verdict = b.verdict as UpdateProductLotInput["verdict"];
-  }
-  if (b.testedAt !== undefined) {
-    if (!isString(b.testedAt)) return { error: "testedAt_invalid" };
-    out.testedAt = b.testedAt;
-  }
-  if (b.note !== undefined) {
-    if (!isString(b.note)) return { error: "note_invalid" };
-    out.note = b.note;
-  }
-  return out;
-}

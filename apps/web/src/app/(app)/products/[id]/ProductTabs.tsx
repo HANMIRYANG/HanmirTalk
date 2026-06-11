@@ -6,7 +6,6 @@ import Link from "next/link";
 import type {
   Product,
   ProductDocument,
-  ProductLot,
   ProductSpec,
   Project,
   SalesStatus,
@@ -19,14 +18,10 @@ import { ProgressBar } from "@/components/ui/ProgressBar";
 import dynamic from "next/dynamic";
 import { ProductOwnerChatButton } from "./ProductOwnerChatButton";
 
-// 모달 3종은 열 때만 로드 — 초기 번들에서 제외 (조건부 렌더라 청크는
+// 모달 2종은 열 때만 로드 — 초기 번들에서 제외 (조건부 렌더라 청크는
 // 버튼 클릭 시점에 받아온다).
 const ProductSpecsModal = dynamic(
   () => import("./ProductSpecsModal").then((m) => m.ProductSpecsModal),
-  { ssr: false }
-);
-const ProductLotModal = dynamic(
-  () => import("./ProductLotModal").then((m) => m.ProductLotModal),
   { ssr: false }
 );
 const ProductDocumentUploadModal = dynamic(
@@ -40,12 +35,11 @@ import { handleSessionExpired } from "@/lib/client-auth";
 import { cn } from "@/lib/classNames";
 import styles from "./detail.module.css";
 
-type Tab = "overview" | "test_reports" | "lots" | "sales_history" | "related" | "inquiry";
+type Tab = "overview" | "test_reports" | "sales_history" | "related" | "inquiry";
 
 interface Props {
   product: Product;
   specs: ProductSpec[];
-  lots: ProductLot[];
   salesHistory: SalesStatusEvent[];
   documents: ProductDocument[];
   relatedProjects: Project[];
@@ -53,17 +47,6 @@ interface Props {
   meId: string;
   canManage: boolean;
 }
-
-const VERDICT_TONE: Record<string, "green" | "amber" | "red"> = {
-  pass: "green",
-  hold: "amber",
-  retest: "red"
-};
-const VERDICT_LABEL: Record<string, string> = {
-  pass: "합격",
-  hold: "보류",
-  retest: "재시험"
-};
 
 const SALES_TONE: Record<SalesStatus, "green" | "amber" | "red" | "blue" | "default"> = {
   unavailable: "red",
@@ -76,7 +59,6 @@ const SALES_TONE: Record<SalesStatus, "green" | "amber" | "red" | "blue" | "defa
 const TABS: { key: Tab; label: string }[] = [
   { key: "overview", label: "제품 개요" },
   { key: "test_reports", label: "시험성적서" },
-  { key: "lots", label: "생산 LOT" },
   { key: "sales_history", label: "영업 상태 이력" },
   { key: "related", label: "관련 프로젝트" },
   { key: "inquiry", label: "문의 채팅" }
@@ -85,7 +67,6 @@ const TABS: { key: Tab; label: string }[] = [
 export function ProductTabs({
   product,
   specs: initialSpecs,
-  lots: initialLots,
   salesHistory,
   documents,
   relatedProjects,
@@ -96,9 +77,6 @@ export function ProductTabs({
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("overview");
   const [specsOpen, setSpecsOpen] = useState(false);
-  const [lotModal, setLotModal] = useState<
-    { mode: "create" } | { mode: "edit"; lot: ProductLot } | null
-  >(null);
   const [docModalOpen, setDocModalOpen] = useState(false);
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
   const [docError, setDocError] = useState<string | null>(null);
@@ -125,7 +103,6 @@ export function ProductTabs({
   };
 
   const specs = initialSpecs;
-  const lots = initialLots;
   const history = salesHistory;
 
   // Phase 7 J-2 — DB-backed product_documents (document_type='test_report').
@@ -291,76 +268,6 @@ export function ProductTabs({
               </section>
             ) : null}
 
-            {tab === "lots" ? (
-              <section className={cn("card", styles.section)}>
-                <div className="card__head">
-                  <h3>생산 LOT</h3>
-                  <span className="muted t-xs">{lots.length}건</span>
-                  {canManage ? (
-                    <div className="right">
-                      <button
-                        className="btn btn--primary btn--sm"
-                        type="button"
-                        onClick={() => setLotModal({ mode: "create" })}
-                      >
-                        + LOT 등록
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-                {lots.length === 0 ? (
-                  <div className="muted t-sm" style={{ padding: 16 }}>
-                    등록된 LOT가 없습니다.
-                  </div>
-                ) : (
-                  <table className={styles.lotTable}>
-                    <thead>
-                      <tr>
-                        <th>LOT 번호</th>
-                        <th>생산일</th>
-                        <th>수량</th>
-                        <th>판정</th>
-                        <th>시험일</th>
-                        <th>비고</th>
-                        {canManage ? <th /> : null}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {lots.map((lot) => (
-                        <tr key={lot.id}>
-                          <td className={styles.lotNum}>{lot.number}</td>
-                          <td>{lot.producedAt ?? "—"}</td>
-                          <td>{lot.quantity ?? "—"}</td>
-                          <td>
-                            {lot.verdict ? (
-                              <Tag tone={VERDICT_TONE[lot.verdict]}>
-                                {VERDICT_LABEL[lot.verdict]}
-                              </Tag>
-                            ) : (
-                              <span className="muted">미판정</span>
-                            )}
-                          </td>
-                          <td>{lot.testedAt ?? "—"}</td>
-                          <td className="muted">{lot.note ?? ""}</td>
-                          {canManage ? (
-                            <td>
-                              <button
-                                type="button"
-                                className="btn btn--ghost btn--sm"
-                                onClick={() => setLotModal({ mode: "edit", lot })}
-                              >
-                                수정
-                              </button>
-                            </td>
-                          ) : null}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </section>
-            ) : null}
-
             {tab === "sales_history" ? (
               <section className={cn("card", styles.section)}>
                 <div className="card__head">
@@ -506,18 +413,6 @@ export function ProductTabs({
           onClose={() => setSpecsOpen(false)}
           onSaved={() => {
             setSpecsOpen(false);
-            router.refresh();
-          }}
-        />
-      ) : null}
-      {lotModal ? (
-        <ProductLotModal
-          productId={product.id}
-          mode={lotModal.mode}
-          initial={lotModal.mode === "edit" ? lotModal.lot : undefined}
-          onClose={() => setLotModal(null)}
-          onSaved={() => {
-            setLotModal(null);
             router.refresh();
           }}
         />

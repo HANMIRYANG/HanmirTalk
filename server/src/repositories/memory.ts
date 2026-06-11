@@ -34,7 +34,6 @@ import type {
   Product,
   ProductDocument,
   ProductDocumentType,
-  ProductLot,
   ProductSpec,
   Project,
   MessageReaction,
@@ -45,9 +44,7 @@ import type {
   SalesStatusEvent,
   ScheduledMessage,
   ScheduledMessageStatus,
-  CreateProductLotInput,
   CreateProductSpecInput,
-  UpdateProductLotInput,
   UpdateProductSpecInput,
   TaskItem,
   UpdateDecisionInput,
@@ -966,7 +963,7 @@ class MemoryProjectRepository implements ProjectRepository {
     return found ? clone(found) : undefined;
   }
 
-  async create(input: CreateProjectInput): Promise<Project> {
+  async create(input: CreateProjectInput, createdBy: { id: string }): Promise<Project> {
     const id = newId("p");
     const project: Project = {
       id,
@@ -985,7 +982,9 @@ class MemoryProjectRepository implements ProjectRepository {
       description: input.description ?? "",
       goals: input.goals ?? [],
       outputs: input.outputs ?? [],
-      memberIds: input.memberIds ?? [],
+      // The creator joins automatically so the ensureProjectAccess membership
+      // check doesn't lock creators out of their own project.
+      memberIds: [...new Set([createdBy.id, ...(input.memberIds ?? [])])],
       budget: input.budget,
       type: input.type,
       externalPartners: input.externalPartners,
@@ -1164,7 +1163,6 @@ class MemoryProductRepository implements ProductRepository {
       salesUpdatedBy: "",
       ownerId: input.ownerId ?? "",
       spec: [],
-      lots: [],
       history: [],
       relatedProjectIds: [],
       documents: [],
@@ -1201,17 +1199,15 @@ class MemoryProductRepository implements ProductRepository {
     this.data.splice(idx, 1);
     // 부속 데이터도 정리
     this.specs = this.specs.filter((s) => s.productId !== id);
-    this.lots = this.lots.filter((l) => l.productId !== id);
     this.salesEvents = this.salesEvents.filter((e) => e.productId !== id);
     this.documents = this.documents.filter((d) => d.productId !== id);
     return true;
   }
 
-  // Phase 7 J-1 — product_specs / product_lots / sales_status_events
-  // in-memory stores. 시드는 비어있음 (seedProducts.spec/lots/history는
+  // Phase 7 J-1 — product_specs / sales_status_events
+  // in-memory stores. 시드는 비어있음 (seedProducts.spec/history는
   // DTO 응답에 같이 들어가지만 별도 mock으로 보존).
   private specs: ProductSpec[] = [];
-  private lots: ProductLot[] = [];
   private salesEvents: SalesStatusEvent[] = [];
 
   async listSpecs(productId: string): Promise<ProductSpec[]> {
@@ -1257,55 +1253,6 @@ class MemoryProductRepository implements ProductRepository {
     const idx = this.specs.findIndex((s) => s.id === specId && s.productId === productId);
     if (idx < 0) return false;
     this.specs.splice(idx, 1);
-    return true;
-  }
-
-  async listLots(productId: string): Promise<ProductLot[]> {
-    return this.lots
-      .filter((l) => l.productId === productId)
-      .sort((a, b) => (b.producedAt ?? "").localeCompare(a.producedAt ?? ""))
-      .map((l) => clone(l));
-  }
-
-  async createLot(productId: string, input: CreateProductLotInput): Promise<ProductLot> {
-    if (this.lots.some((l) => l.productId === productId && l.number === input.number)) {
-      throw new Error("duplicate_lot_number");
-    }
-    const lot: ProductLot = {
-      id: newId("lot"),
-      productId,
-      number: input.number,
-      producedAt: input.producedAt,
-      quantity: input.quantity,
-      verdict: input.verdict,
-      testedAt: input.testedAt,
-      note: input.note,
-      createdAt: new Date().toISOString()
-    };
-    this.lots.unshift(lot);
-    return clone(lot);
-  }
-
-  async updateLot(
-    productId: string,
-    lotId: string,
-    input: UpdateProductLotInput
-  ): Promise<ProductLot | undefined> {
-    const target = this.lots.find((l) => l.id === lotId && l.productId === productId);
-    if (!target) return undefined;
-    if (input.number !== undefined) target.number = input.number;
-    if (input.producedAt !== undefined) target.producedAt = input.producedAt;
-    if (input.quantity !== undefined) target.quantity = input.quantity;
-    if (input.verdict !== undefined) target.verdict = input.verdict;
-    if (input.testedAt !== undefined) target.testedAt = input.testedAt;
-    if (input.note !== undefined) target.note = input.note;
-    return clone(target);
-  }
-
-  async deleteLot(productId: string, lotId: string): Promise<boolean> {
-    const idx = this.lots.findIndex((l) => l.id === lotId && l.productId === productId);
-    if (idx < 0) return false;
-    this.lots.splice(idx, 1);
     return true;
   }
 

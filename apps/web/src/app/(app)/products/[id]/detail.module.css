@@ -165,26 +165,6 @@
 .specTable td { color: var(--text-1); font-weight: 500; }
 .specTable tr:last-child th, .specTable tr:last-child td { border-bottom: none; }
 
-.lotTable { width: 100%; border-collapse: collapse; }
-.lotTable th {
-  text-align: left;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-4);
-  padding: 10px 14px;
-  background: var(--surface-muted);
-  border-bottom: 1px solid var(--border-soft);
-  letter-spacing: 0.04em;
-}
-.lotTable td {
-  padding: 12px 14px;
-  font-size: 13px;
-  color: var(--text-1);
-  border-bottom: 1px solid var(--border-soft);
-}
-.lotTable tbody tr:hover { background: var(--bg-soft); }
-.lotNum { font-family: 'SF Mono', monospace; font-size: 12px; color: var(--text-2); }
-
 .side { display: flex; flex-direction: column; gap: 14px; }
 
 .sideCard {
