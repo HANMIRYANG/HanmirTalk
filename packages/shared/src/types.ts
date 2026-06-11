@@ -36,15 +36,6 @@ export type RoomType =
   | "announcement"
   | "project";
 
-export type MessageType =
-  | "text"
-  | "image"
-  | "file"
-  | "notice"
-  | "system"
-  | "task_reference"
-  | "decision_reference";
-
 export type FileKind = "pdf" | "doc" | "xls" | "ppt" | "img" | "zip";
 
 export type Presence = "online" | "away" | "off";
@@ -399,10 +390,6 @@ export interface UpdateProjectInput {
   externalPartners?: string;
   relatedProductIds?: string[];
   salesStatus?: SalesStatus;
-}
-
-export interface ProjectMemberInput {
-  userId: string;
 }
 
 export interface TaskItem {
@@ -1003,10 +990,6 @@ export interface OrgNotificationDefault {
   enabled: boolean;
   updatedAt?: string;
   updatedByName?: string;
-}
-
-export interface UpdateOrgNotificationDefaultInput {
-  enabled: boolean;
 }
 
 // Phase 10 M-4 — 예약 전송. setTimeout 기반이 아니라 DB 영속 + 1분 주기

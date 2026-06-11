@@ -3,13 +3,11 @@
 import type { AppRouterInstance } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { authService } from "@/services/auth.service";
 
-export const SESSION_COOKIE = "hanmir_token";
-
 // Phase 1 D-3 — the access cookie is now httpOnly, so JS can no longer
 // clear it via document.cookie. Call the server logout endpoint which
 // revokes the refresh token row and emits Set-Cookie clears for both
 // hanmir_token and hanmir_refresh.
-export async function clearSession(): Promise<void> {
+async function clearSession(): Promise<void> {
   try {
     await authService.logout();
   } catch {
@@ -19,7 +17,7 @@ export async function clearSession(): Promise<void> {
   }
 }
 
-export function redirectToLogin(router: AppRouterInstance): void {
+function redirectToLogin(router: AppRouterInstance): void {
   router.replace("/login");
   router.refresh();
 }

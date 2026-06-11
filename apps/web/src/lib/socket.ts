@@ -41,10 +41,3 @@ export function getSocket(): Socket {
   });
   return cached;
 }
-
-export function disconnectSocket(): void {
-  if (cached) {
-    cached.disconnect();
-    cached = null;
-  }
-}

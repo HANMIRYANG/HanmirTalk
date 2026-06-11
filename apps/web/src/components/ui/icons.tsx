@@ -99,13 +99,6 @@ export const EmojiIcon = (p: Props) => (
   </svg>
 );
 
-export const TaskIcon = (p: Props) => (
-  <svg {...base(p)}>
-    <rect x="3.5" y="3.5" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="1.5" />
-    <path d="M7 10l2 2 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-  </svg>
-);
-
 export const BoldIcon = (p: Props) => (
   <svg {...base(p)}>
     <path d="M6 4h5a3 3 0 0 1 0 6H6V4ZM6 10h6a3 3 0 0 1 0 6H6v-6Z" stroke="currentColor" strokeWidth="1.5" />
@@ -286,17 +279,5 @@ export const BellIcon = (p: Props) => (
 export const FavoriteIcon = (p: Props) => (
   <svg {...base(p)}>
     <path d="M10 3.5l1.9 4 4.4.6-3.2 3.1.8 4.3L10 13.5l-3.9 2 .8-4.3L3.7 8.1l4.4-.6 1.9-4Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-  </svg>
-);
-
-export const InboxIcon = (p: Props) => (
-  <svg {...base(p)}>
-    <path d="M3 12V5a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v7M3 12l2-1h3l1 2h2l1-2h3l2 1M3 12v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-  </svg>
-);
-
-export const SendIcon = (p: Props) => (
-  <svg {...base(p)}>
-    <path d="M3 10l14-6-6 14-2-6-6-2Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
   </svg>
 );

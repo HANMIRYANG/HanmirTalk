@@ -9,8 +9,7 @@ import type {
   MessageReaction,
   PinnedMessageRef,
   Room,
-  ScheduledMessage,
-  UpdateRoomInput
+  ScheduledMessage
 } from "@hanmir/shared";
 import { apiRequest, apiRequestOrNull } from "./api-client";
 
@@ -178,18 +177,6 @@ export const chatService = {
     });
   },
 
-  async updateRoom(
-    roomId: string,
-    input: UpdateRoomInput,
-    opts: AuthOptions = {}
-  ): Promise<Room> {
-    return apiRequest<Room>(`/rooms/${encodeURIComponent(roomId)}`, {
-      method: "PATCH",
-      body: input,
-      token: opts.token
-    });
-  },
-
   // Find or create the DM room between caller and `userId`. Idempotent —
   // safe to call from a "1:1 대화 시작" button without checking first.
   async openDirectMessage(userId: string, opts: AuthOptions = {}): Promise<Room> {
@@ -199,18 +186,6 @@ export const chatService = {
       token: opts.token,
       // Server returns 200 (existing) or 201 (newly created).
       expectStatus: [200, 201]
-    });
-  },
-
-  async addMember(
-    roomId: string,
-    userId: string,
-    opts: AuthOptions = {}
-  ): Promise<Room> {
-    return apiRequest<Room>(`/rooms/${encodeURIComponent(roomId)}/members`, {
-      method: "POST",
-      body: { userId },
-      token: opts.token
     });
   },
 
