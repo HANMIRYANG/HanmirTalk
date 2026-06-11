@@ -1,19 +1,14 @@
-import Link from "next/link";
 import { SearchIcon } from "@/components/ui/icons";
-import { Avatar } from "@/components/ui/Avatar";
 import { authService } from "@/services/auth.service";
 import { notificationService } from "@/services/notification.service";
 import { getServerToken } from "@/lib/server-auth";
 import { NotificationBell } from "./NotificationBell";
+import { UserMenu } from "./UserMenu";
 import styles from "./Topbar.module.css";
 
 interface TopbarProps {
   title: string;
   sub?: string;
-}
-
-function initialsOf(name: string): string {
-  return name.slice(0, 2);
 }
 
 // Server component: pulls the current user + initial unread notification
@@ -47,19 +42,7 @@ export async function Topbar({ title, sub }: TopbarProps) {
 
       <div className={styles.right}>
         {me ? <NotificationBell initialUnreadCount={unreadCount} /> : null}
-        <Link href="/dashboard" className={styles.userBlock} aria-label="대시보드 이동">
-          <Avatar
-            initials={me?.initials ?? initialsOf(me?.name ?? "?")}
-            tone={me?.avatarTone ?? "default"}
-            size="md"
-          />
-          <div className={styles.user}>
-            <div className={styles.userName}>{me?.name ?? "로그인 필요"}</div>
-            <div className={styles.userMeta}>
-              {me ? `${me.departmentName ?? ""} · ${me.position ?? ""}` : ""}
-            </div>
-          </div>
-        </Link>
+        <UserMenu me={me} />
       </div>
     </header>
   );

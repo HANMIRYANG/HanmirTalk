@@ -89,10 +89,7 @@ export function FolderMembersModal({
         {users
           .filter((u) => u.isActive !== false)
           .map((u) => (
-            <label
-              key={u.id}
-              style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}
-            >
+            <label key={u.id} className="check-row" style={{ fontSize: 12.5 }}>
               <input
                 type="checkbox"
                 checked={memberIds.has(u.id)}

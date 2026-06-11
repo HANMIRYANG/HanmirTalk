@@ -120,7 +120,9 @@ export function FolderCreateModal({
           </label>
           {!isRoot ? (
             <>
-              <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {/* flexDirection 인라인 — .formGrid label 의 column 규칙보다
+                  우선해 가로 배치를 보장 */}
+              <label className="check-row" style={{ flexDirection: "row" }}>
                 <input
                   type="checkbox"
                   checked={usePassword}
@@ -164,12 +166,8 @@ export function FolderCreateModal({
                   .map((u) => (
                     <label
                       key={u.id}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
-                        fontSize: 12.5
-                      }}
+                      className="check-row"
+                      style={{ flexDirection: "row", fontSize: 12.5 }}
                     >
                       <input
                         type="checkbox"

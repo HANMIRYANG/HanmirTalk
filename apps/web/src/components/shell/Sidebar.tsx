@@ -101,10 +101,17 @@ export function Sidebar() {
         })}
       </nav>
       <div className={styles.bottom}>
-        <button type="button" className={styles.navItem} aria-label="설정">
+        <Link
+          href="/account"
+          className={cn(
+            styles.navItem,
+            pathname.startsWith("/account") && styles.navItemActive
+          )}
+          aria-label="설정"
+        >
           <SettingsIcon size={20} />
           <span className={styles.navLabel}>설정</span>
-        </button>
+        </Link>
         <button
           type="button"
           className={styles.navItem}
