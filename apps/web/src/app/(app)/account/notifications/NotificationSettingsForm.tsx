@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { NotificationSettings, Project, Room } from "@hanmir/shared";
+import type { NotificationSettings, Project } from "@hanmir/shared";
 import { notificationService } from "@/services/notification.service";
 import { enablePush, disablePush } from "@/services/push.service";
 import { ApiError } from "@/services/api-client";
@@ -12,13 +12,14 @@ import styles from "./notifications.module.css";
 interface Props {
   initial: NotificationSettings;
   projects: Project[];
-  rooms: Room[];
 }
 
 // Phase 6 I-4b — settings form. 변경 시 즉시 PATCH (debounced) — 한
 // 토글마다 명시적 [저장] 버튼을 누르는 UX는 번거로움. 실패하면 토스트
 // 대신 inline 에러 메시지로.
-export function NotificationSettingsForm({ initial, projects, rooms }: Props) {
+// 채팅방별 알림(perRoom)은 방 음소거로 일원화되어 여기서 제거됨 —
+// 채팅 목록 우클릭 또는 방 [더보기] 메뉴에서 관리.
+export function NotificationSettingsForm({ initial, projects }: Props) {
   const router = useRouter();
   const [s, setS] = useState<NotificationSettings>(initial);
   const [error, setError] = useState<string | null>(null);
@@ -56,17 +57,6 @@ export function NotificationSettingsForm({ initial, projects, rooms }: Props) {
       }
       setError("설정 저장에 실패했습니다.");
     }
-  };
-
-  const toggleRoom = (roomId: string, enabled: boolean) => {
-    const next = { ...s.perRoom };
-    if (enabled) {
-      // default가 on이므로 명시 키 자체 제거가 깔끔
-      delete next[roomId];
-    } else {
-      next[roomId] = false;
-    }
-    save({ perRoom: next });
   };
 
   const toggleProject = (projectId: string, enabled: boolean) => {
@@ -155,29 +145,9 @@ export function NotificationSettingsForm({ initial, projects, rooms }: Props) {
 
       <h2 className={styles.h2}>채팅방별</h2>
       <div className={styles.hint}>
-        체크를 풀면 해당 방의 메시지 알림이 비활성화됩니다 (멘션은 별도 정책).
+        채팅방별 알림은 채팅 목록에서 방을 <b>우클릭</b>하거나 방 안의
+        [더보기] 메뉴에서 켜고 끌 수 있습니다 (멘션은 음소거 중에도 전달).
       </div>
-      {rooms.length === 0 ? (
-        <div className={styles.empty}>참여 중인 방이 없습니다.</div>
-      ) : (
-        <ul className={styles.list}>
-          {rooms.map((r) => {
-            const enabled = s.perRoom[r.id] !== false;
-            return (
-              <li key={r.id} className={styles.row}>
-                <label className={styles.toggle}>
-                  <input
-                    type="checkbox"
-                    checked={enabled}
-                    onChange={(e) => toggleRoom(r.id, e.target.checked)}
-                  />
-                  <span>{r.name}</span>
-                </label>
-              </li>
-            );
-          })}
-        </ul>
-      )}
 
       <h2 className={styles.h2}>프로젝트별</h2>
       <div className={styles.hint}>

@@ -520,6 +520,30 @@ export function createRoomsRouter(repos: Repositories): Router {
     res.json(updated);
   });
 
+  // POST /rooms/:roomId/favorite — 채팅 목록 "고정된 대화"에 추가 (per-user,
+  // room_members.pinned). DELETE 가 해제. 메시지 고정(/:roomId/pin)과 별개.
+  router.post("/:roomId/favorite", async (req, res) => {
+    const access = await ensureRoomAccess(repos, req, res, req.params.roomId);
+    if (!access.allowed) return;
+    const updated = await repos.rooms.setListPin(req.params.roomId, req.currentUser!.id, true);
+    if (!updated) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    res.json(updated);
+  });
+
+  router.delete("/:roomId/favorite", async (req, res) => {
+    const access = await ensureRoomAccess(repos, req, res, req.params.roomId);
+    if (!access.allowed) return;
+    const updated = await repos.rooms.setListPin(req.params.roomId, req.currentUser!.id, false);
+    if (!updated) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    res.json(updated);
+  });
+
   // POST /rooms/:roomId/leave — caller exits the room. Last member ⇒
   // soft archive (is_active=false in PG; memory removes from active list).
   router.post("/:roomId/leave", async (req, res) => {

@@ -837,6 +837,8 @@ interface RoomRow {
   // false when muted; we surface as `muted: true` for clarity). NULL when
   // the caller has no row in this room.
   caller_muted: boolean | null;
+  // 채팅 목록 per-user 고정 (room_members.pinned). NULL = 멤버 아님.
+  caller_pinned: boolean | null;
 }
 
 function rowToRoom(row: RoomRow): Room {
@@ -857,6 +859,7 @@ function rowToRoom(row: RoomRow): Room {
     members,
     unread: Number(row.unread_count) || 0,
     muted: row.caller_muted ?? undefined,
+    pinned: row.caller_pinned ?? undefined,
     lastMessageAt: row.last_message_at ? formatDate(row.last_message_at) : "",
     lastMessagePreview: row.last_message_preview ?? "",
     lastMessageAuthor: row.last_message_author ?? undefined
@@ -899,6 +902,9 @@ const ROOM_SELECT = `
     -- NULL as "not muted" anyway. notification_enabled=false ⇒ muted.
     (SELECT NOT rm3.notification_enabled FROM room_members rm3
        WHERE rm3.room_id = r.id AND rm3.user_id = $1) AS caller_muted,
+    -- 채팅 목록 per-user 고정. NULL = 멤버 아님 (UI 는 falsy 처리).
+    (SELECT rm4.pinned FROM room_members rm4
+       WHERE rm4.room_id = r.id AND rm4.user_id = $1) AS caller_pinned,
     -- Unread = messages newer than this user's last_read_message and not
     -- authored by them. last_read_message resolves via room_members; when
     -- the user has no row, we treat every foreign message as unread.
@@ -1076,6 +1082,29 @@ class PgRoomRepository implements RoomRepository {
       return this.findById(id, userId);
     }
     return this.findById(id, userId);
+  }
+
+  async setListPin(
+    id: string,
+    userId: string,
+    pinned: boolean
+  ): Promise<Room | undefined> {
+    // setMute 와 동일하게 UPDATE only — 멤버십은 라우트가 보장.
+    await this.pool.query(
+      `UPDATE room_members SET pinned = $3
+        WHERE room_id = $1 AND user_id = $2`,
+      [id, userId, pinned]
+    );
+    return this.findById(id, userId);
+  }
+
+  async mutedMemberIds(id: string): Promise<string[]> {
+    const { rows } = await this.pool.query<{ user_id: string }>(
+      `SELECT user_id FROM room_members
+        WHERE room_id = $1 AND notification_enabled = false`,
+      [id]
+    );
+    return rows.map((r) => r.user_id);
   }
 
   async leave(

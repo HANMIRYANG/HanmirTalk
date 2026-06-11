@@ -147,6 +147,12 @@ export interface RoomRepository {
   // the schema; the column name is a double-negative we keep for backward
   // compatibility). Returns the updated room scoped to this user.
   setMute(id: string, userId: string, muted: boolean): Promise<Room | undefined>;
+  // 채팅 목록 "고정된 대화" — per-user pin (room_members.pinned).
+  // Room.pinned 로 노출. Returns the updated room scoped to this user.
+  setListPin(id: string, userId: string, pinned: boolean): Promise<Room | undefined>;
+  // 알림 발송용 — 이 방에서 음소거(notification_enabled=false)한 멤버 id.
+  // notify.ts 가 메시지 알림 수신자에서 제외할 때 사용 (멘션은 예외 정책).
+  mutedMemberIds(id: string): Promise<string[]>;
   // Leave: remove the caller's row. If they were the last member the
   // room transitions to is_active=false (soft archive — no hard delete
   // so historical messages keep their fk references).

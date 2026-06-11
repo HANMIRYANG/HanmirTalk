@@ -978,7 +978,9 @@ export interface Notification {
 export interface NotificationSettings {
   userId: string;
   allEnabled: boolean;
-  // { "<roomId>": false } 형식. 명시 안 된 room id는 default on.
+  // deprecated — 방별 알림은 방 음소거(room_members.notification_enabled)
+  // 로 일원화됨 (마이그레이션 024). 필드는 API 호환을 위해 유지하나
+  // notify.ts 는 더 이상 참조하지 않고 설정 UI 에서도 제거됨.
   perRoom: Record<string, boolean>;
   perProject: Record<string, boolean>;
   webPushEnabled: boolean;

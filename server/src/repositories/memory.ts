@@ -330,14 +330,22 @@ class MemoryRoomRepository implements RoomRepository {
   // circular import.
   private messages?: MemoryMessageRepository;
 
+  // 채팅 목록 per-user 고정 — Set<roomId> per userId (mute 와 동일 구조).
+  private readonly pinnedByUser = new Map<string, Set<string>>();
+
   constructor() {
     const seeded = clone(seedRooms);
     const kimMutes = new Set<string>();
+    const kimPins = new Set<string>();
     for (const r of seeded) {
       if (r.muted) kimMutes.add(r.id);
       delete (r as { muted?: boolean }).muted;
+      // 시드의 정적 pinned 도 muted 처럼 기본 dev 로그인 사용자에게 이관.
+      if (r.pinned) kimPins.add(r.id);
+      delete (r as { pinned?: boolean }).pinned;
     }
     if (kimMutes.size > 0) this.mutedByUser.set("u-kim-minjun", kimMutes);
+    if (kimPins.size > 0) this.pinnedByUser.set("u-kim-minjun", kimPins);
     this.data = seeded;
   }
 
@@ -360,6 +368,9 @@ class MemoryRoomRepository implements RoomRepository {
     // Per-user mute overlay. Without a userId we leave muted undefined
     // (server-side admin tools etc.) instead of guessing.
     out.muted = userId ? this.mutedByUser.get(userId)?.has(room.id) ?? false : undefined;
+    out.pinned = userId
+      ? this.pinnedByUser.get(userId)?.has(room.id) ?? false
+      : undefined;
     return out;
   }
 
@@ -467,6 +478,31 @@ class MemoryRoomRepository implements RoomRepository {
     if (muted) set.add(id);
     else set.delete(id);
     return this.decorate(room, userId);
+  }
+
+  async setListPin(
+    id: string,
+    userId: string,
+    pinned: boolean
+  ): Promise<Room | undefined> {
+    const room = this.data.find((r) => r.id === id);
+    if (!room) return undefined;
+    let set = this.pinnedByUser.get(userId);
+    if (!set) {
+      set = new Set<string>();
+      this.pinnedByUser.set(userId, set);
+    }
+    if (pinned) set.add(id);
+    else set.delete(id);
+    return this.decorate(room, userId);
+  }
+
+  async mutedMemberIds(id: string): Promise<string[]> {
+    const out: string[] = [];
+    for (const [userId, set] of this.mutedByUser) {
+      if (set.has(id)) out.push(userId);
+    }
+    return out;
   }
 
   async leave(

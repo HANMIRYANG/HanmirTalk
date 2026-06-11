@@ -241,6 +241,22 @@ export const chatService = {
     });
   },
 
+  // 채팅 목록 "고정된 대화" 토글 (per-user, Room.pinned). 메시지 고정
+  // (pinMessage)과 별개.
+  async favoriteRoom(roomId: string, opts: AuthOptions = {}): Promise<Room> {
+    return apiRequest<Room>(`/rooms/${encodeURIComponent(roomId)}/favorite`, {
+      method: "POST",
+      token: opts.token
+    });
+  },
+
+  async unfavoriteRoom(roomId: string, opts: AuthOptions = {}): Promise<Room> {
+    return apiRequest<Room>(`/rooms/${encodeURIComponent(roomId)}/favorite`, {
+      method: "DELETE",
+      token: opts.token
+    });
+  },
+
   // Leave the room. Returns `{ ok, archived }` — archived=true means the
   // caller was the last member and the room is now soft-archived.
   async leaveRoom(

@@ -36,15 +36,28 @@ async function loadSettings(
 
 // 설정 조회 실패(s === undefined)는 default(true)로 알림 발송 — 기존
 // shouldNotify 의 catch 동작과 동일.
+// 방별 알림은 settings.perRoom 이 아니라 방 음소거(room_members.
+// notification_enabled)로 일원화됨 — 마이그레이션 024 + mutedMemberIds.
 function settingsAllow(
   s: NotificationSettings | undefined,
-  ctx: { roomId?: string; projectId?: string }
+  ctx: { projectId?: string }
 ): boolean {
   if (!s) return true;
   if (!s.allEnabled) return false;
-  if (ctx.roomId && s.perRoom[ctx.roomId] === false) return false;
   if (ctx.projectId && s.perProject[ctx.projectId] === false) return false;
   return true;
+}
+
+// 방 음소거 멤버 조회 — 실패 시 빈 집합 (알림 누락보다 과발송이 안전).
+async function loadMutedSet(
+  repos: Repositories,
+  roomId: string
+): Promise<Set<string>> {
+  try {
+    return new Set(await repos.rooms.mutedMemberIds(roomId));
+  } catch {
+    return new Set();
+  }
 }
 
 // 생성된 알림들을 in-app socket + (설정 켜져있으면) OS push로 발사.
@@ -95,11 +108,14 @@ export async function notifyMessageNew(
 
     // 멤버 전체 설정을 한 번에 조회 (메시지/멘션 수신자 모두 멤버의 부분집합).
     const settings = await loadSettings(repos, memberIds);
+    // 방 음소거 멤버 — 일반 메시지 알림에서 제외. 멘션은 더 강한 신호라
+    // 음소거 중에도 전달 (설정 페이지 안내 문구와 동일 정책).
+    const mutedSet = await loadMutedSet(repos, roomId);
 
-    // 일반 메시지 알림 — settings 존중
+    // 일반 메시지 알림 — settings + 방 음소거 존중
     if (messageEnabled) {
-      const allowedRecipients = messageRecipients.filter((uid) =>
-        settingsAllow(settings?.get(uid), { roomId })
+      const allowedRecipients = messageRecipients.filter(
+        (uid) => !mutedSet.has(uid) && settingsAllow(settings?.get(uid), {})
       );
       if (allowedRecipients.length > 0) {
         const created = await repos.notifications.createMany(allowedRecipients, {
@@ -116,7 +132,7 @@ export async function notifyMessageNew(
     // 멘션 알림 — 별도, 더 우선순위 높은 kind
     if (mentionEnabled) {
       const allowedMentioned = mentionedIds.filter(
-        (uid) => memberIds.includes(uid) && settingsAllow(settings?.get(uid), { roomId })
+        (uid) => memberIds.includes(uid) && settingsAllow(settings?.get(uid), {})
       );
       if (allowedMentioned.length > 0) {
         const created = await repos.notifications.createMany(allowedMentioned, {
@@ -391,11 +407,16 @@ export async function notifyReplyNew(
       ...(mentionEnabled ? memberMentioned : [])
     ];
     const settings = await loadSettings(repos, settingsTargets);
+    // 방 음소거 — 답글 알림도 일반 메시지처럼 제외, 멘션은 예외.
+    const mutedSet = await loadMutedSet(repos, roomId);
 
     // 부모 작성자 알림 — 단, 멘션 대상에 이미 포함돼 있으면 멘션 알림
     // 한 건만 가도록 (이중 노이즈 회피).
     if (notifyParent) {
-      if (settingsAllow(settings?.get(parentMessage.authorId), { roomId })) {
+      if (
+        !mutedSet.has(parentMessage.authorId) &&
+        settingsAllow(settings?.get(parentMessage.authorId), {})
+      ) {
         const created = await repos.notifications.createMany([parentMessage.authorId], {
           kind: "message:reply:new",
           title: `${reply.authorName}님이 회신했습니다`,
@@ -414,7 +435,7 @@ export async function notifyReplyNew(
 
     if (mentionEnabled && memberMentioned.length > 0) {
       const allowed = memberMentioned.filter((uid) =>
-        settingsAllow(settings?.get(uid), { roomId })
+        settingsAllow(settings?.get(uid), {})
       );
       if (allowed.length > 0) {
         const created = await repos.notifications.createMany(allowed, {
