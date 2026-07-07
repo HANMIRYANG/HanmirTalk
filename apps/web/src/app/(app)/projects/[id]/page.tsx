@@ -1,10 +1,12 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { Topbar } from "@/components/shell/Topbar";
 import { ProjectHeader } from "@/components/project/ProjectHeader";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { projectService } from "@/services/project.service";
 import { userService } from "@/services/user.service";
 import { dashboardService } from "@/services/dashboard.service";
+import { chatService } from "@/services/chat.service";
 import { requireServerMe } from "@/lib/server-auth";
 import { cn } from "@/lib/classNames";
 import { ProjectActions } from "./ProjectActions";
@@ -24,15 +26,19 @@ export default async function ProjectDetailPage({ params }: Props) {
   const project = await projectService.getProject(params.id, { token });
   if (!project) notFound();
 
-  const [users, activities] = await Promise.all([
+  const [users, activities, rooms] = await Promise.all([
     userService.listUsers({ token }),
-    dashboardService.listProjectActivities({ token })
+    dashboardService.listProjectActivities({ token }),
+    chatService.listRooms({ token })
   ]);
 
   const isAdmin = me.role === "admin" || me.role === "super_admin";
   const isMember = isAdmin || project.memberIds.includes(me.id);
   // 서버는 writers 역할 + 프로젝트 멤버십을 모두 요구한다 (마일스톤 CRUD).
   const canManageMilestones = WRITER_ROLES.has(me.role) && isMember;
+  // 프로젝트 연동 채팅방 — GET /rooms 는 내가 멤버인 방(admin 은 전체)만
+  // 반환하므로, 여기서 찾히면 곧 "열 수 있는 방"이다. 없으면 버튼 숨김.
+  const linkedRoom = rooms.find((r) => r.projectId === project.id);
 
   return (
     <>
@@ -42,7 +48,20 @@ export default async function ProjectDetailPage({ params }: Props) {
         variant="detail"
         activeTab="overview"
         viewer={{ isMember, isAdmin }}
-        rightActions={<ProjectActions project={project} />}
+        rightActions={
+          <>
+            {linkedRoom ? (
+              <Link
+                href={`/chat/${linkedRoom.id}`}
+                className="btn btn--ghost btn--sm"
+                title={`연동 채팅방: ${linkedRoom.name}`}
+              >
+                💬 채팅방 열기
+              </Link>
+            ) : null}
+            <ProjectActions project={project} />
+          </>
+        }
       />
 
       <div className="content no-pad">

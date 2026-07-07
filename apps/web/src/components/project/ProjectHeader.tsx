@@ -41,7 +41,14 @@ const TABS: TabDef[] = [
     // viewers who can't open it; admin bypass mirrors the server.
     visibleTo: (v) => v.isAdmin || v.isMember
   },
-  { key: "settings", label: "설정" }
+  {
+    key: "settings",
+    label: "설정",
+    href: (id) => `/projects/${id}/settings`,
+    // 설정 페이지는 멤버(또는 admin)만 — 내부 편집 액션은 페이지에서
+    // 관리 권한(writer+멤버)으로 한 번 더 게이트한다.
+    visibleTo: (v) => v.isAdmin || v.isMember
+  }
 ];
 
 export function ProjectHeader({

@@ -5,6 +5,7 @@ import { Topbar } from "@/components/shell/Topbar";
 import { ProjectHeader } from "@/components/project/ProjectHeader";
 import { projectService } from "@/services/project.service";
 import { decisionService } from "@/services/decision.service";
+import { chatService } from "@/services/chat.service";
 import { ApiError } from "@/services/api-client";
 import { requireServerMe } from "@/lib/server-auth";
 import { DecisionsWorkspace } from "./DecisionsWorkspace";
@@ -48,6 +49,11 @@ export default async function ProjectDecisionsPage({ params }: Props) {
 
   const isWriter = ["admin", "super_admin", "manager", "project_owner"].includes(me.role);
 
+  // 프로젝트 연동 채팅방 — 예전 하드코딩(/chat/r-{projectId})은 시드 방 id
+  // 규칙에 묶여 운영(UUID)에서 404 였다. 실제 연동 방을 찾아 연결한다.
+  const rooms = await chatService.listRooms({ token });
+  const linkedRoom = rooms.find((r) => r.projectId === project.id);
+
   return (
     <>
       <Topbar title="결정 기록" sub={`${project.code} ${project.name}`} />
@@ -85,10 +91,15 @@ export default async function ProjectDecisionsPage({ params }: Props) {
             />
             {decisions.length === 0 ? null : (
               <p className="muted t-xs" style={{ marginTop: 20 }}>
-                {decisions.length}건 표시 ·{" "}
-                <Link href={`/chat/r-${project.id}`} className="link">
-                  해당 프로젝트 대화방에서 메시지를 결정사항으로 만들 수 있습니다
-                </Link>
+                {decisions.length}건 표시
+                {linkedRoom ? (
+                  <>
+                    {" · "}
+                    <Link href={`/chat/${linkedRoom.id}`} className="link">
+                      해당 프로젝트 대화방에서 메시지를 결정사항으로 만들 수 있습니다
+                    </Link>
+                  </>
+                ) : null}
               </p>
             )}
           </>
