@@ -55,7 +55,10 @@ function buildUrl(path: string, query?: ApiRequestOptions["query"]): string {
 // would render all-but-one of them invalid).
 let inflightRefresh: Promise<boolean> | null = null;
 
-async function attemptRefresh(): Promise<boolean> {
+// exported — meeting.service 의 raw fetch 청크 업로드가 401 시 같은
+// single-flight refresh 를 재사용한다 (장시간 녹음은 1시간 access 토큰
+// 만료를 반드시 만난다).
+export async function attemptRefresh(): Promise<boolean> {
   if (inflightRefresh) return inflightRefresh;
   inflightRefresh = (async () => {
     try {

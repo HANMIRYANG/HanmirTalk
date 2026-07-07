@@ -281,3 +281,17 @@ export const FavoriteIcon = (p: Props) => (
     <path d="M10 3.5l1.9 4 4.4.6-3.2 3.1.8 4.3L10 13.5l-3.9 2 .8-4.3L3.7 8.1l4.4-.6 1.9-4Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
   </svg>
 );
+
+export const MicIcon = (p: Props) => (
+  <svg {...base(p)}>
+    <rect x="7.25" y="2.75" width="5.5" height="9" rx="2.75" stroke="currentColor" strokeWidth="1.5" />
+    <path d="M4.5 9.5a5.5 5.5 0 0 0 11 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    <path d="M10 15v2.5M7.5 17.5h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+  </svg>
+);
+
+export const StopIcon = (p: Props) => (
+  <svg {...base(p)}>
+    <rect x="5" y="5" width="10" height="10" rx="2" fill="currentColor" />
+  </svg>
+);

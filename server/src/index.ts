@@ -15,6 +15,7 @@ import { createPostgresRepositories } from "./repositories/postgres";
 import type { Repositories } from "./repositories/types";
 import { notifyTaskDueSoonForAll } from "./notify";
 import { startScheduledMessagePoller } from "./scheduled-poller";
+import { scheduleAudioCleanupCron, startMeetingWorker } from "./meetings/worker";
 
 function buildRepositories(): {
   repos: Repositories;
@@ -49,6 +50,10 @@ httpServer.listen(config.port, () => {
   // Phase 10 M-4 — 예약 메시지 poller. boot 직후 10초 지연 후 첫 tick,
   // 이후 60초 주기. 단일 인스턴스라 충돌 가드는 markSent("sent_at IS NULL").
   startScheduledMessagePoller(repos);
+  // 회의 녹음 → AI 회의록 파이프라인 워커 (10초 폴링) + 오디오 보존기한
+  // 일일 정리 (KST 04:00).
+  startMeetingWorker(repos);
+  scheduleAudioCleanupCron(repos);
 });
 
 // Phase 6 I-2 — 마감 임박 알림 일일 스케줄러. 단일 VM 전제(N-0 결정)라

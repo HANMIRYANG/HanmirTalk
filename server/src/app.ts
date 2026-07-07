@@ -33,6 +33,7 @@ import { createAuditRouter } from "./routes/audit";
 import { createSystemRouter, type SystemDeps } from "./routes/system";
 import { createOrgNotificationsRouter } from "./routes/org-notifications";
 import { createSearchRouter } from "./routes/search";
+import { createMeetingsRouter } from "./routes/meetings";
 
 export interface AppDeps {
   repos: Repositories;
@@ -79,6 +80,7 @@ export function createApp(deps: AppDeps = { repos: createMemoryRepositories() })
   app.use(`${config.apiPrefix}/products`, requireAuth, createProductsRouter(deps.repos));
   app.use(`${config.apiPrefix}/erp`, requireAuth, createErpRouter(deps.repos));
   app.use(`${config.apiPrefix}/files`, requireAuth, createFilesRouter(deps.repos));
+  app.use(`${config.apiPrefix}/meetings`, requireAuth, createMeetingsRouter(deps.repos));
   app.use(`${config.apiPrefix}/notices`, requireAuth, createNoticesRouter(deps.repos));
   app.use(`${config.apiPrefix}/dashboard`, requireAuth, createDashboardRouter(deps.repos));
   app.use(`${config.apiPrefix}/invitations`, requireAuth, createInvitationsRouter(deps.repos));

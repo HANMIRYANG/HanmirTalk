@@ -8,10 +8,12 @@ import { RoomInfoPane } from "@/components/chat/RoomInfoPane";
 import { PinnedBanner } from "@/components/chat/PinnedBanner";
 import { ChatRoomMounter } from "@/components/chat/ChatRoomMounter";
 import { ChatRoomActions } from "@/components/chat/ChatRoomActions";
+import { MeetingHeaderControl } from "@/components/meeting/MeetingHeaderControl";
 import { chatService } from "@/services/chat.service";
 import { projectService } from "@/services/project.service";
 import { userService } from "@/services/user.service";
 import { fileService } from "@/services/file.service";
+import { meetingService } from "@/services/meeting.service";
 import { requireServerMe } from "@/lib/server-auth";
 import styles from "./room.module.css";
 
@@ -29,14 +31,15 @@ export default async function ChatRoomPage({ params }: Props) {
   // 타임라인은 최신 100개 윈도우만 SSR — 과거 메시지는 클라이언트의
   // "이전 메시지 보기" 가 ?before 커서로 추가 로드한다.
   const MESSAGE_WINDOW = 100;
-  const [messages, pinned, project, users, files] = await Promise.all([
+  const [messages, pinned, project, users, files, activeMeeting] = await Promise.all([
     chatService.listMessages(params.roomId, { token, limit: MESSAGE_WINDOW }),
     chatService.getPinnedMessage(params.roomId, { token }),
     room.projectId
       ? projectService.getProject(room.projectId, { token })
       : Promise.resolve(undefined),
     userService.listUsers({ token }),
-    fileService.listFiles({ token })
+    fileService.listFiles({ token }),
+    meetingService.getActiveMeeting(params.roomId, { token })
   ]);
 
   const memberUsers = users.filter((u) => room.members.some((m) => m.userId === u.id));
@@ -97,6 +100,13 @@ export default async function ChatRoomPage({ params }: Props) {
             ) : null}
           </div>
           <div className={styles.actions}>
+            <MeetingHeaderControl
+              roomId={room.id}
+              roomName={room.name}
+              activeMeeting={activeMeeting ?? null}
+              currentUserId={me.id}
+              isAdmin={me.role === "admin" || me.role === "super_admin"}
+            />
             <IconButton aria-label="멤버" title="우측 패널에 멤버 표시">
               <UsersIcon size={18} />
             </IconButton>

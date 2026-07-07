@@ -3,6 +3,9 @@ import type {
   AuditLogPage,
   AuditLogQuery,
   ChatMessage,
+  GlossaryTerm,
+  Meeting,
+  MeetingStatus,
   CreateAuditInput,
   CreateDecisionInput,
   CreateDepartmentInput,
@@ -624,6 +627,94 @@ export interface OrgNotificationRepository {
   ): Promise<OrgNotificationDefault>;
 }
 
+// 회의 세그먼트 — 독립 WebM 스트림 1개. 새로고침 재개/60분 로테이션마다
+// 새 세그먼트가 생긴다. 청크는 세그먼트 파일에 seq 순 byte-append.
+export interface MeetingSegment {
+  segIndex: number;
+  filePath: string;
+  bytes: number;
+  durationMs: number;
+  lastSeq: number;
+}
+
+// 회의 녹음 → AI 회의록 파이프라인. 워커 클레임/재시도 상태까지 포함해
+// meetings 테이블 하나가 잡 큐 역할을 겸한다 (단일 VM, scheduled-poller
+// 와 동일한 in-process 폴러 전제 — pg-boss 미도입 결정).
+export interface MeetingRepository {
+  create(input: { roomId: string; title: string; startedBy: string }): Promise<Meeting>;
+  findById(id: string): Promise<Meeting | undefined>;
+  // status='recording' 인 방의 회의. 없으면 최신 파이프라인 진행중
+  // (pending~generating_docs) — 새로고침 복원 + "회의록 생성 중" 배지용.
+  findActiveByRoom(roomId: string): Promise<Meeting | undefined>;
+  list(opts?: { roomId?: string; limit?: number }): Promise<Meeting[]>;
+
+  // ── 녹음 ──
+  // MAX(seg_index)+1 로 새 세그먼트 행 생성. filePath("meetings/<id>/
+  // seg-NNN.webm", uploadDir 상대) 는 인덱스와 원자적으로 일관되도록 repo
+  // 가 함께 계산한다 — meetings/storage.ts 의 segmentRelPath 와 동일 규약.
+  createSegment(meetingId: string): Promise<{ segIndex: number; filePath: string }>;
+  listSegments(meetingId: string): Promise<MeetingSegment[]>;
+  // seq === last_seq+1 일 때만 갱신 (UPDATE … WHERE last_seq = seq-1 행카운트
+  // 가드). "duplicate" = seq <= last_seq (멱등 무시), "gap" = seq > last_seq+1.
+  // "ok" 면 meetings.duration_ms / last_activity_at 도 함께 갱신된다.
+  recordChunk(
+    meetingId: string,
+    segIndex: number,
+    meta: { seq: number; bytes: number; durationMs: number }
+  ): Promise<"ok" | "duplicate" | "gap" | "segment_not_found">;
+  // recording→pending 가드 — 이미 종료된 회의면 undefined.
+  finish(id: string, endedAt: Date, retentionUntil: Date): Promise<Meeting | undefined>;
+  // recording→cancelled 가드.
+  cancel(id: string): Promise<boolean>;
+  // last_activity_at 이 기준보다 오래된 recording — 좀비 auto-finish 대상.
+  listStaleRecordings(inactiveBefore: Date): Promise<Meeting[]>;
+
+  // ── 워커 (잡 클레임) ──
+  // 파이프라인 상태 중 미클레임(또는 stale 클레임) 1건을 원자적으로 잡고
+  // attempts+1. 서버 재시작 복구는 staleBefore 재클레임으로 이뤄진다.
+  // attempts 는 워커의 "stage별 3회" 재시도 판단에만 쓰이는 내부 상태라
+  // Meeting DTO 에는 없고 클레임 결과에만 실려 온다.
+  claimNext(staleBefore: Date): Promise<(Meeting & { attempts: number }) | undefined>;
+  // 장시간 스텝(세그먼트별 전사) 중 클레임 유지.
+  heartbeat(id: string): Promise<void>;
+  // 스테이지 전이 (성공 경로) — status 갱신 + attempts=0 + claimed_at=NULL.
+  advance(id: string, next: MeetingStatus): Promise<void>;
+  // 스텝 실패 — 클레임만 풀고 attempts 는 유지 → 다음 tick 재시도.
+  releaseClaim(id: string, error?: string): Promise<void>;
+  markFailed(id: string, error: string): Promise<void>;
+
+  // ── 산출물 ──
+  saveSegmentTranscript(
+    meetingId: string,
+    segIndex: number,
+    content: string,
+    modelUsed?: string
+  ): Promise<void>;
+  listSegmentTranscripts(meetingId: string): Promise<{ segIndex: number; content: string }[]>;
+  saveMinutes(
+    meetingId: string,
+    data: {
+      contentMd: string;
+      structured?: unknown;
+      docxPaths: Record<string, string>;
+      modelUsed?: string;
+    }
+  ): Promise<void>;
+  getMinutes(meetingId: string): Promise<
+    | { contentMd: string; structured?: unknown; docxPaths: Record<string, string> }
+    | undefined
+  >;
+
+  // ── 보존기한 정리 ──
+  listExpiredAudio(now: Date): Promise<Meeting[]>;
+  clearAudioPath(id: string): Promise<void>;
+}
+
+// 전사 프롬프트 용어집. 관리 UI 는 추후 — 지금은 read-only.
+export interface GlossaryRepository {
+  list(): Promise<GlossaryTerm[]>;
+}
+
 export interface Repositories {
   users: UserRepository;
   departments: DepartmentRepository;
@@ -644,4 +735,6 @@ export interface Repositories {
   orgNotifications: OrgNotificationRepository;
   scheduledMessages: ScheduledMessageRepository;
   messageReactions: MessageReactionRepository;
+  meetings: MeetingRepository;
+  glossary: GlossaryRepository;
 }

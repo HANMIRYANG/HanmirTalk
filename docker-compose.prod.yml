@@ -70,8 +70,16 @@ services:
       SMTP_SECURE: ${SMTP_SECURE:-false}
       SMTP_FROM: ${SMTP_FROM:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5}
       AI_DAILY_TOKEN_LIMIT: ${AI_DAILY_TOKEN_LIMIT:-0}
+      # 회의 녹음 → AI 회의록. GEMINI_API_KEY 가 비어 있으면 회의 시작
+      # API 가 503 을 반환해 기능이 자연 비활성화된다 (전사 불가 상태의
+      # 죽은 녹음 방지). 오디오는 /data/uploads/meetings/ 하위에 저장.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash}
+      MEETING_MAX_HOURS: ${MEETING_MAX_HOURS:-4}
+      AUDIO_RETENTION_DAYS: ${AUDIO_RETENTION_DAYS:-30}
+      MEETING_AI_MOCK: ${MEETING_AI_MOCK:-false}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}

@@ -34,7 +34,7 @@ export const config = {
   // that handles Korean reliably. AI_DAILY_TOKEN_LIMIT caps the per-user
   // daily output token spend; defaults to 0 = no cap (dev convenience).
   anthropicApiKey: process.env.ANTHROPIC_API_KEY?.trim() || undefined,
-  anthropicModel: process.env.ANTHROPIC_MODEL?.trim() || "claude-sonnet-4-6",
+  anthropicModel: process.env.ANTHROPIC_MODEL?.trim() || "claude-sonnet-5",
   aiDailyTokenLimit: Number(process.env.AI_DAILY_TOKEN_LIMIT ?? 0),
 
   // Phase 6 I-5 — Web Push (PWA). VAPID 키 없으면 push 자체 disabled.
@@ -42,5 +42,21 @@ export const config = {
   vapidPublicKey: process.env.VAPID_PUBLIC_KEY?.trim() || undefined,
   vapidPrivateKey: process.env.VAPID_PRIVATE_KEY?.trim() || undefined,
   vapidSubject:
-    process.env.VAPID_SUBJECT?.trim() || "mailto:admin@hanmir-talk.local"
+    process.env.VAPID_SUBJECT?.trim() || "mailto:admin@hanmir-talk.local",
+
+  // 회의 녹음 → AI 회의록 파이프라인. GEMINI_API_KEY 가 없으면(그리고
+  // MEETING_AI_MOCK 도 아니면) 회의 시작 API 가 503 meeting_ai_disabled 를
+  // 반환해 기능이 자연 비활성화된다 — 전사할 수 없는 죽은 녹음을 만들지
+  // 않기 위해. MEETING_AI_MOCK=true 는 Gemini/Claude 호출을 목으로 대체해
+  // API 키 없이 파이프라인 E2E 테스트를 가능하게 한다.
+  geminiApiKey: process.env.GEMINI_API_KEY?.trim() || undefined,
+  geminiModel: process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash",
+  meetingMaxHours: Number(process.env.MEETING_MAX_HOURS ?? 4),
+  audioRetentionDays: Number(process.env.AUDIO_RETENTION_DAYS ?? 30),
+  meetingAiMock: process.env.MEETING_AI_MOCK === "true",
+  // 청크 1개 상한. 5분 opus ≈ 2~5MB 라 15MB 면 여유. Caddy 60MB 한도 아래.
+  meetingChunkMaxBytes: Number(process.env.MEETING_CHUNK_MAX_BYTES ?? 15 * 1024 * 1024),
+  // 세그먼트 길이 상한(분). Gemini 전사 출력 토큰 한계(65K)의 방어선 —
+  // 55분에 rotateSuggested, 상한+5분에서 409 segment_too_long.
+  meetingSegmentMaxMinutes: Number(process.env.MEETING_SEGMENT_MAX_MINUTES ?? 60)
 };

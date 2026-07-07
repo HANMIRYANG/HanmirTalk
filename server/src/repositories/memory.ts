@@ -25,7 +25,10 @@ import type {
   FileEntry,
   FileFolder,
   FileKind,
+  GlossaryTerm,
   ListFilesFilter,
+  Meeting,
+  MeetingStatus,
   Milestone,
   Notice,
   NoticeReadStatus,
@@ -97,8 +100,11 @@ import type {
   DecisionRepository,
   DepartmentRepository,
   FileRepository,
+  GlossaryRepository,
   InvitationRepository,
   IssuedRefreshToken,
+  MeetingRepository,
+  MeetingSegment,
   MessageReactionRepository,
   MessageRepository,
   NoticeRepository,
@@ -1005,9 +1011,13 @@ class MemoryProjectRepository implements ProjectRepository {
     const current = this._data[idx];
     const next: Project = { ...current };
     for (const key of Object.keys(input) as Array<keyof UpdateProjectInput>) {
+      if (key === "progressMode") continue; // Project 필드가 아님 — 아래에서 변환
       const value = input[key];
       if (value === undefined) continue;
       (next as unknown as Record<string, unknown>)[key] = value as unknown;
+    }
+    if (input.progressMode !== undefined) {
+      next.progressManual = input.progressMode === "manual";
     }
     this._data[idx] = next;
     return clone(next);
@@ -3045,6 +3055,315 @@ class MemoryOrgNotificationRepository implements OrgNotificationRepository {
   }
 }
 
+// ── 회의 녹음 → AI 회의록 파이프라인 (dev/테스트용 인메모리) ──────────
+//
+// PG 어댑터와 동일한 상태머신/가드 의미론을 유지한다 — mock 파이프라인
+// E2E 테스트가 이 구현 위에서 돈다.
+interface MemoryMeetingRow {
+  meeting: Meeting;
+  segments: MeetingSegment[];
+  transcripts: Map<number, string>;
+  minutes?: {
+    contentMd: string;
+    structured?: unknown;
+    docxPaths: Record<string, string>;
+  };
+  audioPath: string | null;
+  lastActivityAt: number;
+  attempts: number;
+  claimedAt: number | null;
+  retentionUntil: number | null;
+}
+
+const MEETING_PIPELINE: MeetingStatus[] = [
+  "pending",
+  "transcribing",
+  "summarizing",
+  "generating_docs"
+];
+
+class MemoryMeetingRepository implements MeetingRepository {
+  private readonly rows: MemoryMeetingRow[] = [];
+
+  private getUserName: (id: string) => string | undefined = () => undefined;
+
+  setUserAccessor(fn: (id: string) => string | undefined): void {
+    this.getUserName = fn;
+  }
+
+  private toDto(row: MemoryMeetingRow): Meeting {
+    return {
+      ...row.meeting,
+      startedByName: this.getUserName(row.meeting.startedBy),
+      currentSegIndex:
+        row.segments.length > 0 ? row.segments[row.segments.length - 1].segIndex : 0
+    };
+  }
+
+  private rowById(id: string): MemoryMeetingRow | undefined {
+    return this.rows.find((r) => r.meeting.id === id);
+  }
+
+  async create(input: {
+    roomId: string;
+    title: string;
+    startedBy: string;
+  }): Promise<Meeting> {
+    const active = this.rows.find(
+      (r) => r.meeting.roomId === input.roomId && r.meeting.status === "recording"
+    );
+    // PG 의 partial unique index 와 동일한 제약 — 라우트가 409 로 변환할 수
+    // 있게 PG 와 같은 오류 코드 형태를 흉내낸다.
+    if (active) {
+      const err = new Error("duplicate key value") as Error & { code?: string };
+      err.code = "23505";
+      throw err;
+    }
+    const id = newId("mtg");
+    const now = new Date();
+    const row: MemoryMeetingRow = {
+      meeting: {
+        id,
+        roomId: input.roomId,
+        title: input.title,
+        startedBy: input.startedBy,
+        startedAt: now.toISOString(),
+        status: "recording",
+        durationMs: 0,
+        currentSegIndex: 0,
+        createdAt: now.toISOString()
+      },
+      segments: [],
+      transcripts: new Map(),
+      audioPath: `meetings/${id}`,
+      lastActivityAt: now.getTime(),
+      attempts: 0,
+      claimedAt: null,
+      retentionUntil: null
+    };
+    this.rows.push(row);
+    return this.toDto(row);
+  }
+
+  async findById(id: string): Promise<Meeting | undefined> {
+    const row = this.rowById(id);
+    return row ? this.toDto(row) : undefined;
+  }
+
+  async findActiveByRoom(roomId: string): Promise<Meeting | undefined> {
+    const candidates = this.rows.filter(
+      (r) =>
+        r.meeting.roomId === roomId &&
+        (r.meeting.status === "recording" ||
+          MEETING_PIPELINE.includes(r.meeting.status))
+    );
+    if (candidates.length === 0) return undefined;
+    const recording = candidates.find((r) => r.meeting.status === "recording");
+    const pick =
+      recording ??
+      candidates.sort((a, b) => b.meeting.createdAt.localeCompare(a.meeting.createdAt))[0];
+    return this.toDto(pick);
+  }
+
+  async list(opts: { roomId?: string; limit?: number } = {}): Promise<Meeting[]> {
+    const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
+    return this.rows
+      .filter((r) => (opts.roomId ? r.meeting.roomId === opts.roomId : true))
+      .sort((a, b) => b.meeting.createdAt.localeCompare(a.meeting.createdAt))
+      .slice(0, limit)
+      .map((r) => this.toDto(r));
+  }
+
+  async createSegment(
+    meetingId: string
+  ): Promise<{ segIndex: number; filePath: string }> {
+    const row = this.rowById(meetingId);
+    if (!row) throw new Error("meeting_not_found");
+    const segIndex =
+      row.segments.length > 0 ? row.segments[row.segments.length - 1].segIndex + 1 : 0;
+    // meetings/storage.ts segmentRelPath 와 동일 규약.
+    const filePath = `meetings/${meetingId}/seg-${String(segIndex).padStart(3, "0")}.webm`;
+    row.segments.push({ segIndex, filePath, bytes: 0, durationMs: 0, lastSeq: -1 });
+    return { segIndex, filePath };
+  }
+
+  async listSegments(meetingId: string): Promise<MeetingSegment[]> {
+    const row = this.rowById(meetingId);
+    return row ? row.segments.map((s) => ({ ...s })) : [];
+  }
+
+  async recordChunk(
+    meetingId: string,
+    segIndex: number,
+    meta: { seq: number; bytes: number; durationMs: number }
+  ): Promise<"ok" | "duplicate" | "gap" | "segment_not_found"> {
+    const row = this.rowById(meetingId);
+    const seg = row?.segments.find((s) => s.segIndex === segIndex);
+    if (!row || !seg) return "segment_not_found";
+    if (meta.seq <= seg.lastSeq) return "duplicate";
+    if (meta.seq > seg.lastSeq + 1) return "gap";
+    seg.lastSeq = meta.seq;
+    seg.bytes += meta.bytes;
+    seg.durationMs += meta.durationMs;
+    row.meeting.durationMs += meta.durationMs;
+    row.lastActivityAt = Date.now();
+    return "ok";
+  }
+
+  async finish(
+    id: string,
+    endedAt: Date,
+    retentionUntil: Date
+  ): Promise<Meeting | undefined> {
+    const row = this.rowById(id);
+    if (!row || row.meeting.status !== "recording") return undefined;
+    row.meeting.status = "pending";
+    row.meeting.endedAt = endedAt.toISOString();
+    row.retentionUntil = retentionUntil.getTime();
+    return this.toDto(row);
+  }
+
+  async cancel(id: string): Promise<boolean> {
+    const row = this.rowById(id);
+    if (!row || row.meeting.status !== "recording") return false;
+    row.meeting.status = "cancelled";
+    row.meeting.endedAt = new Date().toISOString();
+    return true;
+  }
+
+  async listStaleRecordings(inactiveBefore: Date): Promise<Meeting[]> {
+    return this.rows
+      .filter(
+        (r) =>
+          r.meeting.status === "recording" &&
+          r.lastActivityAt < inactiveBefore.getTime()
+      )
+      .map((r) => this.toDto(r));
+  }
+
+  async claimNext(
+    staleBefore: Date
+  ): Promise<(Meeting & { attempts: number }) | undefined> {
+    const row = this.rows
+      .filter(
+        (r) =>
+          MEETING_PIPELINE.includes(r.meeting.status) &&
+          (r.claimedAt === null || r.claimedAt < staleBefore.getTime())
+      )
+      .sort((a, b) => a.meeting.createdAt.localeCompare(b.meeting.createdAt))[0];
+    if (!row) return undefined;
+    row.claimedAt = Date.now();
+    row.attempts += 1;
+    return { ...this.toDto(row), attempts: row.attempts };
+  }
+
+  async heartbeat(id: string): Promise<void> {
+    const row = this.rowById(id);
+    if (row) row.claimedAt = Date.now();
+  }
+
+  async advance(id: string, next: MeetingStatus): Promise<void> {
+    const row = this.rowById(id);
+    if (!row) return;
+    row.meeting.status = next;
+    row.attempts = 0;
+    row.claimedAt = null;
+    row.meeting.error = undefined;
+  }
+
+  async releaseClaim(id: string, error?: string): Promise<void> {
+    const row = this.rowById(id);
+    if (!row) return;
+    row.claimedAt = null;
+    if (error) row.meeting.error = error;
+  }
+
+  async markFailed(id: string, error: string): Promise<void> {
+    const row = this.rowById(id);
+    if (!row) return;
+    row.meeting.status = "failed";
+    row.claimedAt = null;
+    row.meeting.error = error;
+  }
+
+  async saveSegmentTranscript(
+    meetingId: string,
+    segIndex: number,
+    content: string
+  ): Promise<void> {
+    this.rowById(meetingId)?.transcripts.set(segIndex, content);
+  }
+
+  async listSegmentTranscripts(
+    meetingId: string
+  ): Promise<{ segIndex: number; content: string }[]> {
+    const row = this.rowById(meetingId);
+    if (!row) return [];
+    return [...row.transcripts.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([segIndex, content]) => ({ segIndex, content }));
+  }
+
+  async saveMinutes(
+    meetingId: string,
+    data: {
+      contentMd: string;
+      structured?: unknown;
+      docxPaths: Record<string, string>;
+    }
+  ): Promise<void> {
+    const row = this.rowById(meetingId);
+    if (!row) return;
+    row.minutes = {
+      contentMd: data.contentMd,
+      structured: data.structured,
+      docxPaths: { ...data.docxPaths }
+    };
+  }
+
+  async getMinutes(meetingId: string): Promise<
+    | { contentMd: string; structured?: unknown; docxPaths: Record<string, string> }
+    | undefined
+  > {
+    const row = this.rowById(meetingId);
+    return row?.minutes ? { ...row.minutes } : undefined;
+  }
+
+  async listExpiredAudio(now: Date): Promise<Meeting[]> {
+    const dayMs = 24 * 60 * 60 * 1000;
+    return this.rows
+      .filter((r) => {
+        if (!r.audioPath) return false;
+        if (r.retentionUntil !== null && r.retentionUntil < now.getTime()) return true;
+        return (
+          (r.meeting.status === "cancelled" || r.meeting.status === "failed") &&
+          r.lastActivityAt < now.getTime() - dayMs
+        );
+      })
+      .map((r) => this.toDto(r));
+  }
+
+  async clearAudioPath(id: string): Promise<void> {
+    const row = this.rowById(id);
+    if (row) row.audioPath = null;
+  }
+}
+
+class MemoryGlossaryRepository implements GlossaryRepository {
+  // 029 마이그레이션의 시드와 동일 — mock 전사 프롬프트 검증용.
+  private readonly data: GlossaryTerm[] = [
+    { id: "g-1", term: "한미르", note: "회사명 (영문 표기 Hanmir)" },
+    { id: "g-2", term: "한미르톡", note: "사내 협업툴 서비스명 (HanmirTalk)" },
+    { id: "g-3", term: "한미르ERP", note: "사내 ERP 포털 (HanmirERP)" },
+    { id: "g-4", term: "MES", note: "생산관리시스템 (Manufacturing Execution System)" },
+    { id: "g-5", term: "불출", note: "창고에서 자재를 꺼내 생산에 투입하는 것" }
+  ];
+
+  async list(): Promise<GlossaryTerm[]> {
+    return this.data.map((t) => ({ ...t }));
+  }
+}
+
 export function createMemoryRepositories(): Repositories {
   const departments = new MemoryDepartmentRepository();
   const users = new MemoryUserRepository({ departments });
@@ -3132,6 +3451,9 @@ export function createMemoryRepositories(): Repositories {
     getUserName: (id) => users._data.find((u) => u.id === id)?.name,
     getAttachmentName: (id) => files.findByIdSync(id)?.name
   });
+  // 회의 파이프라인 — startedByName 표시용 사용자 accessor 연결.
+  const meetings = new MemoryMeetingRepository();
+  meetings.setUserAccessor((id) => users._data.find((u) => u.id === id)?.name);
   return {
     users,
     departments,
@@ -3151,6 +3473,8 @@ export function createMemoryRepositories(): Repositories {
     invitations,
     orgNotifications,
     scheduledMessages,
-    messageReactions
+    messageReactions,
+    meetings,
+    glossary: new MemoryGlossaryRepository()
   };
 }

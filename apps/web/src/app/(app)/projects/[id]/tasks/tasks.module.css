@@ -74,6 +74,18 @@
   gap: 8px;
   color: var(--text-1);
 }
+/* 그룹 접기 화살표 — 28px 그리드 셀 안에서 중앙 정렬, 접힘 시 -90도. */
+.groupChevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  transition: transform 0.12s ease;
+}
+.groupChevronClosed {
+  transform: rotate(-90deg);
+}
 .groupCount {
   background: var(--bg-soft);
   color: var(--text-2);

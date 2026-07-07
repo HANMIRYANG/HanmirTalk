@@ -1,7 +1,13 @@
-import { apiRequest } from "./api-client";
+import type { ProductDraft, ProjectDraft } from "@hanmir/shared";
+import { ApiError, apiBaseUrl, apiRequest } from "./api-client";
 
 export interface AuthOptions {
   token?: string;
+}
+
+export interface AiDraftResponse<T> {
+  draft: T;
+  usage: { inputTokens: number; outputTokens: number };
 }
 
 export type AiScope = "recent20" | "today" | "thread" | "messageIds";
@@ -44,5 +50,42 @@ export const aiService = {
   draftNotice: (body: { roomId: string; scope: AiScope; messageIds?: string[] }, opts?: AuthOptions) =>
     callCommand("draft-notice", body, opts),
   minutes: (body: { roomId: string; scope: AiScope; messageIds?: string[] }, opts?: AuthOptions) =>
-    callCommand("minutes", body, opts)
+    callCommand("minutes", body, opts),
+
+  // 제품 등록 초안 — MSDS/시험성적서 PDF(1~3건)를 서버 AI 엔드포인트로
+  // 보내 폼 초안을 받는다. multipart 라 apiRequest(JSON 강제) 우회 —
+  // file.service.uploadFile 선례.
+  async draftProduct(files: File[]): Promise<AiDraftResponse<ProductDraft>> {
+    const form = new FormData();
+    for (const f of files) form.append("files", f);
+    let response: Response;
+    try {
+      response = await fetch(`${apiBaseUrl}/ai/product-draft`, {
+        method: "POST",
+        body: form,
+        headers: { Accept: "application/json" },
+        credentials: "include"
+      });
+    } catch (error) {
+      throw new ApiError(0, "Network error while requesting product draft", error);
+    }
+    const isJson = response.headers.get("content-type")?.includes("application/json");
+    const payload = isJson ? await response.json().catch(() => undefined) : undefined;
+    if (!response.ok) {
+      const message =
+        (payload && typeof payload === "object" && "error" in (payload as Record<string, unknown>)
+          ? String((payload as Record<string, unknown>).error)
+          : undefined) ?? `Product draft failed (${response.status})`;
+      throw new ApiError(response.status, message, payload);
+    }
+    return payload as AiDraftResponse<ProductDraft>;
+  },
+
+  // 프로젝트 등록 초안 — 자연어 서술을 폼 필드 + 마일스톤 초안으로 변환.
+  async draftProject(prompt: string): Promise<AiDraftResponse<ProjectDraft>> {
+    return apiRequest<AiDraftResponse<ProjectDraft>>("/ai/project-draft", {
+      method: "POST",
+      body: { prompt }
+    });
+  }
 };

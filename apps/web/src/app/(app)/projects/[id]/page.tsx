@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 import { Topbar } from "@/components/shell/Topbar";
 import { ProjectHeader } from "@/components/project/ProjectHeader";
-import { Avatar } from "@/components/ui/Avatar";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { projectService } from "@/services/project.service";
 import { userService } from "@/services/user.service";
@@ -11,6 +10,7 @@ import { cn } from "@/lib/classNames";
 import { ProjectActions } from "./ProjectActions";
 import { ProjectMembersCard } from "./ProjectMembersCard";
 import { MilestonesCard } from "./MilestonesCard";
+import { RecentActivityCard } from "./RecentActivityCard";
 import styles from "./detail.module.css";
 
 interface Props {
@@ -55,6 +55,11 @@ export default async function ProjectDetailPage({ params }: Props) {
                   {project.progress}%<small>/ 100</small>
                 </div>
                 <ProgressBar value={project.progress} className={styles.statProgress} />
+                <div className="t-xs muted" style={{ marginTop: 6 }}>
+                  {project.progressManual
+                    ? "직접 지정 값"
+                    : `업무 완료 기준 자동 (${project.taskCounts.done}/${project.taskCounts.total})`}
+                </div>
               </div>
               <div className="stat">
                 <div className="stat__label">업무</div>
@@ -156,25 +161,7 @@ export default async function ProjectDetailPage({ params }: Props) {
 
             <ProjectMembersCard project={project} users={users} />
 
-            <section className="card">
-              <div className="card__head">
-                <h3>최근 활동</h3>
-              </div>
-              <div className={styles.activityBody}>
-                {activities.map((a) => (
-                  <div key={a.id} className={styles.activityRow}>
-                    <Avatar initials={a.initials} tone={a.tone ?? "default"} size="sm" />
-                    <div>
-                      <div className={styles.activityText}>
-                        <b>{a.author}</b>
-                        {a.body}
-                      </div>
-                      <div className={styles.activityTime}>{a.time}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
+            <RecentActivityCard activities={activities} />
           </aside>
         </div>
       </div>

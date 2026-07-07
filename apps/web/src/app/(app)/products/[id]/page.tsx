@@ -13,6 +13,10 @@ import styles from "./detail.module.css";
 
 const WRITER_ROLES = new Set(["admin", "super_admin", "manager", "project_owner"]);
 
+// 브라우저 기준 API 경로 — SSR 내부 URL(API_BASE_URL, http://server:4000)을
+// <img src> 에 쓰면 안 되므로 공개 경로만 사용한다 (프로드 빌드에서 /api/v1).
+const PUBLIC_API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || "/api/v1";
+
 interface Props {
   params: { id: string };
 }
@@ -36,6 +40,9 @@ export default async function ProductDetailPage({ params }: Props) {
     ]);
   const owner = product.ownerId ? users.find((u) => u.id === product.ownerId) : undefined;
   const canManage = WRITER_ROLES.has(me.role);
+  // 제품 대표 이미지 — 문서 탭의 image 타입 첨부 중 첫 번째를 헤더 썸네일로
+  // 사용한다 (없으면 기존 텍스트 플레이스홀더 유지).
+  const imageDoc = dbDocuments.find((d) => d.documentType === "image");
 
   return (
     <>
@@ -50,7 +57,19 @@ export default async function ProductDetailPage({ params }: Props) {
           <b>{product.subCategory}</b>
         </div>
         <div className={styles.row}>
-          <div className={styles.img}>{product.imageLabel ?? "PRODUCT IMG"}</div>
+          {imageDoc ? (
+            // next/image 는 최적화 프록시(/_next/image)가 쿠키 없이 원본을
+            // 재요청해 인증(401)에 걸리므로 native img 를 사용한다.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              className={styles.img}
+              src={`${PUBLIC_API_BASE}/files/${imageDoc.attachmentId}/download`}
+              alt={product.name}
+              style={{ objectFit: "contain", background: "#fff" }}
+            />
+          ) : (
+            <div className={styles.img}>{product.imageLabel ?? "PRODUCT IMG"}</div>
+          )}
           <div className={styles.titleBlock}>
             <div className={styles.title}>
               {product.fullName} <small>{product.code}</small>

@@ -25,6 +25,16 @@ packages/shared/src/**/*.d.ts
 server/uploads/*
 !server/uploads/.gitkeep
 
+# 운영 업로드 저장소 (UPLOAD_DIR_HOST bind mount) — 실제 사내 파일이므로
+# 절대 커밋 금지.
+uploads/
+
+# 대량 적재 스테이징 — 자료실(import/)과 제품정보(import-products/)에
+# 넣는 원본 문서는 사내 자료라 커밋하지 않는다. 사용법 README 만 추적.
+import/
+import-products/*
+!import-products/README.md
+
 # Stray duplicated upload root from earlier when the dev server's cwd was
 # `server/` (config.uploadDir then resolved to server/server/uploads).
 server/server/

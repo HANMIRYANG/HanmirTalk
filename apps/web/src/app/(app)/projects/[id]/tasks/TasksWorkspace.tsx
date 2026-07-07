@@ -40,7 +40,6 @@ export function TasksWorkspace({
   meId
 }: TasksWorkspaceProps) {
   const [view, setView] = useState<ViewMode>("list");
-  const [doneOpen, setDoneOpen] = useState(false);
 
   const userById = useMemo(
     () => new Map(users.map((u) => [u.id, u] as const)),
@@ -184,8 +183,6 @@ export function TasksWorkspace({
             tasks={paged}
             doneCount={doneCount}
             done={done}
-            doneOpen={doneOpen}
-            onToggleDone={() => setDoneOpen((v) => !v)}
             userById={userById}
             projectId={projectId}
             users={users}

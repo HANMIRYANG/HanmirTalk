@@ -12,6 +12,7 @@ import type {
 import { projectStatusLabel, salesStatusLabel } from "@hanmir/shared";
 import { Modal } from "@/components/ui/Modal";
 import { projectService } from "@/services/project.service";
+import { aiService } from "@/services/ai.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
 import fstyles from "@/app/(app)/admin/admin-forms.module.css";
@@ -44,6 +45,7 @@ interface FormState {
   startDate: string;
   dueDate: string;
   progress: string;
+  progressMode: "auto" | "manual";
   description: string;
   goalsText: string;
   outputsText: string;
@@ -64,6 +66,7 @@ const EMPTY_FORM: FormState = {
   startDate: "",
   dueDate: "",
   progress: "0",
+  progressMode: "auto",
   description: "",
   goalsText: "",
   outputsText: "",
@@ -85,6 +88,7 @@ function projectToForm(p: Project): FormState {
     startDate: p.startDate ?? "",
     dueDate: p.dueDate ?? "",
     progress: String(p.progress ?? 0),
+    progressMode: p.progressManual ? "manual" : "auto",
     description: p.description ?? "",
     goalsText: (p.goals ?? []).join("\n"),
     outputsText: (p.outputs ?? []).join("\n"),
@@ -123,6 +127,12 @@ interface ProjectFormModalProps {
   onSubmitted?: (project: Project) => void;
 }
 
+interface MilestoneRow {
+  title: string;
+  subtitle: string;
+  date: string;
+}
+
 export function ProjectFormModal({
   open,
   mode,
@@ -133,12 +143,68 @@ export function ProjectFormModal({
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // AI 초안 (추가 모드 전용) — 자연어 서술로 폼과 마일스톤을 채운다.
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiNote, setAiNote] = useState<string | null>(null);
+  // 마일스톤 초안 — 생성 성공 후 addMilestone 으로 일괄 저장.
+  const [milestones, setMilestones] = useState<MilestoneRow[]>([]);
 
   useEffect(() => {
     if (!open) return;
     setForm(mode.kind === "edit" ? projectToForm(mode.project) : EMPTY_FORM);
     setError(null);
+    setAiPrompt("");
+    setAiBusy(false);
+    setAiNote(null);
+    setMilestones([]);
   }, [open, mode]);
+
+  const runAiDraft = async () => {
+    if (aiBusy) return;
+    if (aiPrompt.trim().length < 10) {
+      setAiNote("프로젝트 내용을 조금 더 자세히 적어 주세요 (10자 이상).");
+      return;
+    }
+    setAiBusy(true);
+    setAiNote("AI 가 초안을 작성하고 있습니다…");
+    try {
+      const { draft } = await aiService.draftProject(aiPrompt.trim());
+      setForm((f) => ({
+        ...f,
+        name: draft.name || f.name,
+        fullName: draft.fullName || f.fullName,
+        code: draft.code || f.code,
+        department: draft.department || f.department,
+        startDate: draft.startDate || f.startDate,
+        dueDate: draft.dueDate || f.dueDate,
+        description: draft.description || f.description,
+        goalsText: draft.goals.length > 0 ? draft.goals.join("\n") : f.goalsText,
+        outputsText: draft.outputs.length > 0 ? draft.outputs.join("\n") : f.outputsText,
+        type: draft.type || f.type,
+        budget: draft.budget || f.budget,
+        externalPartners: draft.externalPartners || f.externalPartners
+      }));
+      if (draft.milestones.length > 0) setMilestones(draft.milestones);
+      setAiNote(
+        `초안이 채워졌습니다 (마일스톤 ${draft.milestones.length}건 포함). 내용을 확인·수정한 뒤 추가해 주세요.`
+      );
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        handleSessionExpired(router);
+        return;
+      }
+      if (err instanceof ApiError && err.status === 429) {
+        setAiNote("AI 사용량 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.");
+      } else if (err instanceof ApiError && err.status === 503) {
+        setAiNote("AI 기능이 설정되지 않았습니다. 관리자에게 문의해 주세요.");
+      } else {
+        setAiNote("AI 초안 생성에 실패했습니다. 다시 시도해 주세요.");
+      }
+    } finally {
+      setAiBusy(false);
+    }
+  };
 
   const close = () => {
     if (submitting) return;
@@ -156,7 +222,11 @@ export function ProjectFormModal({
       return;
     }
     const progressNum = Number(form.progress);
-    if (mode.kind === "edit" && (!Number.isFinite(progressNum) || progressNum < 0 || progressNum > 100)) {
+    if (
+      mode.kind === "edit" &&
+      form.progressMode === "manual" &&
+      (!Number.isFinite(progressNum) || progressNum < 0 || progressNum > 100)
+    ) {
       setError("진행률은 0–100 사이의 숫자여야 합니다.");
       return;
     }
@@ -186,11 +256,30 @@ export function ProjectFormModal({
     try {
       if (mode.kind === "create") {
         const created = await projectService.createProject(common as CreateProjectInput);
+        // 마일스톤 초안 저장 — 실패해도 프로젝트는 생성된 상태이므로
+        // 안내만 하고 진행 (상세의 '주요 일정' 카드에서 재시도 가능).
+        const validMilestones = milestones.filter((m) => m.title.trim() && m.date);
+        if (validMilestones.length > 0) {
+          try {
+            for (const m of validMilestones) {
+              await projectService.addMilestone(created.id, {
+                title: m.title.trim(),
+                ...(m.subtitle.trim() ? { subtitle: m.subtitle.trim() } : {}),
+                date: m.date
+              });
+            }
+          } catch {
+            window.alert(
+              "프로젝트는 생성되었지만 마일스톤 일부 저장에 실패했습니다. 상세 페이지의 '주요 일정'에서 다시 추가해 주세요."
+            );
+          }
+        }
         onSubmitted?.(created);
       } else {
         const payload: UpdateProjectInput = {
           ...common,
-          progress: Math.round(progressNum)
+          progressMode: form.progressMode,
+          ...(form.progressMode === "manual" ? { progress: Math.round(progressNum) } : {})
         };
         const updated = await projectService.updateProject(mode.project.id, payload);
         onSubmitted?.(updated);
@@ -243,6 +332,50 @@ export function ProjectFormModal({
       }
     >
       <form id="project-form" onSubmit={onSubmit} noValidate>
+        {!isEdit ? (
+          <div
+            style={{
+              border: "1px solid var(--border)",
+              borderRadius: 10,
+              padding: "10px 12px",
+              marginBottom: 14,
+              background: "var(--surface-muted)"
+            }}
+          >
+            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>
+              🤖 AI로 작성 (선택)
+            </div>
+            <p className="muted t-sm" style={{ margin: "0 0 8px" }}>
+              프로젝트를 자유롭게 서술하면 AI가 아래 폼과 마일스톤 초안을
+              채웁니다. 예: &ldquo;9월 말까지 HC-850 양산 준비. 도료사업본부 주관,
+              7월 파일럿 생산, 8월 라인 시운전, 예산 1억.&rdquo;
+            </p>
+            <textarea
+              className="field"
+              rows={3}
+              placeholder="무엇을, 언제까지, 누가(부서), 어떤 단계로 진행하는지 적어 주세요."
+              value={aiPrompt}
+              disabled={aiBusy}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              maxLength={4000}
+            />
+            <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center" }}>
+              <button
+                type="button"
+                className="btn btn--primary btn--sm"
+                onClick={() => void runAiDraft()}
+                disabled={aiBusy || aiPrompt.trim().length === 0}
+              >
+                {aiBusy ? "작성 중…" : "AI 초안 생성"}
+              </button>
+              {aiNote ? (
+                <span className="muted t-sm" role="status">
+                  {aiNote}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
         <div className={fstyles.formGrid}>
           <label className={fstyles.span2}>
             프로젝트명
@@ -337,16 +470,55 @@ export function ProjectFormModal({
             />
           </label>
           {isEdit ? (
-            <label>
-              진행률 (%)
-              <input
-                className="field"
-                type="number"
-                min={0}
-                max={100}
-                value={form.progress}
-                onChange={(e) => setForm((f) => ({ ...f, progress: e.target.value }))}
-              />
+            <label className={fstyles.span2}>
+              진행률
+              <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 4 }}>
+                <select
+                  className="field"
+                  style={{ flex: "0 0 190px" }}
+                  value={form.progressMode}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      progressMode: e.target.value as "auto" | "manual"
+                    }))
+                  }
+                >
+                  <option value="auto">자동 (업무 완료 기준)</option>
+                  <option value="manual">직접 지정</option>
+                </select>
+                {form.progressMode === "manual" ? (
+                  <>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={5}
+                      value={Number(form.progress) || 0}
+                      onChange={(e) => setForm((f) => ({ ...f, progress: e.target.value }))}
+                      style={{ flex: 1 }}
+                      aria-label="진행률"
+                    />
+                    <b
+                      style={{
+                        width: 48,
+                        textAlign: "right",
+                        fontVariantNumeric: "tabular-nums"
+                      }}
+                    >
+                      {Number(form.progress) || 0}%
+                    </b>
+                  </>
+                ) : (
+                  <span className="muted t-sm">
+                    {mode.kind === "edit" && mode.project.taskCounts.total > 0
+                      ? `완료 ${mode.project.taskCounts.done}/${mode.project.taskCounts.total} 업무 기준 — 현재 ${Math.round(
+                          (mode.project.taskCounts.done / mode.project.taskCounts.total) * 100
+                        )}%`
+                      : "등록된 업무가 없어 0%로 표시됩니다. 업무를 완료할 때마다 자동 갱신."}
+                  </span>
+                )}
+              </div>
             </label>
           ) : null}
           <label>
@@ -431,6 +603,76 @@ export function ProjectFormModal({
             />
           </label>
         </div>
+        {!isEdit ? (
+          <div style={{ marginTop: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <b style={{ fontSize: 13 }}>마일스톤 (선택)</b>
+              <button
+                type="button"
+                className="btn btn--outline btn--sm"
+                onClick={() =>
+                  setMilestones((m) => [...m, { title: "", subtitle: "", date: "" }])
+                }
+              >
+                + 일정 추가
+              </button>
+            </div>
+            {milestones.length === 0 ? (
+              <p className="muted t-sm" style={{ margin: 0 }}>
+                AI 초안 생성 시 자동으로 채워지며, 생성 후 상세 페이지의 &lsquo;주요
+                일정&rsquo; 카드에서도 관리할 수 있습니다.
+              </p>
+            ) : (
+              <div style={{ display: "grid", gap: 6 }}>
+                {milestones.map((row, i) => (
+                  <div key={i} style={{ display: "flex", gap: 6 }}>
+                    <input
+                      className="field"
+                      style={{ flex: "0 0 32%" }}
+                      placeholder="단계명"
+                      value={row.title}
+                      onChange={(e) =>
+                        setMilestones((m) =>
+                          m.map((r, j) => (j === i ? { ...r, title: e.target.value } : r))
+                        )
+                      }
+                    />
+                    <input
+                      className="field"
+                      style={{ flex: 1 }}
+                      placeholder="부연 (선택)"
+                      value={row.subtitle}
+                      onChange={(e) =>
+                        setMilestones((m) =>
+                          m.map((r, j) => (j === i ? { ...r, subtitle: e.target.value } : r))
+                        )
+                      }
+                    />
+                    <input
+                      className="field"
+                      style={{ flex: "0 0 150px" }}
+                      type="date"
+                      value={row.date}
+                      onChange={(e) =>
+                        setMilestones((m) =>
+                          m.map((r, j) => (j === i ? { ...r, date: e.target.value } : r))
+                        )
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="btn btn--outline btn--sm"
+                      onClick={() => setMilestones((m) => m.filter((_, j) => j !== i))}
+                      aria-label="마일스톤 삭제"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null}
         {error ? (
           <div className={fstyles.formError} role="alert">
             {error}

@@ -1,0 +1,67 @@
+.pill {
+  position: fixed;
+  right: 16px;
+  bottom: 76px; /* MobileNav 회피 */
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.18);
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-1);
+}
+
+.pill:hover {
+  background: var(--bg-soft);
+}
+
+.pill.warn {
+  border-color: var(--danger);
+}
+
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  animation: meeting-indicator-pulse 1.2s ease-in-out infinite;
+  flex: none;
+}
+
+@keyframes meeting-indicator-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot {
+    animation: none;
+  }
+}
+
+.name {
+  font-weight: 600;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.time {
+  color: var(--danger);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (min-width: 900px) {
+  .pill {
+    bottom: 20px; /* 데스크톱은 MobileNav 없음 */
+  }
+}

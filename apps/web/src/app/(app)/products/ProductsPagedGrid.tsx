@@ -6,6 +6,7 @@ import type { Product } from "@hanmir/shared";
 import { salesStatusLabel } from "@hanmir/shared";
 import { Tag } from "@/components/ui/Tag";
 import { Pagination } from "@/components/ui/Pagination";
+import { apiBaseUrl } from "@/services/api-client";
 import styles from "./products.module.css";
 
 const PAGE_SIZE = 12;
@@ -37,7 +38,19 @@ export function ProductsPagedGrid({ products }: ProductsPagedGridProps) {
       <div className={styles.grid}>
         {paged.map((p) => (
           <Link key={p.id} href={`/products/${p.id}`} className={styles.card}>
-            <div className={styles.thumb}>{p.imageLabel ?? "PRODUCT"}</div>
+            {p.imageAttachmentId ? (
+              // 대표 이미지(product_documents type=image). next/image 는
+              // 최적화 프록시가 쿠키 없이 재요청해 401 — native img 사용.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                className={styles.thumb}
+                src={`${apiBaseUrl}/files/${p.imageAttachmentId}/download`}
+                alt={p.name}
+                style={{ objectFit: "contain", background: "#fff" }}
+              />
+            ) : (
+              <div className={styles.thumb}>{p.imageLabel ?? "PRODUCT"}</div>
+            )}
             <div>
               <div className={styles.title}>{p.fullName}</div>
               <div className={styles.code}>{p.code}</div>

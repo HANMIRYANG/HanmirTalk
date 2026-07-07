@@ -3,6 +3,8 @@ import { Server as SocketServer, type Socket } from "socket.io";
 import type {
   ChatMessage,
   Decision,
+  Meeting,
+  MeetingStatus,
   Notice,
   Notification,
   PinnedMessageRef,
@@ -266,6 +268,28 @@ class Realtime {
   // 배지 실시간 갱신.
   emitNotificationNew(notification: Notification): void {
     this.io?.to(`user:${notification.userId}`).emit("notification:new", notification);
+  }
+
+  // 회의 녹음 시작 — 방을 보고 있는 클라이언트의 헤더 배지 갱신용.
+  emitMeetingStarted(roomId: string, meeting: Meeting): void {
+    this.io?.to(`room:${roomId}`).emit("meeting:started", meeting);
+  }
+
+  // 회의 상태 전이 (finish/cancel/파이프라인 각 단계/완료/실패). room 채널
+  // 에 더해 시작자의 user 채널로도 보낸다 — 시작자가 방 페이지 밖에 있어도
+  // 녹음 엔진(MeetingRecorderProvider)이 원격 종료를 감지해야 하기 때문.
+  emitMeetingUpdated(payload: {
+    id: string;
+    roomId?: string;
+    startedBy: string;
+    status: MeetingStatus;
+    progress?: { done: number; total: number };
+    error?: string;
+  }): void {
+    if (payload.roomId) {
+      this.io?.to(`room:${payload.roomId}`).emit("meeting:updated", payload);
+    }
+    this.io?.to(`user:${payload.startedBy}`).emit("meeting:updated", payload);
   }
 }
 

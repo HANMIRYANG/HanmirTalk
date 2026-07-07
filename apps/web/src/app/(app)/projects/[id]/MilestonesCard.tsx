@@ -6,6 +6,7 @@ import Link from "next/link";
 import type { Milestone } from "@hanmir/shared";
 import { Tag } from "@/components/ui/Tag";
 import { Modal } from "@/components/ui/Modal";
+import { Pagination } from "@/components/ui/Pagination";
 import { projectService } from "@/services/project.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
@@ -65,6 +66,8 @@ interface Props {
   canManage: boolean;
 }
 
+const MILESTONE_PAGE_SIZE = 5;
+
 export function MilestonesCard({ projectId, milestones, canManage }: Props) {
   const router = useRouter();
   const [modal, setModal] = useState<
@@ -73,6 +76,14 @@ export function MilestonesCard({ projectId, milestones, canManage }: Props) {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+
+  const pageCount = Math.max(1, Math.ceil(milestones.length / MILESTONE_PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const pagedMilestones = milestones.slice(
+    (safePage - 1) * MILESTONE_PAGE_SIZE,
+    safePage * MILESTONE_PAGE_SIZE
+  );
 
   const openCreate = () => {
     setForm(EMPTY_FORM);
@@ -179,7 +190,7 @@ export function MilestonesCard({ projectId, milestones, canManage }: Props) {
         </div>
       ) : (
         <div className={styles.milestoneList}>
-          {milestones.map((m) => (
+          {pagedMilestones.map((m) => (
             <div key={m.id} className={styles.milestone}>
               <div
                 className={cn(
@@ -217,6 +228,7 @@ export function MilestonesCard({ projectId, milestones, canManage }: Props) {
               ) : null}
             </div>
           ))}
+          <Pagination page={safePage} pageCount={pageCount} onChange={setPage} />
         </div>
       )}
 

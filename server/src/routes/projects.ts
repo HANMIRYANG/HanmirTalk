@@ -223,6 +223,11 @@ function parseUpdateProject(body: unknown): UpdateProjectInput | { error: string
     if (!isNumber(b.progress)) return { error: "progress_invalid" };
     out.progress = Math.max(0, Math.min(100, b.progress));
   }
+  if (b.progressMode !== undefined) {
+    if (b.progressMode !== "auto" && b.progressMode !== "manual")
+      return { error: "progressMode_invalid" };
+    out.progressMode = b.progressMode;
+  }
   if (b.description !== undefined) {
     if (!isString(b.description)) return { error: "description_invalid" };
     out.description = b.description;

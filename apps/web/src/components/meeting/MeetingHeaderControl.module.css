@@ -1,0 +1,79 @@
+.wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  animation: meeting-pulse 1.2s ease-in-out infinite;
+  flex: none;
+}
+
+@keyframes meeting-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot {
+    animation: none;
+  }
+}
+
+.elapsed {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--danger);
+  font-variant-numeric: tabular-nums;
+}
+
+.startBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.endBtn {
+  color: var(--danger);
+  border-color: var(--danger);
+  white-space: nowrap;
+}
+
+.endBtn:hover {
+  background: var(--danger-bg);
+}
+
+.uploadAlert {
+  color: var(--danger);
+  font-size: 11px;
+}
+
+.resumeBar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--warning-bg);
+  color: var(--warning);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.resumeBtn {
+  border: none;
+  background: none;
+  color: var(--warning);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}

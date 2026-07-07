@@ -43,7 +43,10 @@ import type {
   Department,
   FileEntry,
   FileFolder,
+  GlossaryTerm,
   ListFilesFilter,
+  Meeting,
+  MeetingStatus,
   MessageEntity,
   MessageReaction,
   MessageReactionDetail,
@@ -115,8 +118,11 @@ import type {
   OrgNotificationRepository,
   FileRepository,
   UpdateFolderRepoInput,
+  GlossaryRepository,
   InvitationRepository,
   IssuedRefreshToken,
+  MeetingRepository,
+  MeetingSegment,
   MessageReactionRepository,
   MessageRepository,
   NoticeRepository,
@@ -434,6 +440,7 @@ interface ProjectRow {
   start_date: Date | null;
   due_date: Date | null;
   progress: number;
+  progress_manual: boolean;
   description: string | null;
   goals: string[] | null;
   outputs: string[] | null;
@@ -451,6 +458,11 @@ interface ProjectRow {
 }
 
 function rowToProject(row: ProjectRow): Project {
+  // 진행률 — 기본은 업무 완료율 자동 계산(완료/전체). progress_manual 인
+  // 프로젝트만 저장된 수동값을 사용한다. 업무가 없으면 자동 모드는 0%.
+  const totalTasks = Number(row.total_count) || 0;
+  const doneTasks = Number(row.done_count) || 0;
+  const autoProgress = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
   return {
     id: row.id,
     code: row.code ?? "",
@@ -462,7 +474,8 @@ function rowToProject(row: ProjectRow): Project {
     ownerName: row.owner_name ?? "",
     startDate: formatDate(row.start_date),
     dueDate: formatDate(row.due_date),
-    progress: row.progress ?? 0,
+    progress: row.progress_manual ? row.progress ?? 0 : autoProgress,
+    progressManual: row.progress_manual,
     taskCounts: {
       done: Number(row.done_count) || 0,
       inProgress: Number(row.in_progress_count) || 0,
@@ -513,6 +526,7 @@ const PROJECT_SELECT = `
   SELECT
     p.id, p.code, p.name, p.full_name, p.status, p.stage_label,
     p.department, p.owner_name, p.start_date, p.due_date, p.progress,
+    p.progress_manual,
     p.description, p.goals, p.outputs, p.budget, p.type,
     p.external_partners, p.related_product_ids, p.sales_status,
     COALESCE(
@@ -700,6 +714,10 @@ class PgProjectRepository implements ProjectRepository {
     if (input.startDate !== undefined) add("start_date", input.startDate || null);
     if (input.dueDate !== undefined) add("due_date", input.dueDate || null);
     if (input.progress !== undefined) add("progress", input.progress);
+    // "manual" 전환 시 progress 수동값 고정, "auto" 전환 시 읽기 시점에
+    // 업무 완료율로 계산되므로 저장된 progress 는 건드리지 않는다.
+    if (input.progressMode !== undefined)
+      add("progress_manual", input.progressMode === "manual");
     if (input.description !== undefined) add("description", input.description);
     if (input.goals !== undefined) add("goals", input.goals);
     if (input.outputs !== undefined) add("outputs", input.outputs);
@@ -1782,6 +1800,7 @@ interface ProductRow {
   owner_id: string | null;
   code: string | null;
   sub_category: string | null;
+  image_attachment_id: string | null;
 }
 
 function rowToProduct(row: ProductRow): Product {
@@ -1803,6 +1822,7 @@ function rowToProduct(row: ProductRow): Product {
     salesUpdatedAt: "",
     salesUpdatedBy: "",
     ownerId: row.owner_id ?? "",
+    imageAttachmentId: row.image_attachment_id ?? undefined,
     // The DTO carries denormalized aggregates that the current schema does not
     // back. Until product_documents / sales_status_events are joined in, we
     // return empty arrays so the UI renders an empty state instead of
@@ -1823,7 +1843,10 @@ function rowToProduct(row: ProductRow): Product {
 
 const PRODUCT_SELECT = `
   SELECT id, code, name, category, sub_category, description, features,
-         application_area, caution, sales_status, sales_block_reason, owner_id
+         application_area, caution, sales_status, sales_block_reason, owner_id,
+         (SELECT pd.attachment_id FROM product_documents pd
+           WHERE pd.product_id = products.id AND pd.document_type = 'image'
+           ORDER BY pd.created_at DESC LIMIT 1) AS image_attachment_id
   FROM products
 `;
 
@@ -4721,6 +4744,385 @@ class PgErpRepository implements ErpRepository {
   }
 }
 
+// ── 회의 녹음 → AI 회의록 파이프라인 ─────────────────────────────────
+
+interface MeetingRow {
+  id: string;
+  room_id: string | null;
+  title: string;
+  started_by: string;
+  started_at: Date | string;
+  ended_at: Date | string | null;
+  status: string;
+  audio_path: string | null;
+  audio_retention_until: Date | string | null;
+  duration_ms: string | number;
+  last_activity_at: Date | string;
+  attempts: number;
+  claimed_at: Date | string | null;
+  error: string | null;
+  created_at: Date | string;
+  started_by_name?: string | null;
+}
+
+const MEETING_SELECT = `
+  SELECT m.id, m.room_id, m.title, m.started_by, m.started_at, m.ended_at,
+         m.status, m.audio_path, m.audio_retention_until, m.duration_ms,
+         m.last_activity_at, m.attempts, m.claimed_at, m.error, m.created_at,
+         u.name AS started_by_name,
+         COALESCE((SELECT MAX(s.seg_index) FROM meeting_segments s
+                    WHERE s.meeting_id = m.id), 0) AS current_seg_index
+    FROM meetings m
+    LEFT JOIN users u ON u.id = m.started_by
+`;
+
+const MEETING_PIPELINE_STATUSES =
+  "('pending','transcribing','summarizing','generating_docs')";
+
+function isoOf(v: Date | string): string {
+  return v instanceof Date ? v.toISOString() : String(v);
+}
+
+class PgMeetingRepository implements MeetingRepository {
+  constructor(private readonly pool: Pool) {}
+
+  private rowToMeeting(r: MeetingRow & { current_seg_index?: number }): Meeting {
+    return {
+      id: r.id,
+      roomId: r.room_id ?? undefined,
+      title: r.title,
+      startedBy: r.started_by,
+      startedByName: r.started_by_name ?? undefined,
+      startedAt: isoOf(r.started_at),
+      endedAt: r.ended_at ? isoOf(r.ended_at) : undefined,
+      status: r.status as Meeting["status"],
+      durationMs: Number(r.duration_ms),
+      currentSegIndex: Number(r.current_seg_index ?? 0),
+      error: r.error ?? undefined,
+      createdAt: isoOf(r.created_at)
+    };
+  }
+
+  async create(input: {
+    roomId: string;
+    title: string;
+    startedBy: string;
+  }): Promise<Meeting> {
+    // 방당 활성 녹음 1개는 partial unique index 가 강제한다 — 동시 시작
+    // 레이스는 23505 로 터지고 라우트가 409 로 변환한다.
+    const { rows } = await this.pool.query<{ id: string }>(
+      `INSERT INTO meetings (room_id, title, started_by, audio_path)
+       VALUES ($1, $2, $3, '')
+       RETURNING id`,
+      [input.roomId, input.title, input.startedBy]
+    );
+    const id = rows[0].id;
+    // audio_path 는 id 기반 디렉터리라 insert 후 채운다.
+    await this.pool.query(`UPDATE meetings SET audio_path = $2 WHERE id = $1`, [
+      id,
+      `meetings/${id}`
+    ]);
+    const created = await this.findById(id);
+    return created!;
+  }
+
+  async findById(id: string): Promise<Meeting | undefined> {
+    const { rows } = await this.pool.query(`${MEETING_SELECT} WHERE m.id = $1`, [id]);
+    return rows[0] ? this.rowToMeeting(rows[0]) : undefined;
+  }
+
+  async findActiveByRoom(roomId: string): Promise<Meeting | undefined> {
+    // recording 우선, 없으면 최신 파이프라인 진행중 — 프론트 새로고침 복원
+    // + "회의록 생성 중" 배지가 이 하나의 쿼리로 해결된다.
+    const { rows } = await this.pool.query(
+      `${MEETING_SELECT}
+        WHERE m.room_id = $1
+          AND m.status IN ('recording','pending','transcribing','summarizing','generating_docs')
+        ORDER BY (m.status = 'recording') DESC, m.created_at DESC
+        LIMIT 1`,
+      [roomId]
+    );
+    return rows[0] ? this.rowToMeeting(rows[0]) : undefined;
+  }
+
+  async list(opts: { roomId?: string; limit?: number } = {}): Promise<Meeting[]> {
+    const wheres: string[] = [];
+    const params: unknown[] = [];
+    if (opts.roomId) {
+      params.push(opts.roomId);
+      wheres.push(`m.room_id = $${params.length}`);
+    }
+    params.push(Math.min(Math.max(opts.limit ?? 50, 1), 200));
+    const { rows } = await this.pool.query(
+      `${MEETING_SELECT}
+        ${wheres.length ? `WHERE ${wheres.join(" AND ")}` : ""}
+        ORDER BY m.created_at DESC
+        LIMIT $${params.length}`,
+      params
+    );
+    return rows.map((r) => this.rowToMeeting(r));
+  }
+
+  async createSegment(
+    meetingId: string
+  ): Promise<{ segIndex: number; filePath: string }> {
+    // 인덱스와 파일 경로를 하나의 INSERT 에서 계산해 레이스에도 둘이 항상
+    // 일치한다. 경로 규약은 meetings/storage.ts segmentRelPath 와 동일.
+    const { rows } = await this.pool.query<{ seg_index: number; file_path: string }>(
+      `INSERT INTO meeting_segments (meeting_id, seg_index, file_path)
+       SELECT $1, t.next_idx,
+              'meetings/' || $1::text || '/seg-' || lpad(t.next_idx::text, 3, '0') || '.webm'
+         FROM (SELECT COALESCE(MAX(seg_index) + 1, 0) AS next_idx
+                 FROM meeting_segments WHERE meeting_id = $1) t
+       RETURNING seg_index, file_path`,
+      [meetingId]
+    );
+    return { segIndex: rows[0].seg_index, filePath: rows[0].file_path };
+  }
+
+  async listSegments(meetingId: string): Promise<MeetingSegment[]> {
+    const { rows } = await this.pool.query<{
+      seg_index: number;
+      file_path: string;
+      bytes: string | number;
+      duration_ms: string | number;
+      last_seq: number;
+    }>(
+      `SELECT seg_index, file_path, bytes, duration_ms, last_seq
+         FROM meeting_segments WHERE meeting_id = $1 ORDER BY seg_index`,
+      [meetingId]
+    );
+    return rows.map((r) => ({
+      segIndex: r.seg_index,
+      filePath: r.file_path,
+      bytes: Number(r.bytes),
+      durationMs: Number(r.duration_ms),
+      lastSeq: r.last_seq
+    }));
+  }
+
+  async recordChunk(
+    meetingId: string,
+    segIndex: number,
+    meta: { seq: number; bytes: number; durationMs: number }
+  ): Promise<"ok" | "duplicate" | "gap" | "segment_not_found"> {
+    // last_seq = seq-1 일 때만 성공하는 행카운트 가드 — 같은 청크의 중복
+    // 재전송(응답 유실 후 재시도)과 순서 붕괴를 하나의 UPDATE 로 판별한다.
+    const updated = await this.pool.query(
+      `UPDATE meeting_segments
+          SET last_seq = $3, bytes = bytes + $4, duration_ms = duration_ms + $5,
+              updated_at = NOW()
+        WHERE meeting_id = $1 AND seg_index = $2 AND last_seq = $3 - 1`,
+      [meetingId, segIndex, meta.seq, meta.bytes, meta.durationMs]
+    );
+    if (updated.rowCount === 1) {
+      await this.pool.query(
+        `UPDATE meetings
+            SET duration_ms = duration_ms + $2, last_activity_at = NOW()
+          WHERE id = $1`,
+        [meetingId, meta.durationMs]
+      );
+      return "ok";
+    }
+    const { rows } = await this.pool.query<{ last_seq: number }>(
+      `SELECT last_seq FROM meeting_segments
+        WHERE meeting_id = $1 AND seg_index = $2`,
+      [meetingId, segIndex]
+    );
+    if (!rows[0]) return "segment_not_found";
+    return meta.seq <= rows[0].last_seq ? "duplicate" : "gap";
+  }
+
+  async finish(
+    id: string,
+    endedAt: Date,
+    retentionUntil: Date
+  ): Promise<Meeting | undefined> {
+    const updated = await this.pool.query(
+      `UPDATE meetings
+          SET status = 'pending', ended_at = $2, audio_retention_until = $3
+        WHERE id = $1 AND status = 'recording'`,
+      [id, endedAt, retentionUntil]
+    );
+    if (updated.rowCount !== 1) return undefined;
+    return this.findById(id);
+  }
+
+  async cancel(id: string): Promise<boolean> {
+    const updated = await this.pool.query(
+      `UPDATE meetings SET status = 'cancelled', ended_at = NOW()
+        WHERE id = $1 AND status = 'recording'`,
+      [id]
+    );
+    return updated.rowCount === 1;
+  }
+
+  async listStaleRecordings(inactiveBefore: Date): Promise<Meeting[]> {
+    const { rows } = await this.pool.query(
+      `${MEETING_SELECT}
+        WHERE m.status = 'recording' AND m.last_activity_at < $1`,
+      [inactiveBefore]
+    );
+    return rows.map((r) => this.rowToMeeting(r));
+  }
+
+  async claimNext(
+    staleBefore: Date
+  ): Promise<(Meeting & { attempts: number }) | undefined> {
+    // 단일 UPDATE...RETURNING 원자 클레임. 단일 VM 전제지만 stale 클레임
+    // 재획득(서버 재시작 복구)까지 겸하므로 SELECT 후 UPDATE 로 쪼개지 않는다.
+    const { rows } = await this.pool.query<{ id: string; attempts: number }>(
+      `UPDATE meetings
+          SET claimed_at = NOW(), attempts = attempts + 1
+        WHERE id = (
+          SELECT id FROM meetings
+           WHERE status IN ${MEETING_PIPELINE_STATUSES}
+             AND (claimed_at IS NULL OR claimed_at < $1)
+           ORDER BY created_at
+           LIMIT 1
+        )
+        RETURNING id, attempts`,
+      [staleBefore]
+    );
+    if (!rows[0]) return undefined;
+    const meeting = await this.findById(rows[0].id);
+    return meeting ? { ...meeting, attempts: rows[0].attempts } : undefined;
+  }
+
+  async heartbeat(id: string): Promise<void> {
+    await this.pool.query(`UPDATE meetings SET claimed_at = NOW() WHERE id = $1`, [id]);
+  }
+
+  async advance(id: string, next: MeetingStatus): Promise<void> {
+    await this.pool.query(
+      `UPDATE meetings
+          SET status = $2, attempts = 0, claimed_at = NULL, error = NULL
+        WHERE id = $1`,
+      [id, next]
+    );
+  }
+
+  async releaseClaim(id: string, error?: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE meetings SET claimed_at = NULL, error = COALESCE($2, error)
+        WHERE id = $1`,
+      [id, error ?? null]
+    );
+  }
+
+  async markFailed(id: string, error: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE meetings
+          SET status = 'failed', claimed_at = NULL, error = $2
+        WHERE id = $1`,
+      [id, error]
+    );
+  }
+
+  async saveSegmentTranscript(
+    meetingId: string,
+    segIndex: number,
+    content: string,
+    modelUsed?: string
+  ): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO meeting_transcripts (meeting_id, seg_index, content, model_used)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (meeting_id, seg_index)
+       DO UPDATE SET content = EXCLUDED.content, model_used = EXCLUDED.model_used`,
+      [meetingId, segIndex, content, modelUsed ?? null]
+    );
+  }
+
+  async listSegmentTranscripts(
+    meetingId: string
+  ): Promise<{ segIndex: number; content: string }[]> {
+    const { rows } = await this.pool.query<{ seg_index: number; content: string }>(
+      `SELECT seg_index, content FROM meeting_transcripts
+        WHERE meeting_id = $1 ORDER BY seg_index`,
+      [meetingId]
+    );
+    return rows.map((r) => ({ segIndex: r.seg_index, content: r.content }));
+  }
+
+  async saveMinutes(
+    meetingId: string,
+    data: {
+      contentMd: string;
+      structured?: unknown;
+      docxPaths: Record<string, string>;
+      modelUsed?: string;
+    }
+  ): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO meeting_minutes (meeting_id, content_md, structured, model_used, docx_paths)
+       VALUES ($1, $2, $3::jsonb, $4, $5::jsonb)
+       ON CONFLICT (meeting_id)
+       DO UPDATE SET content_md = EXCLUDED.content_md,
+                     structured = EXCLUDED.structured,
+                     model_used = EXCLUDED.model_used,
+                     docx_paths = EXCLUDED.docx_paths`,
+      [
+        meetingId,
+        data.contentMd,
+        data.structured !== undefined ? JSON.stringify(data.structured) : null,
+        data.modelUsed ?? null,
+        JSON.stringify(data.docxPaths)
+      ]
+    );
+  }
+
+  async getMinutes(meetingId: string): Promise<
+    | { contentMd: string; structured?: unknown; docxPaths: Record<string, string> }
+    | undefined
+  > {
+    const { rows } = await this.pool.query<{
+      content_md: string;
+      structured: unknown;
+      docx_paths: Record<string, string>;
+    }>(
+      `SELECT content_md, structured, docx_paths FROM meeting_minutes
+        WHERE meeting_id = $1`,
+      [meetingId]
+    );
+    if (!rows[0]) return undefined;
+    return {
+      contentMd: rows[0].content_md,
+      structured: rows[0].structured ?? undefined,
+      docxPaths: rows[0].docx_paths ?? {}
+    };
+  }
+
+  async listExpiredAudio(now: Date): Promise<Meeting[]> {
+    const { rows } = await this.pool.query(
+      `${MEETING_SELECT}
+        WHERE m.audio_path IS NOT NULL
+          AND (
+            m.audio_retention_until < $1
+            OR (m.status IN ('cancelled','failed')
+                AND m.last_activity_at < $1::timestamp - INTERVAL '24 hours')
+          )`,
+      [now]
+    );
+    return rows.map((r) => this.rowToMeeting(r));
+  }
+
+  async clearAudioPath(id: string): Promise<void> {
+    await this.pool.query(`UPDATE meetings SET audio_path = NULL WHERE id = $1`, [id]);
+  }
+}
+
+class PgGlossaryRepository implements GlossaryRepository {
+  constructor(private readonly pool: Pool) {}
+
+  async list(): Promise<GlossaryTerm[]> {
+    const { rows } = await this.pool.query<{ id: string; term: string; note: string }>(
+      `SELECT id, term, note FROM glossary ORDER BY term`
+    );
+    return rows.map((r) => ({ id: r.id, term: r.term, note: r.note }));
+  }
+}
+
 export function createPostgresRepositories(pool: Pool): Repositories {
   const users = new PgUserRepository(pool);
   // Phase 11 — message repo 가 reactions 배치 lookup 을 사용하므로 reactions
@@ -4745,6 +5147,8 @@ export function createPostgresRepositories(pool: Pool): Repositories {
     invitations: new PgInvitationRepository(pool),
     orgNotifications: new PgOrgNotificationRepository(pool),
     scheduledMessages: new PgScheduledMessageRepository(pool),
-    messageReactions
+    messageReactions,
+    meetings: new PgMeetingRepository(pool),
+    glossary: new PgGlossaryRepository(pool)
   };
 }

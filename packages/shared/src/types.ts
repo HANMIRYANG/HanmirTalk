@@ -376,6 +376,9 @@ export interface Project {
   startDate: string;
   dueDate: string;
   progress: number;
+  // true = progress 는 수정 모달에서 직접 지정한 값. false/undefined =
+  // 업무 완료율(taskCounts.done/total)로 자동 계산된 값.
+  progressManual?: boolean;
   taskCounts: { done: number; inProgress: number; pending: number; total: number };
   delayedCount: number;
   description: string;
@@ -422,6 +425,9 @@ export interface UpdateProjectInput {
   startDate?: string;
   dueDate?: string;
   progress?: number;
+  // "auto" = 업무 완료율 자동 계산으로 전환(progress 무시),
+  // "manual" = progress 수동값 사용. 생략 시 모드 변경 없음.
+  progressMode?: "auto" | "manual";
   description?: string;
   goals?: string[];
   outputs?: string[];
@@ -607,6 +613,9 @@ export interface Product {
   salesUpdatedBy: string;
   ownerId: string;
   imageLabel?: string;
+  // 대표 이미지 — product_documents 중 document_type='image' 최신 1건의
+  // attachment id. 목록/상세 썸네일이 /files/:id/download 로 렌더한다.
+  imageAttachmentId?: string;
   spec: { key: string; value: string }[];
   history: SalesStatusEvent[];
   relatedProjectIds: string[];
@@ -1318,4 +1327,91 @@ export interface MesSyncRun {
   finishedAt?: string;
   errorMessage?: string;
   meta?: Record<string, unknown>;
+}
+
+// ── 회의 녹음 → AI 회의록 파이프라인 ─────────────────────────────────
+//
+// recording: 브라우저가 청크 업로드 중
+// pending → transcribing → summarizing → generating_docs: 서버 워커 파이프라인
+// completed / failed / cancelled: 종결
+export type MeetingStatus =
+  | "recording"
+  | "pending"
+  | "transcribing"
+  | "summarizing"
+  | "generating_docs"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface Meeting {
+  id: string;
+  // 방 삭제 시(ON DELETE SET NULL) undefined — 회의 데이터 자체는 보존.
+  roomId?: string;
+  title: string;
+  startedBy: string;
+  // 표시용 decoration (서버가 users 조인으로 채움)
+  startedByName?: string;
+  // ISO — 프론트 경과시간 표시·4시간 컷의 기준 시각
+  startedAt: string;
+  endedAt?: string;
+  status: MeetingStatus;
+  // 클라이언트 보고 duration 누적 (근사치)
+  durationMs: number;
+  // 현재(마지막) 세그먼트 인덱스. 새로고침 복원 시 프론트가 다음
+  // 세그먼트를 시작하는 기준.
+  currentSegIndex: number;
+  // transcribing 진행률 — meeting:updated 소켓 payload 에서만 채워진다.
+  progress?: { done: number; total: number };
+  error?: string;
+  createdAt: string;
+}
+
+export interface GlossaryTerm {
+  id: string;
+  term: string;
+  note: string;
+}
+
+// AI 폼 초안 — 제품 등록(MSDS/시험성적서 PDF 파싱)과 프로젝트 등록
+// (자연어 프롬프트)을 Claude 가 폼 필드 초안으로 변환한 결과. 사용자가
+// 폼에서 수정 후 제출하는 보조 기능이라 모든 필드는 빈 값 허용.
+export interface ProductDraft {
+  name: string;
+  code: string;
+  category: string;
+  subCategory: string;
+  description: string;
+  features: string[];
+  applications: string[];
+  cautions: string[];
+  specs: { key: string; value: string }[];
+}
+
+export interface ProjectDraft {
+  name: string;
+  fullName: string;
+  code: string;
+  department: string;
+  description: string;
+  goals: string[];
+  outputs: string[];
+  type: string;
+  budget: string;
+  externalPartners: string;
+  startDate: string; // YYYY-MM-DD (불명이면 "")
+  dueDate: string;
+  milestones: { title: string; subtitle: string; date: string }[];
+}
+
+// Claude 회의록 구조화 출력 (fenced JSON) — DOCX 렌더 입력.
+// 파싱 실패 시 structured=null 로 저장하고 원문 텍스트 폴백 렌더.
+export interface MeetingMinutesData {
+  overview: string;
+  // 화자 목록 ("화자1", "화자2 (홍길동 추정)" 등 — 실명 매핑은 추후 수정 가능)
+  attendees: string[];
+  agenda: { topic: string; discussion: string[] }[];
+  decisions: string[];
+  // 담당자/내용/기한 — 회의에서 언급된 경우만
+  actionItems: { assignee: string; item: string; due: string }[];
 }

@@ -87,6 +87,10 @@ export function ChatRoomMounter({ roomId, latestMessageId }: ChatRoomMounterProp
     socket.on("room:updated", onEvent);
     socket.on("message:thread:updated", onEvent);
     socket.on("message:reaction:updated", onEvent);
+    // 회의 녹음 시작/상태 전이 — 헤더의 MeetingHeaderControl 이 SSR prop
+    // 으로 상태를 받으므로 refresh 스로틀에 합류시키면 충분하다.
+    socket.on("meeting:started", onEvent);
+    socket.on("meeting:updated", onEvent);
     return () => {
       socket.emit("room:leave", roomId);
       socket.off("message:new", onEvent);
@@ -96,6 +100,8 @@ export function ChatRoomMounter({ roomId, latestMessageId }: ChatRoomMounterProp
       socket.off("room:updated", onEvent);
       socket.off("message:thread:updated", onEvent);
       socket.off("message:reaction:updated", onEvent);
+      socket.off("meeting:started", onEvent);
+      socket.off("meeting:updated", onEvent);
     };
   }, [roomId, requestRefresh]);
 

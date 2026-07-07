@@ -6,6 +6,7 @@ import type { Project, User } from "@hanmir/shared";
 import { Avatar } from "@/components/ui/Avatar";
 import { Tag } from "@/components/ui/Tag";
 import { Modal } from "@/components/ui/Modal";
+import { Pagination } from "@/components/ui/Pagination";
 import { SearchIcon } from "@/components/ui/icons";
 import { projectService } from "@/services/project.service";
 import { ApiError } from "@/services/api-client";
@@ -30,12 +31,22 @@ function describeError(err: unknown): string {
   return "처리에 실패했습니다.";
 }
 
+const MEMBER_PAGE_SIZE = 5;
+
 export function ProjectMembersCard({ project, users }: ProjectMembersCardProps) {
   const router = useRouter();
   const [memberIds, setMemberIds] = useState<string[]>(project.memberIds);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+
+  const pageCount = Math.max(1, Math.ceil(memberIds.length / MEMBER_PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const pagedMemberIds = memberIds.slice(
+    (safePage - 1) * MEMBER_PAGE_SIZE,
+    safePage * MEMBER_PAGE_SIZE
+  );
 
   const userById = useMemo(() => new Map(users.map((u) => [u.id, u] as const)), [users]);
   const memberSet = useMemo(() => new Set(memberIds), [memberIds]);
@@ -114,7 +125,7 @@ export function ProjectMembersCard({ project, users }: ProjectMembersCardProps) 
         {memberIds.length === 0 ? (
           <div className={mstyles.empty}>등록된 멤버가 없습니다.</div>
         ) : (
-          memberIds.map((id) => {
+          pagedMemberIds.map((id) => {
             const u = userById.get(id);
             if (!u) {
               return (
@@ -165,6 +176,7 @@ export function ProjectMembersCard({ project, users }: ProjectMembersCardProps) 
             );
           })
         )}
+        <Pagination page={safePage} pageCount={pageCount} onChange={setPage} />
       </div>
 
       <Modal
