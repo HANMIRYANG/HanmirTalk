@@ -55,6 +55,28 @@ export async function segmentAbsPath(rel: string): Promise<string> {
   return abs;
 }
 
+// 업로드된 부서별 주간보고 PPT. 오디오와 같은 회의 디렉터리에 있어
+// deleteMeetingAudio(보존기한/취소 정리)가 함께 지운다 — 회의록 생성에
+// 필요한 추출 텍스트는 meeting_ppt 테이블에 남으므로 파일 삭제와 무관.
+export function pptRelPath(meetingId: string): string {
+  return path.posix.join(meetingDirRel(meetingId), "ppt.pptx");
+}
+
+export async function writePptFile(meetingId: string, buf: Buffer): Promise<string> {
+  const rel = pptRelPath(meetingId);
+  const abs = resolveMeetingPath(rel);
+  if (!abs) throw new Error("invalid_meeting_path");
+  await fs.mkdir(path.dirname(abs), { recursive: true });
+  await fs.writeFile(abs, buf);
+  return rel;
+}
+
+export async function readPptFile(rel: string): Promise<Buffer> {
+  const abs = resolveMeetingPath(rel);
+  if (!abs) throw new Error("invalid_meeting_path");
+  return fs.readFile(abs);
+}
+
 // 보존기한/취소 정리 — 디렉터리째 제거. 이미 없으면 무시(멱등).
 export async function deleteMeetingAudio(meetingId: string): Promise<void> {
   const abs = resolveMeetingPath(meetingDirRel(meetingId));

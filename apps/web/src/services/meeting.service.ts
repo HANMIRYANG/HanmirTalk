@@ -49,6 +49,51 @@ export const meetingService = {
       method: "POST"
     });
   },
+  // awaiting_ppt 상태에서 부서별 주간보고 PPT(.pptx) 업로드 → 회의록 생성
+  // 재개. multipart 라 uploadChunk 와 같은 fetch 우회 + 401 refresh 1회
+  // 재시도 패턴. 422 invalid_pptx(손상 파일)는 ApiError.status 로 구분.
+  async uploadPpt(meetingId: string, file: File, didRetry = false): Promise<Meeting> {
+    const form = new FormData();
+    form.append("file", file);
+
+    let response: Response;
+    try {
+      response = await fetch(
+        `${apiBaseUrl}/meetings/${encodeURIComponent(meetingId)}/ppt`,
+        {
+          method: "POST",
+          body: form,
+          headers: { Accept: "application/json" },
+          credentials: "include"
+        }
+      );
+    } catch (error) {
+      throw new ApiError(0, "Network error while uploading ppt", error);
+    }
+
+    if (response.status === 401 && !didRetry) {
+      const ok = await attemptRefresh();
+      if (ok) return this.uploadPpt(meetingId, file, true);
+    }
+
+    const isJson = response.headers.get("content-type")?.includes("application/json");
+    const payload = isJson ? await response.json().catch(() => undefined) : undefined;
+
+    if (!response.ok) {
+      const message =
+        (payload && typeof payload === "object" && "error" in (payload as Record<string, unknown>)
+          ? String((payload as Record<string, unknown>).error)
+          : undefined) ?? `PPT upload failed (${response.status})`;
+      throw new ApiError(response.status, message, payload);
+    }
+    return payload as Meeting;
+  },
+  // PPT 없이 회의록 생성 진행 (건너뛰기).
+  async skipPpt(meetingId: string): Promise<Meeting> {
+    return apiRequest<Meeting>(`/meetings/${encodeURIComponent(meetingId)}/ppt/skip`, {
+      method: "POST"
+    });
+  },
   // Multipart 는 apiRequest 를 우회한다 (file.service.uploadFile 과 동일한
   // 이유 — FormData 가 multipart boundary 를 직접 소유해야 함). 401 은
   // api-client 의 single-flight refresh 를 1회 태우고 재시도.

@@ -1332,12 +1332,15 @@ export interface MesSyncRun {
 // ── 회의 녹음 → AI 회의록 파이프라인 ─────────────────────────────────
 //
 // recording: 브라우저가 청크 업로드 중
-// pending → transcribing → summarizing → generating_docs: 서버 워커 파이프라인
+// pending → transcribing → awaiting_ppt → summarizing → generating_docs:
+//   서버 워커 파이프라인. awaiting_ppt 는 부서별 주간보고 PPT 업로드 대기 —
+//   워커가 클레임하지 않으며 업로드/건너뛰기/타임아웃으로 summarizing 재개.
 // completed / failed / cancelled: 종결
 export type MeetingStatus =
   | "recording"
   | "pending"
   | "transcribing"
+  | "awaiting_ppt"
   | "summarizing"
   | "generating_docs"
   | "completed"
@@ -1363,6 +1366,8 @@ export interface Meeting {
   currentSegIndex: number;
   // transcribing 진행률 — meeting:updated 소켓 payload 에서만 채워진다.
   progress?: { done: number; total: number };
+  // awaiting_ppt 진입 시각 (ISO) — PPT 대기 타임아웃 기준
+  pptRequestedAt?: string;
   error?: string;
   createdAt: string;
 }
@@ -1406,12 +1411,22 @@ export interface ProjectDraft {
 
 // Claude 회의록 구조화 출력 (fenced JSON) — DOCX 렌더 입력.
 // 파싱 실패 시 structured=null 로 저장하고 원문 텍스트 폴백 렌더.
+// v2 (031_meeting_ppt): 부서 중심 구조 — 부서별 주간보고 PPT 를 기준으로
+// 부서를 나누고, 부서마다 안건 토픽 한 줄씩 + 결정사항 + 피드백을 정리한다.
+// PPT 없이 생성된 경우 부서는 전사에서 추론되며, 특정 부서로 귀속하기
+// 어려운 내용은 name="공통" 항목으로 들어간다.
 export interface MeetingMinutesData {
   overview: string;
   // 화자 목록 ("화자1", "화자2 (홍길동 추정)" 등 — 실명 매핑은 추후 수정 가능)
   attendees: string[];
-  agenda: { topic: string; discussion: string[] }[];
-  decisions: string[];
+  departments: {
+    name: string; // 예: "생산부", "연구소", "공통"
+    // 안건 토픽 — 토픽당 한 줄 (부서당 여러 개 가능)
+    topics: string[];
+    decisions: string[];
+    // 피드백/지시사항
+    feedback: string[];
+  }[];
   // 담당자/내용/기한 — 회의에서 언급된 경우만
   actionItems: { assignee: string; item: string; due: string }[];
 }

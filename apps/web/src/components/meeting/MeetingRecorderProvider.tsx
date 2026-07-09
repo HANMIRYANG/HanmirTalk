@@ -263,6 +263,9 @@ export function MeetingRecorderProvider({ children }: { children: ReactNode }) {
       const active = recordingRef.current;
       if (!active || payload.id !== active.meetingId) return;
       if (payload.status === "recording") return;
+      // awaiting_ppt(전사 완료, PPT 대기)는 종료가 아니다 — 정상적으로는
+      // stop() 의 resetToIdle 이 먼저라 여기 도달하지 않지만 방어적으로 제외.
+      if (payload.status === "awaiting_ppt") return;
       if (stoppingRef.current) return; // 내가 종료 중 — 정상 흐름
       // 관리자 원격 종료/취소 or 서버 자동 종료 — finish 호출 없이 정리만.
       resetToIdle(active.meetingId);

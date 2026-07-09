@@ -3068,18 +3068,33 @@ interface MemoryMeetingRow {
     structured?: unknown;
     docxPaths: Record<string, string>;
   };
+  ppt?: {
+    filePath: string;
+    textContent: string;
+    imageSummary?: string;
+    imageStatus: "pending" | "done" | "failed" | "none";
+  };
   audioPath: string | null;
   lastActivityAt: number;
   attempts: number;
   claimedAt: number | null;
+  pptRequestedAt: number | null;
   retentionUntil: number | null;
 }
 
-const MEETING_PIPELINE: MeetingStatus[] = [
+// 워커가 클레임하는 상태 — awaiting_ppt 는 업로드/타임아웃 재개 전까지
+// 클레임 대상이 아니므로 여기 넣지 않는다 (PG MEETING_PIPELINE_STATUSES 미러).
+const MEETING_CLAIMABLE: MeetingStatus[] = [
   "pending",
   "transcribing",
   "summarizing",
   "generating_docs"
+];
+// 방의 "진행 중 회의" 판정 — awaiting_ppt 포함 (PG findActiveByRoom 미러).
+const MEETING_ACTIVE: MeetingStatus[] = [
+  "recording",
+  ...MEETING_CLAIMABLE,
+  "awaiting_ppt"
 ];
 
 class MemoryMeetingRepository implements MeetingRepository {
@@ -3139,6 +3154,7 @@ class MemoryMeetingRepository implements MeetingRepository {
       lastActivityAt: now.getTime(),
       attempts: 0,
       claimedAt: null,
+      pptRequestedAt: null,
       retentionUntil: null
     };
     this.rows.push(row);
@@ -3152,10 +3168,7 @@ class MemoryMeetingRepository implements MeetingRepository {
 
   async findActiveByRoom(roomId: string): Promise<Meeting | undefined> {
     const candidates = this.rows.filter(
-      (r) =>
-        r.meeting.roomId === roomId &&
-        (r.meeting.status === "recording" ||
-          MEETING_PIPELINE.includes(r.meeting.status))
+      (r) => r.meeting.roomId === roomId && MEETING_ACTIVE.includes(r.meeting.status)
     );
     if (candidates.length === 0) return undefined;
     const recording = candidates.find((r) => r.meeting.status === "recording");
@@ -3225,9 +3238,14 @@ class MemoryMeetingRepository implements MeetingRepository {
 
   async cancel(id: string): Promise<boolean> {
     const row = this.rowById(id);
-    if (!row || row.meeting.status !== "recording") return false;
+    if (
+      !row ||
+      (row.meeting.status !== "recording" && row.meeting.status !== "awaiting_ppt")
+    ) {
+      return false;
+    }
     row.meeting.status = "cancelled";
-    row.meeting.endedAt = new Date().toISOString();
+    row.meeting.endedAt = row.meeting.endedAt ?? new Date().toISOString();
     return true;
   }
 
@@ -3247,7 +3265,7 @@ class MemoryMeetingRepository implements MeetingRepository {
     const row = this.rows
       .filter(
         (r) =>
-          MEETING_PIPELINE.includes(r.meeting.status) &&
+          MEETING_CLAIMABLE.includes(r.meeting.status) &&
           (r.claimedAt === null || r.claimedAt < staleBefore.getTime())
       )
       .sort((a, b) => a.meeting.createdAt.localeCompare(b.meeting.createdAt))[0];
@@ -3284,6 +3302,77 @@ class MemoryMeetingRepository implements MeetingRepository {
     row.meeting.status = "failed";
     row.claimedAt = null;
     row.meeting.error = error;
+  }
+
+  async markAwaitingPpt(id: string): Promise<void> {
+    const row = this.rowById(id);
+    if (!row) return;
+    const now = Date.now();
+    row.meeting.status = "awaiting_ppt";
+    row.meeting.pptRequestedAt = new Date(now).toISOString();
+    row.pptRequestedAt = now;
+    row.attempts = 0;
+    row.claimedAt = null;
+    row.meeting.error = undefined;
+  }
+
+  async resumeFromPpt(id: string): Promise<boolean> {
+    const row = this.rowById(id);
+    if (!row || row.meeting.status !== "awaiting_ppt") return false;
+    row.meeting.status = "summarizing";
+    row.attempts = 0;
+    row.claimedAt = null;
+    row.meeting.error = undefined;
+    return true;
+  }
+
+  async listPptTimedOut(cutoff: Date): Promise<Meeting[]> {
+    return this.rows
+      .filter(
+        (r) =>
+          r.meeting.status === "awaiting_ppt" &&
+          r.pptRequestedAt !== null &&
+          r.pptRequestedAt < cutoff.getTime()
+      )
+      .map((r) => this.toDto(r));
+  }
+
+  async savePpt(
+    meetingId: string,
+    data: { filePath: string; textContent: string }
+  ): Promise<void> {
+    const row = this.rowById(meetingId);
+    if (!row) return;
+    // 재업로드 시 이미지 판독 캐시 리셋 (PG savePpt 미러).
+    row.ppt = {
+      filePath: data.filePath,
+      textContent: data.textContent,
+      imageStatus: "pending"
+    };
+  }
+
+  async getPpt(meetingId: string): Promise<
+    | {
+        filePath: string;
+        textContent: string;
+        imageSummary?: string;
+        imageStatus: "pending" | "done" | "failed" | "none";
+      }
+    | undefined
+  > {
+    const row = this.rowById(meetingId);
+    return row?.ppt ? { ...row.ppt } : undefined;
+  }
+
+  async setPptImageResult(
+    meetingId: string,
+    status: "done" | "failed" | "none",
+    imageSummary?: string
+  ): Promise<void> {
+    const row = this.rowById(meetingId);
+    if (!row?.ppt) return;
+    row.ppt.imageStatus = status;
+    if (imageSummary !== undefined) row.ppt.imageSummary = imageSummary;
   }
 
   async saveSegmentTranscript(

@@ -4,8 +4,12 @@
 // 에만 산다.
 import type { GlossaryTerm } from "@hanmir/shared";
 import { config } from "../config";
-import { MockTranscriptionProvider, mockGenerateMinutes } from "./mock";
-import { GeminiTranscriptionProvider } from "./gemini";
+import {
+  MockPptImageReader,
+  MockTranscriptionProvider,
+  mockGenerateMinutes
+} from "./mock";
+import { GeminiPptImageReader, GeminiTranscriptionProvider } from "./gemini";
 import { generateMeetingMinutes, isAiEnabled } from "./anthropic";
 
 export interface TranscribeSegmentInput {
@@ -28,12 +32,29 @@ export interface MinutesProvider {
   readonly name: string;
   generate(
     transcript: string,
-    opts: { title: string; date: string; durationLabel: string }
+    opts: {
+      title: string;
+      date: string;
+      durationLabel: string;
+      // 부서별 주간보고 PPT 추출 텍스트 (파서 + 이미지 판독 합본).
+      // 없으면 전사만으로 부서를 추론한다.
+      pptText?: string;
+    }
+  ): Promise<{ text: string }>;
+}
+
+// PPT 슬라이드에 붙은 이미지(엑셀 캡처 등)에서 텍스트를 읽는 보조
+// 프로바이더 — stepSummarize 의 best-effort 경로 전용.
+export interface PptImageReader {
+  readonly name: string;
+  readImages(
+    images: { data: Buffer; mimeType: string; label: string }[]
   ): Promise<{ text: string }>;
 }
 
 let transcription: TranscriptionProvider | null | undefined;
 let minutes: MinutesProvider | null | undefined;
+let pptImageReader: PptImageReader | null | undefined;
 
 export function getTranscriptionProvider(): TranscriptionProvider | null {
   if (transcription !== undefined) return transcription;
@@ -48,8 +69,8 @@ export function getMinutesProvider(): MinutesProvider | null {
   if (config.meetingAiMock) {
     minutes = {
       name: "mock-minutes",
-      generate: async () => {
-        const r = await mockGenerateMinutes();
+      generate: async (_transcript, opts) => {
+        const r = await mockGenerateMinutes(opts.pptText);
         return { text: r.text };
       }
     };
@@ -65,6 +86,14 @@ export function getMinutesProvider(): MinutesProvider | null {
     minutes = null;
   }
   return minutes;
+}
+
+export function getPptImageReader(): PptImageReader | null {
+  if (pptImageReader !== undefined) return pptImageReader;
+  if (config.meetingAiMock) pptImageReader = new MockPptImageReader();
+  else if (config.geminiApiKey) pptImageReader = new GeminiPptImageReader();
+  else pptImageReader = null;
+  return pptImageReader;
 }
 
 // 회의 시작 게이트 — 전사와 회의록 둘 다 가능해야 시작을 허용한다.

@@ -664,7 +664,7 @@ export interface MeetingRepository {
   ): Promise<"ok" | "duplicate" | "gap" | "segment_not_found">;
   // recording→pending 가드 — 이미 종료된 회의면 undefined.
   finish(id: string, endedAt: Date, retentionUntil: Date): Promise<Meeting | undefined>;
-  // recording→cancelled 가드.
+  // recording|awaiting_ppt → cancelled 가드.
   cancel(id: string): Promise<boolean>;
   // last_activity_at 이 기준보다 오래된 recording — 좀비 auto-finish 대상.
   listStaleRecordings(inactiveBefore: Date): Promise<Meeting[]>;
@@ -682,6 +682,34 @@ export interface MeetingRepository {
   // 스텝 실패 — 클레임만 풀고 attempts 는 유지 → 다음 tick 재시도.
   releaseClaim(id: string, error?: string): Promise<void>;
   markFailed(id: string, error: string): Promise<void>;
+
+  // ── awaiting_ppt (부서별 PPT 업로드 대기) ──
+  // transcribing → awaiting_ppt + ppt_requested_at=NOW(). 워커 클레임 대상이
+  // 아니라 업로드/건너뛰기/타임아웃이 resumeFromPpt 로 재개할 때까지 정지.
+  markAwaitingPpt(id: string): Promise<void>;
+  // awaiting_ppt → summarizing. 행카운트 가드 — 업로드/건너뛰기/타임아웃
+  // 레이스의 패자는 false 를 받는다.
+  resumeFromPpt(id: string): Promise<boolean>;
+  // ppt_requested_at 이 cutoff 보다 오래된 awaiting_ppt — 타임아웃 자동 진행 대상.
+  listPptTimedOut(cutoff: Date): Promise<Meeting[]>;
+  // 업로드 라우트가 파서 추출 텍스트와 함께 저장. 재업로드 시 이미지
+  // 판독 캐시(image_*)는 리셋된다.
+  savePpt(meetingId: string, data: { filePath: string; textContent: string }): Promise<void>;
+  getPpt(meetingId: string): Promise<
+    | {
+        filePath: string;
+        textContent: string;
+        imageSummary?: string;
+        imageStatus: "pending" | "done" | "failed" | "none";
+      }
+    | undefined
+  >;
+  // 슬라이드 이미지 Gemini 판독 결과 캐시 (summarize 재시도 시 재실행 방지).
+  setPptImageResult(
+    meetingId: string,
+    status: "done" | "failed" | "none",
+    imageSummary?: string
+  ): Promise<void>;
 
   // ── 산출물 ──
   saveSegmentTranscript(

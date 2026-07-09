@@ -71,12 +71,20 @@ function heading2(text: string): Paragraph {
   });
 }
 
-function para(text: string, opts?: { bullet?: boolean; muted?: boolean }): Paragraph {
+function para(
+  text: string,
+  opts?: { bullet?: boolean; muted?: boolean; label?: boolean }
+): Paragraph {
   return new Paragraph({
-    spacing: { after: 80 },
+    spacing: { before: opts?.label ? 120 : undefined, after: 80 },
     bullet: opts?.bullet ? { level: 0 } : undefined,
     children: [
-      new TextRun({ text, color: opts?.muted ? "666666" : undefined, size: opts?.muted ? 18 : undefined })
+      new TextRun({
+        text,
+        bold: opts?.label || undefined,
+        color: opts?.muted ? "666666" : undefined,
+        size: opts?.muted ? 18 : undefined
+      })
     ]
   });
 }
@@ -138,17 +146,29 @@ export async function buildMinutesDocx(
     children.push(heading2("1. 회의 개요"));
     children.push(para(structured.overview));
 
-    children.push(heading2("2. 안건별 논의 내용"));
-    structured.agenda.forEach((a, i) => {
-      children.push(para(`${i + 1}) ${a.topic}`));
-      for (const d of a.discussion) children.push(para(d, { bullet: true }));
+    // 부서별 섹션 — 부서마다 안건 토픽(한 줄씩) → 결정사항 → 피드백 순.
+    // 부서 구분은 업로드된 주간보고 PPT 기준 (없으면 전사에서 추론된 것).
+    children.push(heading2("2. 부서별 보고 및 논의"));
+    if (structured.departments.length === 0) children.push(para("(없음)"));
+    structured.departments.forEach((dep, i) => {
+      children.push(
+        new Paragraph({
+          spacing: { before: i === 0 ? 0 : 240, after: 100 },
+          children: [new TextRun({ text: `2.${i + 1} ${dep.name}`, bold: true, size: 24 })]
+        })
+      );
+      children.push(para("▸ 안건", { label: true }));
+      if (dep.topics.length === 0) children.push(para("(없음)"));
+      for (const t of dep.topics) children.push(para(t, { bullet: true }));
+      children.push(para("▸ 결정사항", { label: true }));
+      if (dep.decisions.length === 0) children.push(para("(없음)"));
+      dep.decisions.forEach((d, n) => children.push(para(`${n + 1}. ${d}`)));
+      children.push(para("▸ 피드백", { label: true }));
+      if (dep.feedback.length === 0) children.push(para("(없음)"));
+      for (const f of dep.feedback) children.push(para(f, { bullet: true }));
     });
 
-    children.push(heading2("3. 결정사항"));
-    if (structured.decisions.length === 0) children.push(para("(없음)"));
-    structured.decisions.forEach((d, i) => children.push(para(`${i + 1}. ${d}`)));
-
-    children.push(heading2("4. 액션아이템"));
+    children.push(heading2("3. 액션아이템"));
     if (structured.actionItems.length === 0) {
       children.push(para("(없음)"));
     } else {

@@ -3,7 +3,11 @@
 // MEETING_MOCK_FAIL_ONCE=true 면 첫 전사 호출이 1회 실패해 워커의
 // 재시도(releaseClaim → 다음 tick) 경로를 검증할 수 있다.
 import type { MeetingMinutesData } from "@hanmir/shared";
-import type { TranscribeSegmentInput, TranscriptionProvider } from "./transcription";
+import type {
+  PptImageReader,
+  TranscribeSegmentInput,
+  TranscriptionProvider
+} from "./transcription";
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -32,25 +36,50 @@ export class MockTranscriptionProvider implements TranscriptionProvider {
   }
 }
 
-export async function mockGenerateMinutes(): Promise<{
+// pptText 유무가 overview 마커로 드러난다 — E2E 가 PPT 주입 여부를 검증.
+export async function mockGenerateMinutes(pptText?: string): Promise<{
   text: string;
   usage: { inputTokens: number; outputTokens: number };
 }> {
   await delay(300);
   const data: MeetingMinutesData = {
-    overview: "(목) 신제품 출시 일정 확정을 위한 회의.",
+    overview: pptText
+      ? "(목/PPT 반영) 부서별 주간보고 회의."
+      : "(목) 부서별 주간보고 회의.",
     attendees: ["화자1", "화자2"],
-    agenda: [
+    departments: [
       {
-        topic: "신제품 출시 일정",
-        discussion: ["출시 일정을 다음 달로 확정하는 안건 논의", "품질검사 결과 공유 필요성 확인"]
+        name: "생산부",
+        topics: ["신제품 출시 일정 확정"],
+        decisions: ["신제품 출시 일정을 다음 달로 확정"],
+        feedback: []
+      },
+      {
+        name: "공통",
+        topics: ["품질검사 결과 공유"],
+        decisions: [],
+        feedback: ["품질검사 결과를 금요일까지 공유 요청"]
       }
     ],
-    decisions: ["신제품 출시 일정을 다음 달로 확정"],
     actionItems: [{ assignee: "김대리", item: "품질검사 결과 공유", due: "금요일" }]
   };
   return {
     text: "```json\n" + JSON.stringify(data, null, 2) + "\n```",
     usage: { inputTokens: 0, outputTokens: 0 }
   };
+}
+
+export class MockPptImageReader implements PptImageReader {
+  readonly name = "mock-ppt-images";
+
+  async readImages(
+    images: { data: Buffer; mimeType: string; label: string }[]
+  ): Promise<{ text: string }> {
+    await delay(300);
+    return {
+      text: images
+        .map((img, i) => `[이미지 ${i + 1} (${img.label})] (목) 3분기 생산 실적 표`)
+        .join("\n")
+    };
+  }
 }

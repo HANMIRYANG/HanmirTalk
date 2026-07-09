@@ -58,5 +58,8 @@ export const config = {
   meetingChunkMaxBytes: Number(process.env.MEETING_CHUNK_MAX_BYTES ?? 15 * 1024 * 1024),
   // 세그먼트 길이 상한(분). Gemini 전사 출력 토큰 한계(65K)의 방어선 —
   // 55분에 rotateSuggested, 상한+5분에서 409 segment_too_long.
-  meetingSegmentMaxMinutes: Number(process.env.MEETING_SEGMENT_MAX_MINUTES ?? 60)
+  meetingSegmentMaxMinutes: Number(process.env.MEETING_SEGMENT_MAX_MINUTES ?? 60),
+  // awaiting_ppt(부서별 PPT 업로드 대기) 상한(시간). 초과 시 워커가 PPT
+  // 없이 회의록 생성을 자동 진행한다.
+  meetingPptWaitHours: Number(process.env.MEETING_PPT_WAIT_HOURS ?? 24)
 };

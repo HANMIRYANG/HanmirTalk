@@ -1,6 +1,6 @@
-// 회의 녹음 API — 시작/세그먼트/청크/종료/취소/조회.
+// 회의 녹음 API — 시작/세그먼트/청크/종료/취소/PPT/조회.
 //
-// 계약 요약 (프론트 MeetingRecorderProvider 와 합의된 것):
+// 계약 요약 (프론트 MeetingRecorderProvider/MeetingHeaderControl 과 합의된 것):
 //   POST   /meetings                 {roomId, title?} → 201 Meeting
 //   POST   /meetings/:id/segments    → 201 {segIndex}   (새로고침 재개/로테이션)
 //   POST   /meetings/:id/chunks      multipart chunk + segIndex/seq/durationMs
@@ -8,13 +8,16 @@
 //                                           totalDurationMs, rotateSuggested}
 //   POST   /meetings/:id/finish      → 202 Meeting (멱등)
 //   POST   /meetings/:id/cancel      → 200 {ok}
+//   POST   /meetings/:id/ppt         multipart "file" (.pptx) → 200 Meeting
+//                                    (awaiting_ppt 전용; 422 invalid_pptx)
+//   POST   /meetings/:id/ppt/skip    → 200 Meeting (awaiting_ppt 전용)
 //   GET    /meetings/active?roomId=  → 200 Meeting | null
 //   GET    /meetings/:id             → 200 Meeting
 //   GET    /meetings?roomId=&limit=  → 200 Meeting[]
 //
 // 권한: 모든 라우트는 회의가 속한 방의 멤버 or admin (ai.ts 의
 // ensureMemberOrAdmin 미러 — 비멤버에겐 404 로 존재 은닉). 청크 업로드는
-// 녹음 중인 브라우저 = 시작자 본인만.
+// 녹음 중인 브라우저 = 시작자 본인만. PPT 업로드/건너뛰기는 시작자 or admin.
 import { Router, type NextFunction, type Request, type Response } from "express";
 import multer from "multer";
 import type { Meeting, Room } from "@hanmir/shared";
@@ -26,8 +29,10 @@ import { isMeetingAiEnabled } from "../ai/transcription";
 import {
   appendChunk,
   deleteMeetingAudio,
-  truncateSegment
+  truncateSegment,
+  writePptFile
 } from "../meetings/storage";
+import { extractPptxText } from "../meetings/pptx";
 import { postMeetingSystemMessage } from "../meetings/post";
 import { finalizeRecording } from "../meetings/finish";
 
@@ -70,6 +75,47 @@ function chunkUploadErrorHandler(
   }
   if (msg.toLowerCase().includes("file too large")) {
     res.status(413).json({ error: "chunk_too_large" });
+    return;
+  }
+  next(err);
+}
+
+// 부서별 주간보고 PPT 업로드 전용 — .pptx 만 (레거시 .ppt 바이너리는 XML
+// 파서로 읽을 수 없다). 브라우저에 따라 MIME 이 비거나 octet-stream 으로
+// 오는 경우가 있어 확장자를 1차 기준으로 삼는다.
+const PPTX_MIME =
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+const pptUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: config.uploadMaxBytes },
+  fileFilter: (_req, file, cb) => {
+    const ext = (file.originalname.split(".").pop() ?? "").toLowerCase();
+    const mime = (file.mimetype ?? "").toLowerCase();
+    const ok =
+      ext === "pptx" &&
+      (mime === "" || mime === PPTX_MIME || mime === "application/octet-stream");
+    if (!ok) {
+      cb(new Error("unsupported_mime"));
+      return;
+    }
+    cb(null, true);
+  }
+});
+
+function pptUploadErrorHandler(
+  err: unknown,
+  _req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  if (!err) return next();
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg === "unsupported_mime") {
+    res.status(415).json({ error: "unsupported_mime" });
+    return;
+  }
+  if (msg.toLowerCase().includes("file too large")) {
+    res.status(413).json({ error: "file_too_large" });
     return;
   }
   next(err);
@@ -375,6 +421,8 @@ export function createMeetingsRouter(repos: Repositories): Router {
     const meeting = await loadAccessibleMeeting(req, res, req.params.id);
     if (!meeting) return;
     if (!requireStarterOrAdmin(req, res, meeting)) return;
+    // recording 과 awaiting_ppt(전사 완료, PPT 대기) 둘 다 취소 가능 —
+    // repo 가드가 판별한다. 그 외 상태는 409 (에러 코드명은 기존 호환 유지).
     const ok = await repos.meetings.cancel(meeting.id);
     if (!ok) {
       res.status(409).json({ error: "not_recording" });
@@ -387,7 +435,9 @@ export function createMeetingsRouter(repos: Repositories): Router {
         repos,
         meeting.roomId,
         meeting.startedBy,
-        "회의 녹음이 취소되었습니다."
+        meeting.status === "awaiting_ppt"
+          ? "회의록 생성이 취소되었습니다."
+          : "회의 녹음이 취소되었습니다."
       );
     }
     realtime.emitMeetingUpdated({
@@ -404,6 +454,106 @@ export function createMeetingsRouter(repos: Repositories): Router {
       level: "warn"
     });
     res.json({ ok: true });
+  });
+
+  // ── 부서별 PPT 업로드 (awaiting_ppt → summarizing 재개) ──
+  // 파서 추출은 동기 실행 — 손상 파일이면 상태를 바꾸지 않고 422 를 돌려
+  // 재업로드를 유도한다. 슬라이드 이미지 판독(Gemini)은 여기가 아니라
+  // 파이프라인 stepSummarize 에서 best-effort 로 수행된다.
+  router.post(
+    "/:id/ppt",
+    pptUpload.single("file"),
+    pptUploadErrorHandler,
+    async (req: Request, res: Response) => {
+      const file = req.file;
+      if (!file || file.size === 0) {
+        res.status(400).json({ error: "file_required" });
+        return;
+      }
+      const meeting = await loadAccessibleMeeting(req, res, req.params.id);
+      if (!meeting) return;
+      if (!requireStarterOrAdmin(req, res, meeting)) return;
+      if (meeting.status !== "awaiting_ppt") {
+        res.status(409).json({ error: "not_awaiting_ppt" });
+        return;
+      }
+
+      let textContent: string;
+      try {
+        textContent = await extractPptxText(file.buffer);
+      } catch {
+        res.status(422).json({ error: "invalid_pptx" });
+        return;
+      }
+
+      const rel = await writePptFile(meeting.id, file.buffer);
+      await repos.meetings.savePpt(meeting.id, { filePath: rel, textContent });
+      const resumed = await repos.meetings.resumeFromPpt(meeting.id);
+      if (!resumed) {
+        // 타임아웃/건너뛰기와의 레이스 패배 — 저장된 PPT 는 summarize 가
+        // 아직 안 돌았으면 그대로 반영되므로 실패로 취급하지 않는다.
+        // eslint-disable-next-line no-console
+        console.log(
+          `[hanmir-server] meeting ${meeting.id}: ppt uploaded after resume race, saved anyway`
+        );
+      } else {
+        if (meeting.roomId) {
+          await postMeetingSystemMessage(
+            repos,
+            meeting.roomId,
+            meeting.startedBy,
+            "📊 부서별 PPT가 업로드되어 회의록 생성을 계속합니다."
+          );
+        }
+        realtime.emitMeetingUpdated({
+          id: meeting.id,
+          roomId: meeting.roomId,
+          startedBy: meeting.startedBy,
+          status: "summarizing"
+        });
+      }
+      await auditLog(repos, req, {
+        action: "meeting.ppt_upload",
+        targetType: "meeting",
+        targetId: meeting.id,
+        targetLabel: meeting.title,
+        meta: { fileName: file.originalname, fileSize: file.size }
+      });
+      res.json(await repos.meetings.findById(meeting.id));
+    }
+  );
+
+  // ── PPT 없이 진행 (건너뛰기) ──
+  router.post("/:id/ppt/skip", async (req, res) => {
+    const meeting = await loadAccessibleMeeting(req, res, req.params.id);
+    if (!meeting) return;
+    if (!requireStarterOrAdmin(req, res, meeting)) return;
+    const resumed = await repos.meetings.resumeFromPpt(meeting.id);
+    if (!resumed) {
+      res.status(409).json({ error: "not_awaiting_ppt" });
+      return;
+    }
+    if (meeting.roomId) {
+      await postMeetingSystemMessage(
+        repos,
+        meeting.roomId,
+        meeting.startedBy,
+        "PPT 없이 회의록 생성을 진행합니다."
+      );
+    }
+    realtime.emitMeetingUpdated({
+      id: meeting.id,
+      roomId: meeting.roomId,
+      startedBy: meeting.startedBy,
+      status: "summarizing"
+    });
+    await auditLog(repos, req, {
+      action: "meeting.ppt_skip",
+      targetType: "meeting",
+      targetId: meeting.id,
+      targetLabel: meeting.title
+    });
+    res.json(await repos.meetings.findById(meeting.id));
   });
 
   // ── 방의 활성 회의 (새로고침 복원 + 처리중 배지) ──

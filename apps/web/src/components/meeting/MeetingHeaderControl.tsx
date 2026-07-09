@@ -6,15 +6,18 @@
 //   종료 처리 중  — disabled [종료 중…]
 //   남이 녹음 중  — "● 녹음 중 · 이름 · 경과" 배지 (+ admin 이면 종료)
 //   고아(내 녹음, recorder 없음) — "이어서 녹음" / "회의 종료" 프롬프트
+//   PPT 대기      — "전사 완료" 안내 바 + [PPT 업로드] / [건너뛰기]
 //   회의록 생성 중 — 파란 배지
 //
 // SSR prop(activeMeeting)과 Provider(로컬 recorder)의 병합 규칙:
 // mine ?? ssrActive. lastFinishedMeetingId 가드로 finish 직후 stale SSR
 // prop 깜빡임을 억제하고, 모든 액션 후 router.refresh 로 동기화한다.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Meeting } from "@hanmir/shared";
 import { MicIcon } from "@/components/ui/icons";
+import { ApiError } from "@/services/api-client";
+import { meetingService } from "@/services/meeting.service";
 import {
   formatElapsed,
   useMeetingRecorder,
@@ -101,6 +104,50 @@ export function MeetingHeaderControl({
     router.refresh();
   }, [actions, ssrActive, router]);
 
+  // ── awaiting_ppt: 부서별 PPT 업로드 / 건너뛰기 ──
+  const pptInputRef = useRef<HTMLInputElement>(null);
+  const [pptBusy, setPptBusy] = useState(false);
+
+  const onPptFileChange = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = ""; // 같은 파일 재선택도 change 가 뜨게 리셋
+      if (!file || !ssrActive) return;
+      setPptBusy(true);
+      try {
+        await meetingService.uploadPpt(ssrActive.id, file);
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 422) {
+          window.alert(
+            "PPTX 파일을 읽을 수 없습니다. 파일을 확인한 뒤 다시 업로드해 주세요."
+          );
+        } else if (error instanceof ApiError && error.status === 409) {
+          // 이미 진행됨 (건너뛰기/타임아웃 선행) — refresh 로 상태만 동기화
+        } else {
+          window.alert("PPT 업로드에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+        }
+      } finally {
+        setPptBusy(false);
+        router.refresh();
+      }
+    },
+    [ssrActive, router]
+  );
+
+  const onSkipPpt = useCallback(async () => {
+    if (!ssrActive) return;
+    if (!window.confirm("PPT 없이 회의록을 생성할까요?")) return;
+    setPptBusy(true);
+    try {
+      await meetingService.skipPpt(ssrActive.id);
+    } catch {
+      // 409(이미 진행됨) 포함 — refresh 로 상태 동기화
+    } finally {
+      setPptBusy(false);
+      router.refresh();
+    }
+  }, [ssrActive, router]);
+
   // ── 내가 이 탭에서 녹음 중 ──
   if (mine && (recorder.phase === "recording" || recorder.phase === "stopping")) {
     const stopping = recorder.phase === "stopping";
@@ -159,6 +206,40 @@ export function MeetingHeaderControl({
             종료
           </button>
         ) : null}
+      </div>
+    );
+  }
+
+  // ── 전사 완료, 부서별 PPT 대기 ──
+  // 안내 바는 방 전원에게 보이고, 버튼은 시작자/관리자만 활성.
+  if (ssrActive && ssrActive.status === "awaiting_ppt") {
+    const canAct = ssrActive.startedBy === currentUserId || isAdmin;
+    return (
+      <div className={styles.resumeBar} role="alert">
+        <span>전사 완료 — 부서별 PPT(.pptx)를 업로드해 주세요</span>
+        <input
+          ref={pptInputRef}
+          type="file"
+          accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+          hidden
+          onChange={(e) => void onPptFileChange(e)}
+        />
+        <button
+          type="button"
+          className={styles.resumeBtn}
+          disabled={!canAct || pptBusy}
+          onClick={() => pptInputRef.current?.click()}
+        >
+          {pptBusy ? "업로드 중…" : "PPT 업로드"}
+        </button>
+        <button
+          type="button"
+          className={styles.resumeBtn}
+          disabled={!canAct || pptBusy}
+          onClick={() => void onSkipPpt()}
+        >
+          건너뛰기
+        </button>
       </div>
     );
   }

@@ -4760,6 +4760,7 @@ interface MeetingRow {
   last_activity_at: Date | string;
   attempts: number;
   claimed_at: Date | string | null;
+  ppt_requested_at: Date | string | null;
   error: string | null;
   created_at: Date | string;
   started_by_name?: string | null;
@@ -4768,7 +4769,8 @@ interface MeetingRow {
 const MEETING_SELECT = `
   SELECT m.id, m.room_id, m.title, m.started_by, m.started_at, m.ended_at,
          m.status, m.audio_path, m.audio_retention_until, m.duration_ms,
-         m.last_activity_at, m.attempts, m.claimed_at, m.error, m.created_at,
+         m.last_activity_at, m.attempts, m.claimed_at, m.ppt_requested_at,
+         m.error, m.created_at,
          u.name AS started_by_name,
          COALESCE((SELECT MAX(s.seg_index) FROM meeting_segments s
                     WHERE s.meeting_id = m.id), 0) AS current_seg_index
@@ -4798,6 +4800,7 @@ class PgMeetingRepository implements MeetingRepository {
       status: r.status as Meeting["status"],
       durationMs: Number(r.duration_ms),
       currentSegIndex: Number(r.current_seg_index ?? 0),
+      pptRequestedAt: r.ppt_requested_at ? isoOf(r.ppt_requested_at) : undefined,
       error: r.error ?? undefined,
       createdAt: isoOf(r.created_at)
     };
@@ -4837,7 +4840,7 @@ class PgMeetingRepository implements MeetingRepository {
     const { rows } = await this.pool.query(
       `${MEETING_SELECT}
         WHERE m.room_id = $1
-          AND m.status IN ('recording','pending','transcribing','summarizing','generating_docs')
+          AND m.status IN ('recording','pending','transcribing','awaiting_ppt','summarizing','generating_docs')
         ORDER BY (m.status = 'recording') DESC, m.created_at DESC
         LIMIT 1`,
       [roomId]
@@ -4949,9 +4952,11 @@ class PgMeetingRepository implements MeetingRepository {
   }
 
   async cancel(id: string): Promise<boolean> {
+    // awaiting_ppt(전사 완료, PPT 대기)에서도 취소 허용 — 회의록이 필요
+    // 없어진 회의를 24시간 붙잡아 두지 않기 위해.
     const updated = await this.pool.query(
-      `UPDATE meetings SET status = 'cancelled', ended_at = NOW()
-        WHERE id = $1 AND status = 'recording'`,
+      `UPDATE meetings SET status = 'cancelled', ended_at = COALESCE(ended_at, NOW())
+        WHERE id = $1 AND status IN ('recording','awaiting_ppt')`,
       [id]
     );
     return updated.rowCount === 1;
@@ -5016,6 +5021,94 @@ class PgMeetingRepository implements MeetingRepository {
           SET status = 'failed', claimed_at = NULL, error = $2
         WHERE id = $1`,
       [id, error]
+    );
+  }
+
+  async markAwaitingPpt(id: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE meetings
+          SET status = 'awaiting_ppt', ppt_requested_at = NOW(),
+              attempts = 0, claimed_at = NULL, error = NULL
+        WHERE id = $1`,
+      [id]
+    );
+  }
+
+  async resumeFromPpt(id: string): Promise<boolean> {
+    // 행카운트 가드 — 업로드/건너뛰기/타임아웃이 경합해도 한 쪽만 전이한다.
+    const updated = await this.pool.query(
+      `UPDATE meetings
+          SET status = 'summarizing', attempts = 0, claimed_at = NULL, error = NULL
+        WHERE id = $1 AND status = 'awaiting_ppt'`,
+      [id]
+    );
+    return updated.rowCount === 1;
+  }
+
+  async listPptTimedOut(cutoff: Date): Promise<Meeting[]> {
+    const { rows } = await this.pool.query(
+      `${MEETING_SELECT}
+        WHERE m.status = 'awaiting_ppt' AND m.ppt_requested_at < $1`,
+      [cutoff]
+    );
+    return rows.map((r) => this.rowToMeeting(r));
+  }
+
+  async savePpt(
+    meetingId: string,
+    data: { filePath: string; textContent: string }
+  ): Promise<void> {
+    // 재업로드 시 이미지 판독 캐시를 리셋해 새 파일 기준으로 다시 읽는다.
+    await this.pool.query(
+      `INSERT INTO meeting_ppt (meeting_id, file_path, text_content)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (meeting_id)
+       DO UPDATE SET file_path = EXCLUDED.file_path,
+                     text_content = EXCLUDED.text_content,
+                     image_summary = NULL,
+                     image_status = 'pending'`,
+      [meetingId, data.filePath, data.textContent]
+    );
+  }
+
+  async getPpt(meetingId: string): Promise<
+    | {
+        filePath: string;
+        textContent: string;
+        imageSummary?: string;
+        imageStatus: "pending" | "done" | "failed" | "none";
+      }
+    | undefined
+  > {
+    const { rows } = await this.pool.query<{
+      file_path: string;
+      text_content: string;
+      image_summary: string | null;
+      image_status: string;
+    }>(
+      `SELECT file_path, text_content, image_summary, image_status
+         FROM meeting_ppt WHERE meeting_id = $1`,
+      [meetingId]
+    );
+    if (!rows[0]) return undefined;
+    return {
+      filePath: rows[0].file_path,
+      textContent: rows[0].text_content,
+      imageSummary: rows[0].image_summary ?? undefined,
+      imageStatus: rows[0].image_status as "pending" | "done" | "failed" | "none"
+    };
+  }
+
+  async setPptImageResult(
+    meetingId: string,
+    status: "done" | "failed" | "none",
+    imageSummary?: string
+  ): Promise<void> {
+    await this.pool.query(
+      `UPDATE meeting_ppt
+          SET image_status = $2, image_summary = COALESCE($3, image_summary)
+        WHERE meeting_id = $1`,
+      [meetingId, status, imageSummary ?? null]
     );
   }
 

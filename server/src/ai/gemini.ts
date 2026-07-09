@@ -16,7 +16,11 @@ import {
 } from "@google/genai";
 import type { GlossaryTerm } from "@hanmir/shared";
 import { config } from "../config";
-import type { TranscribeSegmentInput, TranscriptionProvider } from "./transcription";
+import type {
+  PptImageReader,
+  TranscribeSegmentInput,
+  TranscriptionProvider
+} from "./transcription";
 
 function buildPrompt(glossary: GlossaryTerm[], prevTail?: string): string {
   const lines: string[] = [
@@ -99,6 +103,78 @@ export class GeminiTranscriptionProvider implements TranscriptionProvider {
     } finally {
       if (uploaded.name) {
         await ai.files.delete({ name: uploaded.name }).catch(() => undefined);
+      }
+    }
+  }
+}
+
+// ── PPT 슬라이드 이미지 판독 ─────────────────────────────────────────
+//
+// 부서별 주간보고 PPT 에 그림으로 붙여넣은 내용(엑셀 표 캡처, 차트 등)을
+// 텍스트로 복원한다. 파이프라인 stepSummarize 의 best-effort 경로 전용 —
+// 여기서 throw 가 나도 호출부가 잡아서 파서 텍스트만으로 진행한다.
+// 전사와 같은 Files API 참조 방식 사용 (인라인 base64 금지 규약 유지);
+// 메모리 버퍼라 Blob 으로 업로드한다.
+export class GeminiPptImageReader implements PptImageReader {
+  readonly name = config.geminiModel;
+
+  private client: GoogleGenAI | null = null;
+
+  private getClient(): GoogleGenAI {
+    if (!config.geminiApiKey) throw new Error("gemini_api_key_missing");
+    if (!this.client) {
+      this.client = new GoogleGenAI({ apiKey: config.geminiApiKey });
+    }
+    return this.client;
+  }
+
+  async readImages(
+    images: { data: Buffer; mimeType: string; label: string }[]
+  ): Promise<{ text: string }> {
+    const ai = this.getClient();
+    const uploadedNames: string[] = [];
+    try {
+      const parts: ReturnType<typeof createPartFromUri>[] = [];
+      for (const img of images) {
+        let file = await ai.files.upload({
+          file: new Blob([new Uint8Array(img.data)], { type: img.mimeType }),
+          config: { mimeType: img.mimeType }
+        });
+        if (file.name) uploadedNames.push(file.name);
+        const deadline = Date.now() + 2 * 60 * 1000;
+        while (file.state === FileState.PROCESSING) {
+          if (Date.now() > deadline) throw new Error("gemini_file_processing_timeout");
+          await delay(2000);
+          file = await ai.files.get({ name: file.name! });
+        }
+        if (file.state === FileState.FAILED) {
+          throw new Error("gemini_file_processing_failed");
+        }
+        parts.push(createPartFromUri(file.uri!, file.mimeType ?? img.mimeType));
+      }
+
+      const labels = images.map((img, i) => `이미지 ${i + 1}: ${img.label}`).join(", ");
+      const response = await ai.models.generateContent({
+        model: config.geminiModel,
+        contents: createUserContent([
+          ...parts,
+          "다음 이미지들은 한국 제조회사 주간회의의 부서별 보고 PPT 슬라이드에 " +
+            "포함된 캡처 이미지입니다 (엑셀 표, 차트 등). 순서대로: " +
+            labels +
+            ". 각 이미지에서 읽을 수 있는 텍스트와 표 내용을 " +
+            "'[이미지 N (슬라이드 M)]' 제목 아래 정리하세요. 표는 셀을 ' | ' 로 " +
+            "구분해 행 단위로 적으세요. 읽을 수 없는 이미지는 건너뛰고, " +
+            "해설 없이 내용만 출력하세요.",
+        ]),
+        config: {
+          temperature: 0,
+          maxOutputTokens: 16384
+        }
+      });
+      return { text: (response.text ?? "").trim() };
+    } finally {
+      for (const name of uploadedNames) {
+        await ai.files.delete({ name }).catch(() => undefined);
       }
     }
   }
