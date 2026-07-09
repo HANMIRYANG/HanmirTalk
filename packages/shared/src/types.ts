@@ -656,6 +656,14 @@ export interface FileEntry {
   productId?: string;
   taskId?: string;
   messageId?: string;
+  // 표시용 decoration — GET /rooms/:roomId/files 응답에서만 채워진다.
+  uploaderName?: string;
+}
+
+// GET /rooms/:roomId/files 응답 — 방에서 메시지로 공유된 첨부파일 페이지.
+export interface RoomFilesPage {
+  rows: FileEntry[];
+  total: number;
 }
 
 // 파일함 폴더 — DB 엔티티 (migration 023).
@@ -1368,8 +1376,17 @@ export interface Meeting {
   progress?: { done: number; total: number };
   // awaiting_ppt 진입 시각 (ISO) — PPT 대기 타임아웃 기준
   pptRequestedAt?: string;
+  // awaiting_ppt 자동 진행 예정 시각 (ISO) — GET /meetings 응답에서만
+  // 라우트가 pptRequestedAt + MEETING_PPT_WAIT_HOURS 로 계산해 채운다.
+  pptDeadlineAt?: string;
   error?: string;
   createdAt: string;
+}
+
+// GET /meetings 응답 — status/offset 필터링 목록 페이지.
+export interface MeetingListPage {
+  rows: Meeting[];
+  total: number;
 }
 
 export interface GlossaryTerm {

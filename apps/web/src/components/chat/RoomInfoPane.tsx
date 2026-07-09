@@ -7,6 +7,7 @@ import { IconButton } from "@/components/ui/IconButton";
 import { CloseIcon } from "@/components/ui/icons";
 import { cn } from "@/lib/classNames";
 import { MemberRemoveButton } from "./MemberRemoveButton";
+import { RoomFileLink } from "./RoomFileLink";
 import styles from "./RoomInfoPane.module.css";
 
 interface RoomInfoPaneProps {
@@ -139,8 +140,11 @@ export function RoomInfoPane({
         ) : (
           files.map((f) => {
             const uploader = uploaders[f.uploaderId];
+            // 클릭 = 다운로드. 앵커는 클라이언트 컴포넌트(RoomFileLink)여야
+            // 한다 — 서버 컴포넌트에서 downloadUrl 을 렌더하면 prod SSR 의
+            // 내부 컨테이너 URL 이 href 로 박힌다.
             return (
-              <div key={f.id} className={styles.fileRow}>
+              <RoomFileLink key={f.id} fileId={f.id} className={styles.fileRow}>
                 <div className={cn(styles.fileIc, fileColor[f.kind])}>{fileLabel[f.kind]}</div>
                 <div className="flex-1" style={{ minWidth: 0 }}>
                   <div className={styles.fileName}>{f.name}</div>
@@ -148,7 +152,7 @@ export function RoomInfoPane({
                     {uploader?.name ?? "—"} · {f.uploadedAt}
                   </div>
                 </div>
-              </div>
+              </RoomFileLink>
             );
           })
         )}

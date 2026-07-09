@@ -2510,11 +2510,42 @@ class PgFileRepository implements FileRepository {
     add("message_id", filter?.messageId);
     add("uploaded_by", filter?.uploaderId);
     add("folder_id", filter?.folderId);
-    const sql = `${ATTACHMENT_SELECT}${
-      where.length > 0 ? ` WHERE ${where.join(" AND ")}` : ""
-    } ORDER BY created_at DESC`;
+    // 불변식: direct(1:1) 방 첨부는 전역 목록·검색·멘션에서 제외 —
+    // 방 참여자 간 사적 공유이므로 자료실에 노출하지 않는다 (조회는
+    // listByRoom + 다운로드 라우트의 멤버 게이트 경유).
+    where.push(
+      `NOT EXISTS (SELECT 1 FROM messages msg JOIN rooms r ON r.id = msg.room_id
+                    WHERE msg.id = attachments.message_id AND r.type = 'direct')`
+    );
+    const sql = `${ATTACHMENT_SELECT} WHERE ${where.join(" AND ")}
+      ORDER BY created_at DESC`;
     const { rows } = await this.pool.query<AttachmentRow>(sql, params);
     return rows.map(rowToFile);
+  }
+
+  async listByRoom(
+    roomId: string,
+    opts: { limit?: number; offset?: number } = {}
+  ): Promise<{ rows: FileEntry[]; total: number }> {
+    const limit = Math.min(Math.max(opts.limit ?? 20, 1), 100);
+    const offset = Math.max(opts.offset ?? 0, 0);
+    const countRes = await this.pool.query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n
+         FROM attachments a JOIN messages m ON m.id = a.message_id
+        WHERE m.room_id = $1`,
+      [roomId]
+    );
+    const { rows } = await this.pool.query<AttachmentRow>(
+      `SELECT a.id, a.file_name, a.file_type, a.file_size, a.file_url,
+              a.uploaded_by, a.project_id, a.product_id, a.task_id,
+              a.message_id, a.folder_id, a.created_at
+         FROM attachments a JOIN messages m ON m.id = a.message_id
+        WHERE m.room_id = $1
+        ORDER BY a.created_at DESC
+        LIMIT $2 OFFSET $3`,
+      [roomId, limit, offset]
+    );
+    return { rows: rows.map(rowToFile), total: countRes.rows[0]?.n ?? 0 };
   }
 
   async create(input: CreateFileInput, uploaderId: string): Promise<FileEntry> {
@@ -4848,22 +4879,43 @@ class PgMeetingRepository implements MeetingRepository {
     return rows[0] ? this.rowToMeeting(rows[0]) : undefined;
   }
 
-  async list(opts: { roomId?: string; limit?: number } = {}): Promise<Meeting[]> {
+  async list(
+    opts: {
+      roomId?: string;
+      status?: MeetingStatus[];
+      limit?: number;
+      offset?: number;
+    } = {}
+  ): Promise<{ rows: Meeting[]; total: number }> {
     const wheres: string[] = [];
     const params: unknown[] = [];
     if (opts.roomId) {
       params.push(opts.roomId);
       wheres.push(`m.room_id = $${params.length}`);
     }
-    params.push(Math.min(Math.max(opts.limit ?? 50, 1), 200));
-    const { rows } = await this.pool.query(
-      `${MEETING_SELECT}
-        ${wheres.length ? `WHERE ${wheres.join(" AND ")}` : ""}
-        ORDER BY m.created_at DESC
-        LIMIT $${params.length}`,
+    if (opts.status && opts.status.length > 0) {
+      params.push(opts.status);
+      wheres.push(`m.status = ANY($${params.length}::text[])`);
+    }
+    const whereSql = wheres.length ? `WHERE ${wheres.join(" AND ")}` : "";
+    const countRes = await this.pool.query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM meetings m ${whereSql}`,
       params
     );
-    return rows.map((r) => this.rowToMeeting(r));
+    params.push(Math.min(Math.max(opts.limit ?? 50, 1), 200));
+    const limitIdx = params.length;
+    params.push(Math.max(opts.offset ?? 0, 0));
+    const { rows } = await this.pool.query(
+      `${MEETING_SELECT}
+        ${whereSql}
+        ORDER BY m.created_at DESC
+        LIMIT $${limitIdx} OFFSET $${params.length}`,
+      params
+    );
+    return {
+      rows: rows.map((r) => this.rowToMeeting(r)),
+      total: countRes.rows[0]?.n ?? 0
+    };
   }
 
   async createSegment(

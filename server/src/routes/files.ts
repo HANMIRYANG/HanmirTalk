@@ -458,6 +458,26 @@ export function createFilesRouter(repos: Repositories): Router {
   });
 
   router.get("/:id/download", requireAuth, async (req, res) => {
+    // direct(1:1) 방 메시지에 첨부된 파일은 방 멤버(+관리자)만 다운로드 —
+    // 자료실 목록 제외(repo listFiles 불변식)와 짝을 이루는 게이트.
+    // 그룹방(부서/프로젝트) 첨부는 기존처럼 로그인 사용자 전체 허용.
+    const me = req.currentUser!;
+    if (!isAdminRole(me.role)) {
+      const file = await repos.files.findById(req.params.id);
+      if (file?.messageId) {
+        const msg = await repos.messages.findById(file.messageId);
+        if (msg?.roomId) {
+          const room = await repos.rooms.findById(msg.roomId, me.id);
+          if (
+            room?.type === "direct" &&
+            !room.members.some((m) => m.userId === me.id)
+          ) {
+            res.status(403).json({ error: "not_room_member" });
+            return;
+          }
+        }
+      }
+    }
     const storage = await repos.files.findStorage(req.params.id);
     if (!storage) {
       res.status(404).json({ error: "not_found" });

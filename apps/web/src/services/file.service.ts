@@ -4,6 +4,7 @@ import type {
   FileFolder,
   FolderContents,
   ListFilesFilter,
+  RoomFilesPage,
   UpdateFolderInput
 } from "@hanmir/shared";
 import { ApiError, apiBaseUrl, apiRequest } from "./api-client";
@@ -78,6 +79,18 @@ export const fileService = {
   },
   async getFile(id: string, opts: AuthOptions = {}): Promise<FileEntry> {
     return apiRequest<FileEntry>(`/files/${encodeURIComponent(id)}`, { token: opts.token });
+  },
+  // 방에서 메시지로 공유된 첨부 페이지 (최신순, uploaderName 포함).
+  // direct(1:1) 방 첨부는 전역 listFiles 에서 제외되므로 방 안에서의
+  // 조회는 이 엔드포인트가 유일한 경로다. SSR token 지원.
+  async listRoomFiles(
+    roomId: string,
+    opts: AuthOptions & { limit?: number; offset?: number } = {}
+  ): Promise<RoomFilesPage> {
+    return apiRequest<RoomFilesPage>(
+      `/rooms/${encodeURIComponent(roomId)}/files`,
+      { token: opts.token, query: { limit: opts.limit, offset: opts.offset } }
+    );
   },
   // Multipart upload bypasses apiRequest because the wrapper forces a
   // JSON Content-Type; FormData must own the multipart boundary itself.

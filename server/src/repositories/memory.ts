@@ -364,6 +364,11 @@ class MemoryRoomRepository implements RoomRepository {
     return this.data.find((r) => r.id === roomId)?.members ?? [];
   }
 
+  // 파일 repo 의 direct-방 첨부 제외 판정용 (PG 의 rooms.type 조인 대응).
+  typeByIdSync(roomId: string): Room["type"] | undefined {
+    return this.data.find((r) => r.id === roomId)?.type;
+  }
+
   private decorate(room: Room, userId?: string): Room {
     const out = clone(room);
     if (this.messages) {
@@ -794,15 +799,26 @@ class MemoryMessageRepository implements MessageRepository {
     return this.decorateReactions(replies, viewerUserId);
   }
 
+  // createMemoryRepositories 가 연결 — 첨부→메시지 링크를 file repo 에
+  // 반영한다 (PG 의 UPDATE attachments SET message_id 대응). 이 링크가
+  // 있어야 listByRoom / direct-방 제외 / 다운로드 멤버 게이트가 동작한다.
+  private attachmentLinker?: (attachmentId: string, messageId: string) => void;
+
+  setAttachmentLinker(fn: (attachmentId: string, messageId: string) => void): void {
+    this.attachmentLinker = fn;
+  }
+
   async append(
     roomId: string,
     message: ChatMessage,
-    _opts?: { attachmentId?: string }
+    opts?: { attachmentId?: string }
   ): Promise<ChatMessage> {
     // Memory mode: the route already embedded the attachment into the
-    // message body (it looked it up via files.findById). Nothing extra here.
+    // message body (it looked it up via files.findById). We still record
+    // the attachment→message link so room-file queries work like PG.
     const list = this.data[roomId] ?? (this.data[roomId] = []);
     list.push(message);
+    if (opts?.attachmentId) this.attachmentLinker?.(opts.attachmentId, message.id);
     return clone(message);
   }
 
@@ -2059,6 +2075,34 @@ class MemoryFileRepository implements FileRepository {
     return this.folderPasswords.get(id) ?? null;
   }
 
+  // createMemoryRepositories 가 연결 — 첨부의 메시지→방→방타입을 동기
+  // 조회해 direct(1:1) 방 첨부를 전역 목록에서 제외한다 (PG NOT EXISTS
+  // 조인 대응).
+  private roomAccessors?: {
+    getMessageRoomId: (messageId: string) => string | undefined;
+    getRoomType: (roomId: string) => string | undefined;
+  };
+
+  setRoomAccessors(a: {
+    getMessageRoomId: (messageId: string) => string | undefined;
+    getRoomType: (roomId: string) => string | undefined;
+  }): void {
+    this.roomAccessors = a;
+  }
+
+  // PG 의 UPDATE attachments SET message_id 대응 — 메시지 append 시 링크.
+  linkMessageSync(fileId: string, messageId: string): void {
+    const found = this.files.find((f) => f.id === fileId);
+    if (found) found.messageId = messageId;
+  }
+
+  private isDirectRoomAttachment(f: FileEntry): boolean {
+    if (!f.messageId || !this.roomAccessors) return false;
+    const roomId = this.roomAccessors.getMessageRoomId(f.messageId);
+    if (!roomId) return false;
+    return this.roomAccessors.getRoomType(roomId) === "direct";
+  }
+
   async listFiles(filter?: ListFilesFilter): Promise<FileEntry[]> {
     const out = this.files.filter((f) => {
       if (filter?.projectId && f.projectId !== filter.projectId) return false;
@@ -2067,9 +2111,29 @@ class MemoryFileRepository implements FileRepository {
       if (filter?.messageId && f.messageId !== filter.messageId) return false;
       if (filter?.uploaderId && f.uploaderId !== filter.uploaderId) return false;
       if (filter?.folderId && f.folderId !== filter.folderId) return false;
+      // 불변식: direct 방 첨부는 전역 목록·검색·멘션에서 제외 (types.ts 참조).
+      if (this.isDirectRoomAttachment(f)) return false;
       return true;
     });
     return clone(out);
+  }
+
+  async listByRoom(
+    roomId: string,
+    opts: { limit?: number; offset?: number } = {}
+  ): Promise<{ rows: FileEntry[]; total: number }> {
+    const limit = Math.min(Math.max(opts.limit ?? 20, 1), 100);
+    const offset = Math.max(opts.offset ?? 0, 0);
+    // this.files 는 unshift 로 최신순 유지 — PG 의 created_at DESC 대응.
+    const matched = this.files.filter(
+      (f) =>
+        f.messageId !== undefined &&
+        this.roomAccessors?.getMessageRoomId(f.messageId) === roomId
+    );
+    return {
+      rows: clone(matched.slice(offset, offset + limit)),
+      total: matched.length
+    };
   }
 
   async findById(id: string): Promise<FileEntry | undefined> {
@@ -3178,13 +3242,28 @@ class MemoryMeetingRepository implements MeetingRepository {
     return this.toDto(pick);
   }
 
-  async list(opts: { roomId?: string; limit?: number } = {}): Promise<Meeting[]> {
+  async list(
+    opts: {
+      roomId?: string;
+      status?: MeetingStatus[];
+      limit?: number;
+      offset?: number;
+    } = {}
+  ): Promise<{ rows: Meeting[]; total: number }> {
     const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
-    return this.rows
+    const offset = Math.max(opts.offset ?? 0, 0);
+    const filtered = this.rows
       .filter((r) => (opts.roomId ? r.meeting.roomId === opts.roomId : true))
-      .sort((a, b) => b.meeting.createdAt.localeCompare(a.meeting.createdAt))
-      .slice(0, limit)
-      .map((r) => this.toDto(r));
+      .filter((r) =>
+        opts.status && opts.status.length > 0
+          ? opts.status.includes(r.meeting.status)
+          : true
+      )
+      .sort((a, b) => b.meeting.createdAt.localeCompare(a.meeting.createdAt));
+    return {
+      rows: filtered.slice(offset, offset + limit).map((r) => this.toDto(r)),
+      total: filtered.length
+    };
   }
 
   async createSegment(
@@ -3500,6 +3579,13 @@ export function createMemoryRepositories(): Repositories {
     getFile: (id) => files.findByIdSync(id),
     getUserName: (id) => users._data.find((u) => u.id === id)?.name ?? ""
   });
+  // 방 공유파일 — 첨부↔메시지 링크(PG UPDATE attachments.message_id 대응)
+  // 와 direct-방 첨부 제외 판정을 위한 상호 배선.
+  files.setRoomAccessors({
+    getMessageRoomId: (mid) => messages.findRoomIdByMessageIdSync(mid),
+    getRoomType: (rid) => rooms.typeByIdSync(rid)
+  });
+  messages.setAttachmentLinker((aid, mid) => files.linkMessageSync(aid, mid));
   // Phase 12 — ERP 재고/전표. 표시용 제품명/사용자명을 채우기 위해
   // products/users 에 closure 로 연결.
   const erp = new MemoryErpRepository();

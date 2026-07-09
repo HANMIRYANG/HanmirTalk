@@ -13,14 +13,17 @@
 //   POST   /meetings/:id/ppt/skip    → 200 Meeting (awaiting_ppt 전용)
 //   GET    /meetings/active?roomId=  → 200 Meeting | null
 //   GET    /meetings/:id             → 200 Meeting
-//   GET    /meetings?roomId=&limit=  → 200 Meeting[]
+//   GET    /meetings?roomId=&status=&limit=&offset=
+//                                    → 200 {rows: Meeting[], total}
+//                                    (status = 콤마 목록; awaiting_ppt 행엔
+//                                     pptDeadlineAt 데코)
 //
 // 권한: 모든 라우트는 회의가 속한 방의 멤버 or admin (ai.ts 의
 // ensureMemberOrAdmin 미러 — 비멤버에겐 404 로 존재 은닉). 청크 업로드는
 // 녹음 중인 브라우저 = 시작자 본인만. PPT 업로드/건너뛰기는 시작자 or admin.
 import { Router, type NextFunction, type Request, type Response } from "express";
 import multer from "multer";
-import type { Meeting, Room } from "@hanmir/shared";
+import type { Meeting, MeetingStatus, Room } from "@hanmir/shared";
 import type { Repositories } from "../repositories/types";
 import { auditLog } from "../audit";
 import { config } from "../config";
@@ -569,7 +572,20 @@ export function createMeetingsRouter(repos: Repositories): Router {
     res.json(meeting ?? null);
   });
 
-  // ── 회의 목록 (추후 회의 탭 대비) ──
+  // ── 회의 목록 ({rows, total} 페이지) ──
+  // status 필터는 헤더의 "PPT 대기 N" 배지/모달과 처리중 카운트가 사용.
+  // awaiting_ppt 행에는 자동 진행 예정 시각(pptDeadlineAt)을 데코한다.
+  const MEETING_STATUS_SET = new Set<MeetingStatus>([
+    "recording",
+    "pending",
+    "transcribing",
+    "awaiting_ppt",
+    "summarizing",
+    "generating_docs",
+    "completed",
+    "failed",
+    "cancelled"
+  ]);
   router.get("/", async (req, res) => {
     if (!isString(req.query.roomId)) {
       res.status(400).json({ error: "roomId_required" });
@@ -577,9 +593,32 @@ export function createMeetingsRouter(repos: Repositories): Router {
     }
     const room = await ensureRoomMember(req, res, req.query.roomId);
     if (!room) return;
+    let status: MeetingStatus[] | undefined;
+    if (isString(req.query.status)) {
+      const parsed = req.query.status.split(",").map((s) => s.trim());
+      if (!parsed.every((s) => MEETING_STATUS_SET.has(s as MeetingStatus))) {
+        res.status(400).json({ error: "invalid_status" });
+        return;
+      }
+      status = parsed as MeetingStatus[];
+    }
     const limit = nonNegativeInt(req.query.limit);
-    const meetings = await repos.meetings.list({ roomId: room.id, limit });
-    res.json(meetings);
+    const offset = nonNegativeInt(req.query.offset);
+    const page = await repos.meetings.list({ roomId: room.id, status, limit, offset });
+    const waitMs = config.meetingPptWaitHours * 60 * 60 * 1000;
+    res.json({
+      rows: page.rows.map((m) =>
+        m.status === "awaiting_ppt" && m.pptRequestedAt
+          ? {
+              ...m,
+              pptDeadlineAt: new Date(
+                Date.parse(m.pptRequestedAt) + waitMs
+              ).toISOString()
+            }
+          : m
+      ),
+      total: page.total
+    });
   });
 
   // ── 단건 조회 (소켓 단절 시 상태 폴링 폴백) ──

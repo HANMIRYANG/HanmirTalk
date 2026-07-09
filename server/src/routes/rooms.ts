@@ -175,6 +175,33 @@ export function createRoomsRouter(repos: Repositories): Router {
     res.json(messages);
   });
 
+  // ── 방 공유파일 목록 (메시지 첨부, 최신순) ──
+  // 파일 탭 모달 + 정보 패널 공유파일이 사용. direct(1:1) 방 첨부는 전역
+  // 자료실 목록(GET /files)에서 제외되므로, 방 안에서의 조회는 이 멤버
+  // 게이트 엔드포인트가 유일한 경로다.
+  router.get("/:roomId/files", async (req, res) => {
+    const access = await ensureRoomAccess(repos, req, res, req.params.roomId);
+    if (!access.allowed) return;
+    const rawLimit = Number(req.query.limit);
+    const limit = Number.isFinite(rawLimit)
+      ? Math.min(Math.max(Math.floor(rawLimit), 1), 100)
+      : 20;
+    const rawOffset = Number(req.query.offset);
+    const offset =
+      Number.isFinite(rawOffset) && rawOffset > 0 ? Math.floor(rawOffset) : 0;
+    const page = await repos.files.listByRoom(req.params.roomId, { limit, offset });
+    // 표시용 업로더 이름 데코 — FileEntry.uploaderName.
+    const users = await repos.users.list();
+    const nameOf = new Map(users.map((u) => [u.id, u.name]));
+    res.json({
+      rows: page.rows.map((f) => ({
+        ...f,
+        uploaderName: nameOf.get(f.uploaderId)
+      })),
+      total: page.total
+    });
+  });
+
   router.get("/:roomId/pinned", async (req, res) => {
     const access = await ensureRoomAccess(repos, req, res, req.params.roomId);
     if (!access.allowed) return;

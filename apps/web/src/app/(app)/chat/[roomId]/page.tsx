@@ -8,6 +8,7 @@ import { RoomInfoPane } from "@/components/chat/RoomInfoPane";
 import { PinnedBanner } from "@/components/chat/PinnedBanner";
 import { ChatRoomMounter } from "@/components/chat/ChatRoomMounter";
 import { ChatRoomActions } from "@/components/chat/ChatRoomActions";
+import { RoomFilesTabButton } from "@/components/chat/RoomFilesTabButton";
 import { MeetingHeaderControl } from "@/components/meeting/MeetingHeaderControl";
 import { chatService } from "@/services/chat.service";
 import { projectService } from "@/services/project.service";
@@ -31,27 +32,56 @@ export default async function ChatRoomPage({ params }: Props) {
   // 타임라인은 최신 100개 윈도우만 SSR — 과거 메시지는 클라이언트의
   // "이전 메시지 보기" 가 ?before 커서로 추가 로드한다.
   const MESSAGE_WINDOW = 100;
-  const [messages, pinned, project, users, files, activeMeeting] = await Promise.all([
+  const [
+    messages,
+    pinned,
+    project,
+    users,
+    roomFiles,
+    projectFiles,
+    activeMeeting,
+    awaitingPptPage,
+    processingPage
+  ] = await Promise.all([
     chatService.listMessages(params.roomId, { token, limit: MESSAGE_WINDOW }),
     chatService.getPinnedMessage(params.roomId, { token }),
     room.projectId
       ? projectService.getProject(room.projectId, { token })
       : Promise.resolve(undefined),
     userService.listUsers({ token }),
-    fileService.listFiles({ token }),
-    meetingService.getActiveMeeting(params.roomId, { token })
+    // 방 공유파일 — direct(1:1) 방 첨부는 전역 GET /files 에서 제외되므로
+    // 멤버 게이트 엔드포인트로 조회한다 (전체 히스토리 기준 최신순).
+    fileService.listRoomFiles(params.roomId, { token, limit: 4 }),
+    room.projectId
+      ? fileService.listFiles({ token, projectId: room.projectId })
+      : Promise.resolve([]),
+    meetingService.getActiveMeeting(params.roomId, { token }),
+    // 헤더의 "PPT 대기 N" 배지 / 비차단 "회의록 생성 중" 배지용 카운트 —
+    // meeting:updated 소켓 → router.refresh 로 신선도 유지.
+    meetingService.listMeetings(
+      { roomId: params.roomId, status: ["awaiting_ppt"], limit: 1 },
+      { token }
+    ),
+    meetingService.listMeetings(
+      {
+        roomId: params.roomId,
+        status: ["pending", "transcribing", "summarizing", "generating_docs"],
+        limit: 1
+      },
+      { token }
+    )
   ]);
 
   const memberUsers = users.filter((u) => room.members.some((m) => m.userId === u.id));
-  const messageAttachmentIds = new Set(
-    messages.map((m) => m.attachment?.id).filter((id): id is string => Boolean(id))
-  );
-  const visibleFiles = files
-    .filter((f) =>
-      room.projectId
-        ? f.projectId === room.projectId || messageAttachmentIds.has(f.id)
-        : messageAttachmentIds.has(f.id)
-    )
+  // 정보 패널 공유파일 4건 — 방 메시지 첨부 우선, 프로젝트방은 프로젝트
+  // 파일을 뒤에 병합 (id dedupe).
+  const seenFileIds = new Set<string>();
+  const visibleFiles = [...roomFiles.rows, ...projectFiles]
+    .filter((f) => {
+      if (seenFileIds.has(f.id)) return false;
+      seenFileIds.add(f.id);
+      return true;
+    })
     .slice(0, 4);
   const uploaders: Record<string, (typeof users)[number] | undefined> = {};
   for (const f of visibleFiles) {
@@ -94,9 +124,7 @@ export default async function ChatRoomPage({ params }: Props) {
               </>
             ) : null}
             {!project ? (
-              <button className={styles.tab} type="button" disabled>
-                파일
-              </button>
+              <RoomFilesTabButton roomId={room.id} className={styles.tab} />
             ) : null}
           </div>
           <div className={styles.actions}>
@@ -104,6 +132,8 @@ export default async function ChatRoomPage({ params }: Props) {
               roomId={room.id}
               roomName={room.name}
               activeMeeting={activeMeeting ?? null}
+              awaitingPptCount={awaitingPptPage.total}
+              processingCount={processingPage.total}
               currentUserId={me.id}
               isAdmin={me.role === "admin" || me.role === "super_admin"}
             />

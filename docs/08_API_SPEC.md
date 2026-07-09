@@ -62,6 +62,7 @@ Base URL: `/api/v1`
 | GET | `/rooms/:roomId/messages` | 메시지 목록 (top-level + 스레드 요약) | 방 멤버 |
 | POST | `/rooms/:roomId/messages` | 메시지 전송 (첨부/entities/AI 플래그 지원) | 방 멤버 |
 | POST | `/rooms/:roomId/read` | 방 단위 읽음 마킹 (`lastMessageId`) | 방 멤버 |
+| GET | `/rooms/:roomId/files` | 방 공유파일 목록 (메시지 첨부, `?limit=&offset=` → `{rows, total}`, uploaderName 포함) | 방 멤버 |
 | GET | `/rooms/:roomId/pinned` | 고정 메시지 조회 (없으면 204) | 방 멤버 |
 | POST | `/rooms/:roomId/pin` | 메시지 고정 (방당 1개, 교체) | 방 멤버 |
 | DELETE | `/rooms/:roomId/pin` | 고정 해제 | 방 멤버 |
@@ -188,11 +189,11 @@ scope: `recent20` / `today` / `thread` / `messageIds`. 사용자별 rate limit: 
 
 | 메서드 | 경로 | 설명 | 권한 |
 | --- | --- | --- | --- |
-| GET | `/files` | 파일 목록 (필터: projectId/productId/taskId/messageId/uploaderId) | 인증 |
+| GET | `/files` | 파일 목록 (필터: projectId/productId/taskId/messageId/uploaderId) — direct(1:1) 방 첨부는 제외 | 인증 |
 | GET | `/files/folders` | 폴더(분류) 목록 | 인증 |
 | POST | `/files/upload` | multipart 업로드 (확장자/MIME/크기 검사) | 인증 |
 | GET | `/files/:id` | 파일 메타 | 인증 |
-| GET | `/files/:id/download` | 파일 다운로드 | 인증 |
+| GET | `/files/:id/download` | 파일 다운로드 — direct 방 첨부는 방 멤버/admin만 (403 not_room_member) | 인증 |
 | DELETE | `/files/:id` | 파일 삭제 (디스크 + 메타) | 인증 |
 
 ## Notices

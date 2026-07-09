@@ -448,7 +448,16 @@ export interface FileRepository {
   deleteFolder(id: string): Promise<boolean>;
   // 비밀번호 검증용. undefined = 폴더 없음, null = 비밀번호 미설정.
   folderPasswordHash(id: string): Promise<string | null | undefined>;
+  // 불변식: direct(1:1) 방 메시지에 첨부된 파일은 결과에서 제외된다 —
+  // 자료실 전체 목록·검색·멘션 제안이 모두 이 메서드를 쓰므로 repo
+  // 레벨에서 한 번에 막는다. 방 안에서의 조회는 listByRoom 사용.
   listFiles(filter?: ListFilesFilter): Promise<FileEntry[]>;
+  // 방에서 메시지로 공유된 첨부 목록 (최신순, offset 페이지네이션).
+  // 접근 게이트(방 멤버십)는 라우트 책임.
+  listByRoom(
+    roomId: string,
+    opts?: { limit?: number; offset?: number }
+  ): Promise<{ rows: FileEntry[]; total: number }>;
   findById(id: string): Promise<FileEntry | undefined>;
   // `uploaderId` is the authenticated user. The route already moved the
   // bytes to disk and passes back the storage path via `input.fileUrl`.
@@ -646,7 +655,14 @@ export interface MeetingRepository {
   // status='recording' 인 방의 회의. 없으면 최신 파이프라인 진행중
   // (pending~generating_docs) — 새로고침 복원 + "회의록 생성 중" 배지용.
   findActiveByRoom(roomId: string): Promise<Meeting | undefined>;
-  list(opts?: { roomId?: string; limit?: number }): Promise<Meeting[]>;
+  // 최신순 목록 + 총 건수. status 필터는 헤더의 "PPT 대기 N" 배지/모달과
+  // 처리중 카운트가 쓴다 (awaiting_ppt 는 방당 여러 건일 수 있음).
+  list(opts?: {
+    roomId?: string;
+    status?: MeetingStatus[];
+    limit?: number;
+    offset?: number;
+  }): Promise<{ rows: Meeting[]; total: number }>;
 
   // ── 녹음 ──
   // MAX(seg_index)+1 로 새 세그먼트 행 생성. filePath("meetings/<id>/

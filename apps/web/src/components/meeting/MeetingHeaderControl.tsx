@@ -1,44 +1,42 @@
 "use client";
 
 // 채팅방 헤더의 회의 녹음 컨트롤. 상태별 UI:
-//   비녹음        — [회의 시작] 버튼
+//   비녹음        — [회의 시작] 버튼 (+ PPT 대기 배지 버튼 + 생성중 배지)
 //   내가 녹음 중  — 빨간 점 + 경과시간 + [회의 종료]
 //   종료 처리 중  — disabled [종료 중…]
 //   남이 녹음 중  — "● 녹음 중 · 이름 · 경과" 배지 (+ admin 이면 종료)
 //   고아(내 녹음, recorder 없음) — "이어서 녹음" / "회의 종료" 프롬프트
-//   PPT 대기      — "전사 완료" 안내 바 + [PPT 업로드] / [건너뛰기]
-//   회의록 생성 중 — 파란 배지
+//
+// awaiting_ppt/처리중 상태는 헤더를 점유하지 않는다 — 같은 방에서 연속
+// 회의를 바로 시작할 수 있도록 [회의 시작] 을 막지 않고, PPT 대기 회의는
+// 옆의 "PPT 대기 N" 버튼 → PptWaitModal 에서 일괄 처리한다.
 //
 // SSR prop(activeMeeting)과 Provider(로컬 recorder)의 병합 규칙:
 // mine ?? ssrActive. lastFinishedMeetingId 가드로 finish 직후 stale SSR
 // prop 깜빡임을 억제하고, 모든 액션 후 router.refresh 로 동기화한다.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Meeting } from "@hanmir/shared";
 import { MicIcon } from "@/components/ui/icons";
-import { ApiError } from "@/services/api-client";
-import { meetingService } from "@/services/meeting.service";
 import {
   formatElapsed,
   useMeetingRecorder,
   useMeetingRecorderActions
 } from "./MeetingRecorderProvider";
+import { PptWaitModal } from "./PptWaitModal";
 import styles from "./MeetingHeaderControl.module.css";
 
 interface MeetingHeaderControlProps {
   roomId: string;
   roomName: string;
   activeMeeting: Meeting | null;
+  // 방의 awaiting_ppt 회의 수 / 파이프라인 처리중(전사·요약·문서화) 회의 수
+  // — page.tsx 가 SSR 로 채우고 meeting:updated → router.refresh 로 갱신.
+  awaitingPptCount: number;
+  processingCount: number;
   currentUserId: string;
   isAdmin: boolean;
 }
-
-const PROCESSING_STATUSES: Meeting["status"][] = [
-  "pending",
-  "transcribing",
-  "summarizing",
-  "generating_docs"
-];
 
 // 1초 tick 경과시간 — Provider state 가 아니라 소비자 로컬 계산 (전역
 // 리렌더 방지).
@@ -57,21 +55,23 @@ export function MeetingHeaderControl({
   roomId,
   roomName,
   activeMeeting,
+  awaitingPptCount,
+  processingCount,
   currentUserId,
   isAdmin
 }: MeetingHeaderControlProps) {
   const router = useRouter();
   const recorder = useMeetingRecorder();
   const actions = useMeetingRecorderActions();
+  const [pptModalOpen, setPptModalOpen] = useState(false);
 
   const mine =
     recorder.recording && recorder.recording.roomId === roomId
       ? recorder.recording
       : null;
   // lastFinishedMeetingId 가드는 "내가 방금 종료했는데 SSR prop 이 아직
-  // recording 이라고 주장하는" stale 깜빡임만 억제한다. status 조건 없이
-  // id 만 보면 종료한 본인 탭에서 awaiting_ppt 안내 바와 "회의록 생성 중"
-  // 배지까지 영영 가려진다 (Provider state 는 새로고침 전까지 유지되므로).
+  // recording 이라고 주장하는" stale 깜빡임만 억제한다 (비 recording
+  // 상태는 헤더를 점유하지 않으므로 그 외에는 가드가 필요 없다).
   const ssrActive =
     activeMeeting &&
     !(
@@ -111,50 +111,6 @@ export function MeetingHeaderControl({
     await actions.finishRemote(ssrActive.id);
     router.refresh();
   }, [actions, ssrActive, router]);
-
-  // ── awaiting_ppt: 부서별 PPT 업로드 / 건너뛰기 ──
-  const pptInputRef = useRef<HTMLInputElement>(null);
-  const [pptBusy, setPptBusy] = useState(false);
-
-  const onPptFileChange = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      e.target.value = ""; // 같은 파일 재선택도 change 가 뜨게 리셋
-      if (!file || !ssrActive) return;
-      setPptBusy(true);
-      try {
-        await meetingService.uploadPpt(ssrActive.id, file);
-      } catch (error) {
-        if (error instanceof ApiError && error.status === 422) {
-          window.alert(
-            "PPTX 파일을 읽을 수 없습니다. 파일을 확인한 뒤 다시 업로드해 주세요."
-          );
-        } else if (error instanceof ApiError && error.status === 409) {
-          // 이미 진행됨 (건너뛰기/타임아웃 선행) — refresh 로 상태만 동기화
-        } else {
-          window.alert("PPT 업로드에 실패했습니다. 잠시 후 다시 시도해 주세요.");
-        }
-      } finally {
-        setPptBusy(false);
-        router.refresh();
-      }
-    },
-    [ssrActive, router]
-  );
-
-  const onSkipPpt = useCallback(async () => {
-    if (!ssrActive) return;
-    if (!window.confirm("PPT 없이 회의록을 생성할까요?")) return;
-    setPptBusy(true);
-    try {
-      await meetingService.skipPpt(ssrActive.id);
-    } catch {
-      // 409(이미 진행됨) 포함 — refresh 로 상태 동기화
-    } finally {
-      setPptBusy(false);
-      router.refresh();
-    }
-  }, [ssrActive, router]);
 
   // ── 내가 이 탭에서 녹음 중 ──
   if (mine && (recorder.phase === "recording" || recorder.phase === "stopping")) {
@@ -218,50 +174,7 @@ export function MeetingHeaderControl({
     );
   }
 
-  // ── 전사 완료, 부서별 PPT 대기 ──
-  // 안내 바는 방 전원에게 보이고, 버튼은 시작자/관리자만 활성.
-  if (ssrActive && ssrActive.status === "awaiting_ppt") {
-    const canAct = ssrActive.startedBy === currentUserId || isAdmin;
-    return (
-      <div className={styles.resumeBar} role="alert">
-        <span>전사 완료 — 부서별 PPT(.pptx)를 업로드해 주세요</span>
-        <input
-          ref={pptInputRef}
-          type="file"
-          accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
-          hidden
-          onChange={(e) => void onPptFileChange(e)}
-        />
-        <button
-          type="button"
-          className={styles.resumeBtn}
-          disabled={!canAct || pptBusy}
-          onClick={() => pptInputRef.current?.click()}
-        >
-          {pptBusy ? "업로드 중…" : "PPT 업로드"}
-        </button>
-        <button
-          type="button"
-          className={styles.resumeBtn}
-          disabled={!canAct || pptBusy}
-          onClick={() => void onSkipPpt()}
-        >
-          건너뛰기
-        </button>
-      </div>
-    );
-  }
-
-  // ── 회의록 생성 중 ──
-  if (ssrActive && PROCESSING_STATUSES.includes(ssrActive.status)) {
-    return (
-      <div className={styles.wrap}>
-        <span className="tag tag--blue">회의록 생성 중…</span>
-      </div>
-    );
-  }
-
-  // ── 비녹음 ──
+  // ── 비녹음 — 회의 시작은 항상 가능 (PPT 대기/생성중은 비차단 표시) ──
   const busy = recorder.phase === "acquiring" || recorder.recording !== null;
   return (
     <div className={styles.wrap}>
@@ -274,6 +187,28 @@ export function MeetingHeaderControl({
       >
         <MicIcon size={14} /> 회의 시작
       </button>
+      {awaitingPptCount > 0 ? (
+        <button
+          type="button"
+          className={`btn btn--ghost btn--sm ${styles.pptWaitBtn}`}
+          onClick={() => setPptModalOpen(true)}
+          title="전사가 끝난 회의에 부서별 PPT를 첨부하거나 건너뛸 수 있습니다."
+        >
+          PPT 대기 <span className={styles.badge}>{awaitingPptCount}</span>
+        </button>
+      ) : null}
+      {processingCount > 0 ? (
+        <span className="tag tag--blue" title="전사·회의록 생성이 진행 중입니다.">
+          회의록 생성 중
+        </span>
+      ) : null}
+      <PptWaitModal
+        roomId={roomId}
+        currentUserId={currentUserId}
+        isAdmin={isAdmin}
+        open={pptModalOpen}
+        onClose={() => setPptModalOpen(false)}
+      />
     </div>
   );
 }

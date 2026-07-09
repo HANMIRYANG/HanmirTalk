@@ -1,4 +1,4 @@
-import type { Meeting } from "@hanmir/shared";
+import type { Meeting, MeetingListPage, MeetingStatus } from "@hanmir/shared";
 import { ApiError, apiBaseUrl, apiRequest, attemptRefresh } from "./api-client";
 import type { AuthOptions } from "./chat.service";
 
@@ -30,6 +30,28 @@ export const meetingService = {
   },
   async getMeeting(id: string): Promise<Meeting> {
     return apiRequest<Meeting>(`/meetings/${encodeURIComponent(id)}`);
+  },
+  // 방 회의 목록 페이지 — status 필터는 "PPT 대기 N" 배지/모달과 처리중
+  // 카운트가 쓴다. awaiting_ppt 행엔 pptDeadlineAt(자동 진행 예정)이 실림.
+  // SSR(page.tsx)에서 token 옵션으로도 호출된다.
+  async listMeetings(
+    params: {
+      roomId: string;
+      status?: MeetingStatus[];
+      limit?: number;
+      offset?: number;
+    },
+    opts: AuthOptions = {}
+  ): Promise<MeetingListPage> {
+    return apiRequest<MeetingListPage>("/meetings", {
+      token: opts.token,
+      query: {
+        roomId: params.roomId,
+        status: params.status?.join(","),
+        limit: params.limit,
+        offset: params.offset
+      }
+    });
   },
   // 새로고침 재개 / 60분 로테이션 — 새 MediaRecorder 세션 = 새 세그먼트.
   async startSegment(meetingId: string): Promise<{ segIndex: number }> {
