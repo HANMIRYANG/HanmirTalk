@@ -68,8 +68,16 @@ export function MeetingHeaderControl({
     recorder.recording && recorder.recording.roomId === roomId
       ? recorder.recording
       : null;
+  // lastFinishedMeetingId 가드는 "내가 방금 종료했는데 SSR prop 이 아직
+  // recording 이라고 주장하는" stale 깜빡임만 억제한다. status 조건 없이
+  // id 만 보면 종료한 본인 탭에서 awaiting_ppt 안내 바와 "회의록 생성 중"
+  // 배지까지 영영 가려진다 (Provider state 는 새로고침 전까지 유지되므로).
   const ssrActive =
-    activeMeeting && activeMeeting.id !== recorder.lastFinishedMeetingId
+    activeMeeting &&
+    !(
+      activeMeeting.id === recorder.lastFinishedMeetingId &&
+      activeMeeting.status === "recording"
+    )
       ? activeMeeting
       : null;
 
