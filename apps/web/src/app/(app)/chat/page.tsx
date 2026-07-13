@@ -1,52 +1,24 @@
 import Link from "next/link";
 import { Topbar } from "@/components/shell/Topbar";
 import { ChatList } from "@/components/chat/ChatList";
-import { Tag } from "@/components/ui/Tag";
+import { NewChatLauncher } from "@/components/chat/NewChatLauncher";
 import { Avatar } from "@/components/ui/Avatar";
 import { chatService } from "@/services/chat.service";
-import { dashboardService } from "@/services/dashboard.service";
-import { noticeService } from "@/services/notice.service";
-import { projectService } from "@/services/project.service";
-import { taskService } from "@/services/task.service";
 import { requireServerMe } from "@/lib/server-auth";
 import styles from "./chat.module.css";
 
 // Auth guard is enforced in apps/web/src/app/(app)/layout.tsx.
-// Here we just need the token for downstream API calls.
+//
+// 채팅 홈은 "채팅 전용" 바로가기 패널이다 — 업무/공지/활동 요약은
+// /dashboard 가 전담한다 (이전에는 대시보드와 같은 데이터를 전부 다시
+// 페치해 내용이 중복되고 진입이 무거웠다). 여기서는 ChatList 를 그리기
+// 위해 이미 필요한 방 목록만 사용하므로 추가 API 호출이 없다.
 export default async function ChatHomePage() {
   const { me, token } = await requireServerMe();
-  const [rooms, activities, notices, projects] = await Promise.all([
-    chatService.listRooms({ token }),
-    dashboardService.listDashboardActivities({ token }),
-    noticeService.listNotices({ token }),
-    projectService.listProjects({ token })
-  ]);
+  const rooms = await chatService.listRooms({ token });
 
-  // Tasks-due-soon: scan a slice of projects the caller can see and pick
-  // their assignments that are late or due today.
-  const taskBatches = await Promise.all(
-    projects.slice(0, 8).map((p) =>
-      taskService
-        .listByProject(p.id, { token })
-        .then((ts) =>
-          ts
-            .filter((t) => t.assigneeIds.includes(me.id) && t.status !== "done")
-            .map((t) => ({ task: t, project: p }))
-        )
-        .catch(() => [])
-    )
-  );
-  const myActiveTasks = taskBatches.flat();
-  const dueSoonTasks = myActiveTasks
-    .filter((x) => x.task.dueState === "late" || x.task.dueState === "today")
-    .slice(0, 5);
-
-  const unreadMessageTotal = rooms.reduce((sum, r) => sum + r.unread, 0);
-  const activeProjects = projects.filter(
-    (p) => p.status !== "done" && p.status !== "cancelled"
-  );
-  const myProjects = activeProjects.filter((p) => p.memberIds.includes(me.id));
-  const noticesToConfirm = notices.filter((n) => n.isMandatory && !n.myConfirmed);
+  const unreadRooms = rooms.filter((r) => r.unread > 0).slice(0, 8);
+  const pinnedRooms = rooms.filter((r) => r.pinned);
   const dateLabel = new Date().toLocaleDateString("ko-KR", {
     year: "numeric",
     month: "long",
@@ -55,170 +27,84 @@ export default async function ChatHomePage() {
   });
 
   return (
-    <>
-      <div className={styles.row}>
-        <ChatList rooms={rooms} currentUserId={me.id} />
-        <main className={styles.main}>
-          <Topbar title="채팅" sub={`${rooms.length}개 대화방`} />
-          <div className="content">
-            <div className={styles.dash}>
+    <div className={styles.row}>
+      <ChatList rooms={rooms} currentUserId={me.id} />
+      <main className={styles.main}>
+        <Topbar title="채팅" sub={`${rooms.length}개 대화방`} />
+        <div className="content">
+          <div className={styles.welcome}>
+            <div className={styles.welcomeHead}>
               <div className={styles.hello}>
                 안녕하세요, <em>{me.name}</em> {me.position}님 👋
               </div>
-              <div className={styles.helloSub}>
-                오늘은 {dateLabel} · 오늘의 업무 현황을 알려드립니다.
-              </div>
+              <div className={styles.helloSub}>오늘은 {dateLabel}입니다.</div>
+            </div>
 
-              <div className={styles.statGrid}>
-                <div className="stat">
-                  <div className="stat__label">읽지 않은 메시지</div>
-                  <div className="stat__value">{unreadMessageTotal}</div>
-                  <div className="stat__sub">
-                    {rooms.filter((r) => r.unread > 0).length}개 대화방
-                  </div>
-                </div>
-                <div className="stat">
-                  <div className="stat__label">진행 중인 프로젝트</div>
-                  <div className="stat__value">{activeProjects.length}</div>
-                  <div className="stat__sub">
-                    내가 참여 {myProjects.length}건
-                  </div>
-                </div>
-                <div className="stat">
-                  <div className="stat__label">오늘/지연 업무</div>
-                  <div className="stat__value">{dueSoonTasks.length}</div>
-                  <div className="stat__sub">
-                    {dueSoonTasks.filter((x) => x.task.dueState === "late").length > 0 ? (
-                      <>
-                        <b className="alert">
-                          지연 {dueSoonTasks.filter((x) => x.task.dueState === "late").length}건
-                        </b>
-                      </>
-                    ) : (
-                      "지연 없음"
-                    )}
-                  </div>
-                </div>
-                <div className="stat">
-                  <div className="stat__label">확인 필요 공지</div>
-                  <div className="stat__value">{noticesToConfirm.length}</div>
-                  <div className="stat__sub">
-                    전체 공지 {notices.length}건
-                  </div>
-                </div>
+            <section className="card">
+              <div className="card__head">
+                <div className="card__title">안 읽은 대화</div>
+                <span className="muted t-xs" style={{ marginLeft: "auto" }}>
+                  {unreadRooms.length > 0 ? `${unreadRooms.length}개 대화방` : ""}
+                </span>
               </div>
-
-              <div className={styles.dashGrid}>
-                <section className="card">
-                  <div className="card__head">
-                    <div>
-                      <div className="card__title">오늘의 업무</div>
-                      <div className="card__sub">{me.name} · {dateLabel} 기준</div>
-                    </div>
+              {unreadRooms.length === 0 ? (
+                <div className={styles.emptyRow}>모든 메시지를 확인했습니다 🎉</div>
+              ) : (
+                <div className={styles.roomList}>
+                  {unreadRooms.map((room) => (
                     <Link
-                      href="/dashboard"
-                      className="btn btn--ghost btn--sm"
-                      style={{ marginLeft: "auto" }}
+                      key={room.id}
+                      href={`/chat/${room.id}`}
+                      className={styles.roomRow}
                     >
-                      대시보드 →
-                    </Link>
-                  </div>
-                  <div className={styles.cardBody}>
-                    {dueSoonTasks.length === 0 ? (
-                      <div className={styles.emptyRow}>
-                        오늘/지연 업무가 없습니다.
+                      <Avatar
+                        initials={room.avatarLabel ?? room.name.slice(0, 2)}
+                        tone={room.avatarTone ?? "default"}
+                      />
+                      <div className={styles.roomMain}>
+                        <div className={styles.roomName}>{room.name}</div>
+                        <div className={styles.roomPreview}>
+                          {room.lastMessageAuthor ? (
+                            <b>{room.lastMessageAuthor}: </b>
+                          ) : null}
+                          {room.lastMessagePreview}
+                        </div>
                       </div>
-                    ) : (
-                      dueSoonTasks.map(({ task, project }) => (
-                        <Link
-                          key={task.id}
-                          href={`/projects/${project.id}/tasks`}
-                          className={styles.noticeRow}
-                        >
-                          <div>
-                            <div className={styles.noticeTitle}>{task.title}</div>
-                            <div className={styles.noticeMeta}>
-                              {project.code} {project.name} · 진행률 {task.progress}%
-                            </div>
-                          </div>
-                          <Tag tone={task.dueState === "late" ? "red" : "amber"} dot>
-                            {task.dueLabel}
-                          </Tag>
-                        </Link>
-                      ))
-                    )}
-                  </div>
-                </section>
-
-                <section className="card">
-                  <div className="card__head">
-                    <div>
-                      <div className="card__title">확인이 필요한 공지</div>
-                      <div className="card__sub">필독·전체 공지</div>
-                    </div>
-                    <Link
-                      href="/notices"
-                      className="btn btn--ghost btn--sm"
-                      style={{ marginLeft: "auto" }}
-                    >
-                      전체 →
+                      <span className={styles.unreadBadge}>{room.unread}</span>
                     </Link>
-                  </div>
-                  <div className={styles.cardBody}>
-                    {notices.length === 0 ? (
-                      <div className={styles.emptyRow}>최근 공지가 없습니다.</div>
-                    ) : (
-                      notices.slice(0, 5).map((n) => (
-                        <div key={n.id} className={styles.noticeRow}>
-                          <div>
-                            <div className={styles.noticeTitle}>{n.title}</div>
-                            <div className={styles.noticeMeta}>
-                              {n.authorTeam} · {n.createdAt}
-                            </div>
-                          </div>
-                          <Tag tone={n.tone} dot>
-                            {n.myConfirmed ? "확인 완료" : n.isMandatory ? "확인 필요" : "공지"}
-                          </Tag>
-                        </div>
-                      ))
-                    )}
-                  </div>
+                  ))}
+                </div>
+              )}
+            </section>
 
-                  <div
-                    className="card__head"
-                    style={{ borderTop: "1px solid var(--border-soft)", borderBottom: "none" }}
-                  >
-                    <div>
-                      <div className="card__title">최근 활동</div>
-                      <div className="card__sub">내가 담당하는 항목</div>
-                    </div>
-                  </div>
-                  <div className={styles.cardBodyTight}>
-                    {activities.length === 0 ? (
-                      <div className={styles.emptyRow}>표시할 활동이 없습니다.</div>
-                    ) : (
-                      activities.map((act) => (
-                        <div key={act.id} className={styles.activity}>
-                          <Avatar initials={act.initials} tone={act.tone ?? "default"} size="sm" />
-                          <div className="flex-1">
-                            <div className={styles.activityBody}>
-                              <b>{act.author}</b>
-                              {act.body}
-                            </div>
-                            <div className={styles.activityTime}>
-                              {act.context} · {act.time}
-                            </div>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </section>
-              </div>
+            {pinnedRooms.length > 0 ? (
+              <section className={`card ${styles.spacedCard}`}>
+                <div className="card__head">
+                  <div className="card__title">고정된 대화</div>
+                </div>
+                <div className={styles.pinChips}>
+                  {pinnedRooms.map((room) => (
+                    <Link
+                      key={room.id}
+                      href={`/chat/${room.id}`}
+                      className={styles.pinChip}
+                    >
+                      ★ {room.name}
+                    </Link>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            <div className={styles.quickActions}>
+              <NewChatLauncher currentUserId={me.id} />
+              <Link href="/dashboard" className="btn btn--outline">
+                대시보드 →
+              </Link>
             </div>
           </div>
-        </main>
-      </div>
-    </>
+        </div>
+      </main>
+    </div>
   );
 }

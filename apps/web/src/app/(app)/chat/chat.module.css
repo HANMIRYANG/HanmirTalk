@@ -14,71 +14,100 @@
   background: var(--bg);
 }
 
-.dash {
-  padding: 24px 28px;
-  max-width: 1100px;
+/* 방 미선택 시 바로가기 패널 — 업무/공지 요약은 /dashboard 전담이고,
+   여기는 방 목록 데이터만으로 그리는 채팅 전용 콘텐츠. */
+.welcome {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 40px 24px 32px;
+}
+
+.welcomeHead {
+  text-align: center;
+  margin-bottom: 22px;
 }
 .hello { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
 .hello em { color: var(--brand-blue); font-style: normal; }
 .helloSub { font-size: 13px; color: var(--text-3); margin-top: 4px; }
 
-.statGrid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
-  margin-top: 22px;
-}
-
-.dashGrid {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr;
-  gap: 14px;
-  margin-top: 18px;
-}
-
-.cardBody { padding: 8px 20px 16px; }
-.cardBodyTight { padding: 4px 20px 16px; }
-
-.noticeRow {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 12px;
-  align-items: center;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border-soft);
-}
-.noticeRow:last-child { border-bottom: none; }
-a.noticeRow { color: inherit; text-decoration: none; }
-a.noticeRow:hover .noticeTitle { color: var(--brand-blue); }
-.noticeTitle { font-size: 13.5px; font-weight: 600; color: var(--text-1); }
-.noticeMeta { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
+.spacedCard { margin-top: 14px; }
 
 .emptyRow {
-  padding: 20px 0;
+  padding: 24px 0;
   text-align: center;
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--text-4);
 }
 
-.activity {
-  display: flex;
-  gap: 10px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--border-soft);
-  align-items: flex-start;
-}
-.activity:last-child { border-bottom: none; }
-.activityBody { font-size: 13px; line-height: 1.5; }
-.activityBody b { font-weight: 600; }
-.activityTime { font-size: 11px; color: var(--text-4); margin-top: 2px; }
+.roomList { padding: 4px 12px 8px; }
 
-@media (max-width: 1100px) {
-  .statGrid { grid-template-columns: repeat(2, 1fr); }
-  .dashGrid { grid-template-columns: 1fr; }
+.roomRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 8px;
+  border-radius: var(--r-sm);
+  color: inherit;
+  text-decoration: none;
+}
+.roomRow:hover { background: var(--bg-soft); }
+.roomMain { flex: 1; min-width: 0; }
+.roomName { font-size: 13.5px; font-weight: 700; color: var(--text-1); }
+.roomPreview {
+  font-size: 12.5px;
+  color: var(--text-3);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.roomPreview b { font-weight: 600; }
+
+.unreadBadge {
+  background: var(--brand-orange);
+  color: white;
+  font-size: 10.5px;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--r-pill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.pinChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 20px 16px;
+}
+.pinChip {
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  text-decoration: none;
+}
+.pinChip:hover {
+  border-color: var(--brand-blue);
+  color: var(--brand-blue);
+  background: var(--brand-blue-50);
+}
+
+.quickActions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 20px;
 }
 
 @media (max-width: 900px) {
   .row { grid-template-columns: 1fr; }
-  .dash { padding: 16px; }
-  .statGrid { gap: 10px; }
+  .welcome { padding: 20px 16px; }
 }

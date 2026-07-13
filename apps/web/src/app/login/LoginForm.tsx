@@ -36,7 +36,9 @@ export function LoginForm({ defaultEmail = "" }: LoginFormProps) {
       // `hanmir_refresh` cookies via Set-Cookie. JS no longer touches
       // document.cookie for auth; we just navigate after success.
       await authService.login(idOrEmail.trim(), password);
-      router.push("/chat");
+      // 랜딩 = 대시보드 — 채팅 홈은 채팅 전용 패널이라 출근 직후
+      // 업무 요약은 대시보드에서 본다.
+      router.push("/dashboard");
       router.refresh();
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {

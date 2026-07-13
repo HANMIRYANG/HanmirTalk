@@ -69,7 +69,7 @@ export function Sidebar() {
 
   return (
     <aside className={cn("sidebar desktop-only", styles.sidebar)}>
-      <Link href="/chat" className={styles.logo} aria-label="한미르톡 홈">
+      <Link href="/dashboard" className={styles.logo} aria-label="한미르톡 홈">
         <span className={styles.logoBadge}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/assets/hanmir-logo.png" alt="한미르 로고" />
