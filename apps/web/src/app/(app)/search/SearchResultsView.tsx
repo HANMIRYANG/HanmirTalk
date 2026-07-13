@@ -272,7 +272,7 @@ function ProjectHit({ p, query }: { p: Project & SearchMatch; query: string }) {
           <MatchSnippet hit={p} query={query} />
           <span className={styles.hitMeta}>
             <Tag tone={PROJECT_TONE[p.status] ?? "default"} dot>
-              {projectStatusLabel[p.status]}
+              {p.stageLabel || projectStatusLabel[p.status]}
             </Tag>
             진행률 {p.progress}%{p.dueDate ? ` · 마감 ${p.dueDate}` : ""}
           </span>

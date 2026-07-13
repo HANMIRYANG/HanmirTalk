@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { FileEntry, Project, Room, User } from "@hanmir/shared";
+import { projectStatusLabel } from "@hanmir/shared";
 import { Avatar } from "@/components/ui/Avatar";
 import { Tag } from "@/components/ui/Tag";
 import { ProgressBar } from "@/components/ui/ProgressBar";
@@ -75,7 +76,7 @@ export function RoomInfoPane({
             <span className={styles.k}>단계</span>
             <span className={styles.v}>
               <Tag tone="blue" dot>
-                {project.stageLabel}
+                {project.stageLabel || projectStatusLabel[project.status]}
               </Tag>
             </span>
           </div>

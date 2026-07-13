@@ -1,8 +1,22 @@
 import Link from "next/link";
-import type { Project } from "@hanmir/shared";
+import type { Project, ProjectStatus } from "@hanmir/shared";
+import { projectStatusLabel } from "@hanmir/shared";
 import { Tag } from "@/components/ui/Tag";
 import { cn } from "@/lib/classNames";
 import styles from "./ProjectHeader.module.css";
+
+// 태그 글자는 단계 라벨(있으면)이 상태를 대체하지만, 색은 항상 상태 기준.
+const TONE_BY_STATUS: Record<
+  ProjectStatus,
+  "default" | "blue" | "amber" | "green" | "red"
+> = {
+  ready: "default",
+  in_progress: "blue",
+  review: "amber",
+  on_hold: "amber",
+  done: "green",
+  cancelled: "red"
+};
 
 interface ProjectHeaderProps {
   project: Project;
@@ -84,8 +98,8 @@ export function ProjectHeader({
             {project.fullName}
           </div>
           <div className={styles.sub}>
-            <Tag tone="blue" dot>
-              {project.stageLabel}
+            <Tag tone={TONE_BY_STATUS[project.status]} dot>
+              {project.stageLabel || projectStatusLabel[project.status]}
             </Tag>
             <span className={styles.subSpacer}>
               {variant === "detail"

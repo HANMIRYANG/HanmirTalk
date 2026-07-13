@@ -37,7 +37,6 @@ const SALES_OPTIONS: SalesStatus[] = [
 
 interface FormState {
   name: string;
-  fullName: string;
   code: string;
   status: ProjectStatus;
   stageLabel: string;
@@ -58,7 +57,6 @@ interface FormState {
 
 const EMPTY_FORM: FormState = {
   name: "",
-  fullName: "",
   code: "",
   status: "ready",
   stageLabel: "",
@@ -80,7 +78,6 @@ const EMPTY_FORM: FormState = {
 function projectToForm(p: Project): FormState {
   return {
     name: p.name,
-    fullName: p.fullName ?? "",
     code: p.code ?? "",
     status: p.status,
     stageLabel: p.stageLabel ?? "",
@@ -183,8 +180,7 @@ export function ProjectFormModal({
       const { draft } = await aiService.draftProject(aiPrompt.trim());
       setForm((f) => ({
         ...f,
-        name: draft.name || f.name,
-        fullName: draft.fullName || f.fullName,
+        name: draft.name || draft.fullName || f.name,
         code: draft.code || f.code,
         department: draft.department || f.department,
         startDate: draft.startDate || f.startDate,
@@ -244,9 +240,12 @@ export function ProjectFormModal({
       return;
     }
 
+    // 이름 단일화 (docs/24 후속) — 정식 명칭 입력란을 없애고 fullName 은
+    // 항상 name 과 동기화. 기존에 두 이름이 달랐던 프로젝트도 수정 저장
+    // 시점에 하나로 수렴한다.
     const common = {
       name,
-      ...(form.fullName.trim() ? { fullName: form.fullName.trim() } : {}),
+      fullName: name,
       ...(form.code.trim() ? { code: form.code.trim() } : {}),
       ...(form.stageLabel.trim() ? { stageLabel: form.stageLabel.trim() } : {}),
       ...(form.department.trim() ? { department: form.department.trim() } : {}),
@@ -421,15 +420,6 @@ export function ProjectFormModal({
             />
           </label>
           <label>
-            정식 명칭
-            <input
-              className="field"
-              value={form.fullName}
-              onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))}
-              maxLength={200}
-            />
-          </label>
-          <label>
             프로젝트 코드
             <input
               className="field"
@@ -456,10 +446,10 @@ export function ProjectFormModal({
             </select>
           </label>
           <label>
-            단계 라벨
+            단계 라벨 (선택)
             <input
               className="field"
-              placeholder="예: 시제품 검증"
+              placeholder="비워두면 상태 표시 · 입력 시 목록·헤더에서 상태 글자를 대체 (예: 시제품 검증)"
               value={form.stageLabel}
               onChange={(e) => setForm((f) => ({ ...f, stageLabel: e.target.value }))}
               maxLength={40}

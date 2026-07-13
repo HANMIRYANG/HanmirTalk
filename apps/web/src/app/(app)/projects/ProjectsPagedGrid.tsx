@@ -51,7 +51,7 @@ export function ProjectsPagedGrid({ projects, view }: ProjectsPagedGridProps) {
               </div>
               <div className={styles.rowStatus}>
                 <Tag tone={TONE_BY_STATUS[p.status]} dot>
-                  {projectStatusLabel[p.status]}
+                  {p.stageLabel || projectStatusLabel[p.status]}
                 </Tag>
               </div>
               <div className={styles.rowProgress}>
@@ -74,7 +74,7 @@ export function ProjectsPagedGrid({ projects, view }: ProjectsPagedGridProps) {
             <div className={styles.cardHead}>
               <div className={styles.cover}>{p.code}</div>
               <Tag tone={TONE_BY_STATUS[p.status]} dot>
-                {projectStatusLabel[p.status]}
+                {p.stageLabel || projectStatusLabel[p.status]}
               </Tag>
             </div>
             <div className={styles.cardTitle}>{p.fullName}</div>
