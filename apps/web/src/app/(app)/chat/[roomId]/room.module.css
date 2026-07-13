@@ -1,6 +1,8 @@
 .row {
   display: grid;
-  grid-template-columns: 1fr 280px;
+  /* 우측 정보 패널은 토글로 unmount 될 수 있어 auto — 패널이 있으면
+     자기 width(280px), 없으면 0으로 접혀 본문이 전체 폭을 쓴다. */
+  grid-template-columns: 1fr auto;
   flex: 1;
   min-width: 0;
   min-height: 0;

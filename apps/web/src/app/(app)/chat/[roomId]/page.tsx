@@ -1,7 +1,12 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { IconButton } from "@/components/ui/IconButton";
-import { CloseIcon, PinIcon, UsersIcon } from "@/components/ui/icons";
+import { CloseIcon, PinIcon } from "@/components/ui/icons";
+import {
+  RoomPanelProvider,
+  RoomPanelToggleButton,
+  RoomPanelBody
+} from "@/components/chat/RoomPanelToggle";
 import { ChatRoomMessages } from "@/components/chat/ChatRoomMessages";
 import { MessageComposer } from "@/components/chat/MessageComposer";
 import { RoomInfoPane } from "@/components/chat/RoomInfoPane";
@@ -89,6 +94,7 @@ export default async function ChatRoomPage({ params }: Props) {
   }
 
   return (
+    <RoomPanelProvider>
     <div className={styles.row}>
       <main className={styles.main}>
         <header className={styles.top}>
@@ -137,9 +143,7 @@ export default async function ChatRoomPage({ params }: Props) {
               currentUserId={me.id}
               isAdmin={me.role === "admin" || me.role === "super_admin"}
             />
-            <IconButton aria-label="멤버" title="우측 패널에 멤버 표시">
-              <UsersIcon size={18} />
-            </IconButton>
+            <RoomPanelToggleButton />
             <IconButton aria-label="고정" title="고정된 메시지 (메시지 hover 후 핀 버튼으로 고정/해제)">
               <PinIcon size={18} />
             </IconButton>
@@ -194,15 +198,20 @@ export default async function ChatRoomPage({ params }: Props) {
         />
       </main>
 
-      <RoomInfoPane
-        room={room}
-        project={project}
-        members={memberUsers}
-        files={visibleFiles}
-        uploaders={uploaders}
-        currentUserId={me.id}
-        isAdmin={me.role === "admin" || me.role === "super_admin"}
-      />
+      {/* 우측 정보 패널 — 헤더의 [멤버] 버튼으로 표시/숨김, 패널 X 는
+          패널만 닫는다. */}
+      <RoomPanelBody>
+        <RoomInfoPane
+          room={room}
+          project={project}
+          members={memberUsers}
+          files={visibleFiles}
+          uploaders={uploaders}
+          currentUserId={me.id}
+          isAdmin={me.role === "admin" || me.role === "super_admin"}
+        />
+      </RoomPanelBody>
     </div>
+    </RoomPanelProvider>
   );
 }
