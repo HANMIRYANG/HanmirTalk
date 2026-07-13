@@ -324,6 +324,22 @@ export function createProjectsRouter(repos: Repositories): Router {
       res.status(400).json({ error: parsed.error });
       return;
     }
+    // 코드 미입력(AI 초안 포함) 시 자동 채번 — 폼 안내("비워두면 자동
+    // 생성")와 일치하도록 P-YYMM-NN 형식의 유일 코드를 만든다.
+    if (!parsed.code?.trim()) {
+      const existing = new Set(
+        (await repos.projects.list()).map((p) => p.code).filter(Boolean)
+      );
+      const now = new Date();
+      const yymm = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, "0")}`;
+      let seq = 1;
+      let code = `P-${yymm}-${String(seq).padStart(2, "0")}`;
+      while (existing.has(code)) {
+        seq += 1;
+        code = `P-${yymm}-${String(seq).padStart(2, "0")}`;
+      }
+      parsed.code = code;
+    }
     const project = await repos.projects.create(parsed, { id: req.currentUser!.id });
     await auditLog(repos, req, {
       action: "project.create",

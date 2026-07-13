@@ -42,7 +42,7 @@ export function ProjectsPagedGrid({ projects, view }: ProjectsPagedGridProps) {
           {paged.map((p) => (
             <Link key={p.id} href={`/projects/${p.id}`} className={styles.row}>
               <div className={styles.rowName}>
-                <span className={styles.rowTitle}>{p.fullName}</span>
+                <span className={styles.rowTitle}>{p.name}</span>
                 <span className={styles.rowCode}>{p.code}</span>
               </div>
               <div className={styles.rowDept}>{p.department}</div>
@@ -72,17 +72,19 @@ export function ProjectsPagedGrid({ projects, view }: ProjectsPagedGridProps) {
         {paged.map((p) => (
           <Link key={p.id} href={`/projects/${p.id}`} className={styles.card}>
             <div className={styles.cardHead}>
-              <div className={styles.cover}>{p.code}</div>
+              <div className={styles.cardTitle}>{p.name}</div>
               <Tag tone={TONE_BY_STATUS[p.status]} dot>
                 {p.stageLabel || projectStatusLabel[p.status]}
               </Tag>
             </div>
-            <div className={styles.cardTitle}>{p.fullName}</div>
             <div className={styles.cardMeta}>
               {p.department} · 책임 {p.ownerName}
             </div>
-            <div className={styles.cardMeta}>
-              {p.startDate} ~ {p.dueDate}
+            <div className={styles.cardPeriod}>
+              <span>
+                {p.startDate} ~ {p.dueDate}
+              </span>
+              {p.code ? <span className={styles.cardCode}>{p.code}</span> : null}
             </div>
             <div className={styles.progressRow}>
               <ProgressBar value={p.progress} />
