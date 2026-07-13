@@ -7,6 +7,8 @@ interface TasksPaginationProps {
   page: number;
   pageCount: number;
   onPageChange: (page: number) => void;
+  // 그룹 내 페이지네이션 등 배치별 여백 조정용.
+  className?: string;
 }
 
 /** "1 2 3 … 12" 형태의 페이지 번호 목록 (현재 페이지 주변 + 양 끝, 간격은 말줄임). */
@@ -30,11 +32,16 @@ function buildPageItems(page: number, pageCount: number): (number | "ellipsis")[
   return items;
 }
 
-export function TasksPagination({ page, pageCount, onPageChange }: TasksPaginationProps) {
+export function TasksPagination({
+  page,
+  pageCount,
+  onPageChange,
+  className
+}: TasksPaginationProps) {
   if (pageCount <= 1) return null;
   const items = buildPageItems(page, pageCount);
   return (
-    <nav className={styles.pagination} aria-label="페이지 이동">
+    <nav className={cn(styles.pagination, className)} aria-label="페이지 이동">
       <button
         type="button"
         className={styles.pageBtn}

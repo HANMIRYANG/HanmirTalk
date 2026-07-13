@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { IconButton } from "@/components/ui/IconButton";
-import { PinIcon, UsersIcon } from "@/components/ui/icons";
+import { CloseIcon, PinIcon, UsersIcon } from "@/components/ui/icons";
 import { ChatRoomMessages } from "@/components/chat/ChatRoomMessages";
 import { MessageComposer } from "@/components/chat/MessageComposer";
 import { RoomInfoPane } from "@/components/chat/RoomInfoPane";
@@ -144,6 +144,16 @@ export default async function ChatRoomPage({ params }: Props) {
               <PinIcon size={18} />
             </IconButton>
             <ChatRoomActions room={room} />
+            {/* 채팅방 닫기 — 목록으로 복귀. 정보 패널이 숨는 좁은 화면
+                에서도 사이드바 없이 목록으로 돌아갈 수 있는 진입점. */}
+            <Link
+              href="/chat"
+              aria-label="채팅방 닫기"
+              title="채팅방 닫기 — 채팅 목록으로"
+              className="icon-btn"
+            >
+              <CloseIcon size={18} />
+            </Link>
           </div>
         </header>
 

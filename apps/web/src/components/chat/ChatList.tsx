@@ -250,7 +250,12 @@ function RoomContextMenu({
     );
 
   const onLeave = () => {
-    if (!window.confirm(`'${room.name}' 채팅방에서 나가시겠습니까?`)) return;
+    // direct 방 나가기 = 내 목록에서 숨김 (새 메시지가 오면 복귀).
+    const confirmText =
+      room.type === "direct"
+        ? `'${room.name}' 님과의 채팅방을 나가시겠습니까?\n목록에서 사라지며, 새 메시지가 오면 다시 표시됩니다.`
+        : `'${room.name}' 채팅방에서 나가시겠습니까?`;
+    if (!window.confirm(confirmText)) return;
     void run(async () => {
       await chatService.leaveRoom(room.id);
       // 보고 있던 방에서 나갔으면 목록으로 이동.
@@ -283,17 +288,15 @@ function RoomContextMenu({
       >
         {room.pinned ? "고정 해제" : "고정"}
       </button>
-      {room.type !== "direct" ? (
-        <button
-          type="button"
-          className={cn(styles.ctxItem, styles.ctxItemDanger)}
-          onClick={onLeave}
-          disabled={busy}
-          role="menuitem"
-        >
-          방 나가기
-        </button>
-      ) : null}
+      <button
+        type="button"
+        className={cn(styles.ctxItem, styles.ctxItemDanger)}
+        onClick={onLeave}
+        disabled={busy}
+        role="menuitem"
+      >
+        채팅방 나가기
+      </button>
     </div>
   );
 }

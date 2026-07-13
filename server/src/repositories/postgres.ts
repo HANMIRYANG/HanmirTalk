@@ -975,6 +975,8 @@ interface RoomRow {
   caller_muted: boolean | null;
   // 채팅 목록 per-user 고정 (room_members.pinned). NULL = 멤버 아님.
   caller_pinned: boolean | null;
+  // direct 방 "나가기" per-user 숨김 (room_members.hidden). NULL = 멤버 아님.
+  caller_hidden: boolean | null;
 }
 
 function rowToRoom(row: RoomRow): Room {
@@ -996,6 +998,7 @@ function rowToRoom(row: RoomRow): Room {
     unread: Number(row.unread_count) || 0,
     muted: row.caller_muted ?? undefined,
     pinned: row.caller_pinned ?? undefined,
+    hiddenForCaller: row.caller_hidden ?? undefined,
     lastMessageAt: row.last_message_at ? formatDate(row.last_message_at) : "",
     lastMessagePreview: row.last_message_preview ?? "",
     lastMessageAuthor: row.last_message_author ?? undefined
@@ -1041,6 +1044,9 @@ const ROOM_SELECT = `
     -- 채팅 목록 per-user 고정. NULL = 멤버 아님 (UI 는 falsy 처리).
     (SELECT rm4.pinned FROM room_members rm4
        WHERE rm4.room_id = r.id AND rm4.user_id = $1) AS caller_pinned,
+    -- direct 방 "나가기" 숨김 (마이그 032). GET /rooms 가 목록에서 제외.
+    (SELECT rm5.hidden FROM room_members rm5
+       WHERE rm5.room_id = r.id AND rm5.user_id = $1) AS caller_hidden,
     -- Unread = messages newer than this user's last_read_message and not
     -- authored by them. last_read_message resolves via room_members; when
     -- the user has no row, we treat every foreign message as unread.
@@ -1166,6 +1172,13 @@ class PgRoomRepository implements RoomRepository {
       [userIdA, userIdB]
     );
     if (rows[0]) {
+      // 다시 대화를 시작하는 쪽의 "나가기" 숨김(마이그 032)은 여기서
+      // 해제 — 기존 방이 히스토리째 목록에 복귀한다.
+      await this.pool.query(
+        `UPDATE room_members SET hidden = false
+          WHERE room_id = $1 AND user_id = $2 AND hidden`,
+        [rows[0].id, userIdA]
+      );
       const existing = await this.findById(rows[0].id, userIdA);
       if (existing) return existing;
     }
@@ -1270,6 +1283,29 @@ class PgRoomRepository implements RoomRepository {
       return { ok: true, archived: true };
     }
     return { ok: true, archived: false };
+  }
+
+  async setHidden(
+    id: string,
+    userId: string,
+    hidden: boolean
+  ): Promise<Room | undefined> {
+    await this.pool.query(
+      `UPDATE room_members SET hidden = $3
+        WHERE room_id = $1 AND user_id = $2`,
+      [id, userId, hidden]
+    );
+    return this.findById(id, userId);
+  }
+
+  async unhideAll(id: string): Promise<string[]> {
+    const { rows } = await this.pool.query<{ user_id: string }>(
+      `UPDATE room_members SET hidden = false
+        WHERE room_id = $1 AND hidden
+        RETURNING user_id`,
+      [id]
+    );
+    return rows.map((r) => r.user_id);
   }
 }
 

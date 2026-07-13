@@ -100,6 +100,16 @@ export async function pollScheduledMessagesOnce(repos: Repositories): Promise<vo
           item.attachmentId ? { attachmentId: item.attachmentId } : undefined
         );
 
+        // direct 방을 "나가기"(숨김)한 멤버는 새 메시지로 목록에 복귀.
+        if (room.type === "direct") {
+          const unhidden = await repos.rooms.unhideAll(item.roomId);
+          for (const uid of unhidden) {
+            realtime.emitRoomMembershipChanged(item.roomId, {
+              kind: "join",
+              userId: uid
+            });
+          }
+        }
         realtime.emitMessageNew(item.roomId, saved);
         // 일반 메시지와 동일하게 알림 dispatch.
         void notifyMessageNew(repos, item.roomId, saved);

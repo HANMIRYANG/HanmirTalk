@@ -259,11 +259,13 @@ export const chatService = {
 
   // Leave the room. Returns `{ ok, archived }` — archived=true means the
   // caller was the last member and the room is now soft-archived.
+  // direct(1:1) 방은 hidden=true 로 응답 — 삭제가 아니라 내 목록에서
+  // 숨김이며, 새 메시지가 오거나 1:1 을 다시 시작하면 복귀한다.
   async leaveRoom(
     roomId: string,
     opts: AuthOptions = {}
-  ): Promise<{ ok: boolean; archived: boolean }> {
-    return apiRequest<{ ok: boolean; archived: boolean }>(
+  ): Promise<{ ok: boolean; archived: boolean; hidden?: boolean }> {
+    return apiRequest<{ ok: boolean; archived: boolean; hidden?: boolean }>(
       `/rooms/${encodeURIComponent(roomId)}/leave`,
       { method: "POST", token: opts.token }
     );

@@ -165,6 +165,10 @@ export interface Room {
   // caller's room_members.notification_enabled.
   muted?: boolean;
   pinned?: boolean;
+  // direct(1:1) 방 "나가기" — 호출자 기준 숨김 여부 (room_members.hidden).
+  // GET /rooms 는 true 인 방을 목록에서 제외하므로 클라이언트에 노출되는
+  // 방에선 항상 falsy. 새 메시지 도착/1:1 재시작 시 서버가 해제한다.
+  hiddenForCaller?: boolean;
   // Id of the currently-pinned message in this room (set via POST
   // /rooms/:id/pin). Undefined when nothing is pinned.
   pinnedMessageId?: string;

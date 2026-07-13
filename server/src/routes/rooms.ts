@@ -138,10 +138,13 @@ export function createRoomsRouter(repos: Repositories): Router {
     const all = await repos.rooms.list(me.id);
     // Admins see every room (audit/oversight needs); regular users only see
     // rooms where they are a member, matching the single-room gate above.
-    const visible =
+    const membered =
       me.role === "admin" || me.role === "super_admin"
         ? all
         : all.filter((r) => r.members.some((m) => m.userId === me.id));
+    // direct 방 "나가기"(per-user 숨김)한 방은 목록에서 제외 — 새 메시지
+    // 도착이나 1:1 재시작 시 서버가 hidden 을 해제해 다시 나타난다.
+    const visible = membered.filter((r) => !r.hiddenForCaller);
     res.json(await withDirectDisplayNames(repos, visible, me.id));
   });
 
@@ -335,6 +338,16 @@ export function createRoomsRouter(repos: Repositories): Router {
     const saved = await repos.messages.append(req.params.roomId, message, {
       attachmentId
     });
+    // direct 방을 "나가기"(숨김)한 멤버는 새 메시지로 목록에 복귀시킨다.
+    if (access.room.type === "direct") {
+      const unhidden = await repos.rooms.unhideAll(req.params.roomId);
+      for (const uid of unhidden) {
+        realtime.emitRoomMembershipChanged(req.params.roomId, {
+          kind: "join",
+          userId: uid
+        });
+      }
+    }
     realtime.emitMessageNew(req.params.roomId, saved);
     // Phase 6 I-2 — 알림은 응답을 막지 않도록 fire-and-forget.
     void notifyMessageNew(repos, req.params.roomId, saved);
@@ -573,14 +586,36 @@ export function createRoomsRouter(repos: Repositories): Router {
 
   // POST /rooms/:roomId/leave — caller exits the room. Last member ⇒
   // soft archive (is_active=false in PG; memory removes from active list).
+  // direct(1:1) 방은 멤버십을 지우지 않고 per-user 숨김만 한다 — 지우면
+  // findOrCreateDirect 가 기존 방을 못 찾아 같은 상대와 중복 방이 생기고
+  // 상대의 히스토리도 꼬인다. 숨긴 방은 상대의 새 메시지나 본인의 1:1
+  // 재시작으로 다시 나타난다 (카카오 DM 나가기와 같은 체감).
   router.post("/:roomId/leave", async (req, res) => {
     const access = await ensureRoomAccess(repos, req, res, req.params.roomId);
     if (!access.allowed) return;
+    const me = req.currentUser!;
     if (access.room.type === "direct") {
-      res.status(400).json({ error: "cannot_leave_direct_room" });
+      const updated = await repos.rooms.setHidden(req.params.roomId, me.id, true);
+      if (!updated) {
+        res.status(404).json({ error: "not_found" });
+        return;
+      }
+      await auditLog(repos, req, {
+        action: "room.leave",
+        targetType: "room",
+        targetId: req.params.roomId,
+        targetLabel: access.room.name,
+        meta: { hidden: true }
+      });
+      // 나간 사람의 다른 탭 ChatList 가 방을 목록에서 내리도록.
+      realtime.emitRoomMembershipChanged(req.params.roomId, {
+        kind: "leave",
+        userId: me.id,
+        archived: false
+      });
+      res.json({ ok: true, archived: false, hidden: true });
       return;
     }
-    const me = req.currentUser!;
     const result = await repos.rooms.leave(req.params.roomId, me.id);
     if (!result.ok) {
       res.status(404).json({ error: "not_found" });

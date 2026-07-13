@@ -97,16 +97,6 @@
 .groupCountDanger { background: var(--danger-bg); color: var(--danger); }
 .groupCountSuccess { background: var(--success-bg); color: var(--success); }
 
-.groupAdd {
-  font-size: 12px;
-  color: var(--text-3);
-  font-weight: 500;
-  background: none;
-  border: none;
-  padding: 4px 8px;
-}
-.groupAdd:hover { color: var(--text-1); }
-
 .tasks {
   width: 100%;
   border-collapse: collapse;
@@ -475,7 +465,7 @@
   color: var(--text-4);
 }
 
-/* Pagination (client-side, 50건 단위) */
+/* Pagination (client-side) */
 .pagination {
   display: flex;
   align-items: center;
@@ -483,6 +473,8 @@
   gap: 4px;
   padding: 0 28px 22px;
 }
+/* 목록 뷰 그룹 내 페이지네이션 (그룹당 5건 단위) — 여백 축소 */
+.paginationGroup { padding: 8px 28px 12px; }
 .pageBtn {
   min-width: 28px;
   height: 28px;

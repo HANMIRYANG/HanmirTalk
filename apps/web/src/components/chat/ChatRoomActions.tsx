@@ -18,7 +18,8 @@ interface Props {
 }
 
 // Phase 4 G-2b — header "더보기" popover. Mute toggle + leave room.
-// Direct rooms hide [방 나가기] (cannot_leave_direct_room).
+// direct 방의 나가기는 서버가 per-user 숨김으로 처리한다 (멤버십 유지,
+// 새 메시지 도착/1:1 재시작 시 목록 복귀).
 export function ChatRoomActions({ room }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -76,19 +77,21 @@ export function ChatRoomActions({ room }: Props) {
     }
   };
 
+  const isDirect = room.type === "direct";
+
   const onLeave = async () => {
     if (busy) return;
-    if (!window.confirm(`'${room.name}' 채팅방에서 나가시겠습니까?`)) return;
+    // direct 방 나가기 = 내 목록에서 숨김 (서버 room_members.hidden).
+    // 상대가 새 메시지를 보내거나 내가 다시 1:1 을 시작하면 복귀한다.
+    const confirmText = isDirect
+      ? `'${room.name}' 님과의 채팅방을 나가시겠습니까?\n목록에서 사라지며, 새 메시지가 오면 다시 표시됩니다.`
+      : `'${room.name}' 채팅방에서 나가시겠습니까?`;
+    if (!window.confirm(confirmText)) return;
     setBusy(true);
     try {
-      const result = await chatService.leaveRoom(room.id);
+      await chatService.leaveRoom(room.id);
       setOpen(false);
-      if (result.archived) {
-        // We were the last member; the room is gone.
-        router.push("/chat");
-      } else {
-        router.push("/chat");
-      }
+      router.push("/chat");
       router.refresh();
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
@@ -100,7 +103,6 @@ export function ChatRoomActions({ room }: Props) {
     }
   };
 
-  const canLeave = room.type !== "direct";
   // direct 방은 이름이 상대방 이름으로 표시되고 멤버가 고정(서버 거부)
   // 이라 수정/추가 진입점을 모두 숨긴다.
   const canManageRoom = room.type !== "direct";
@@ -154,17 +156,15 @@ export function ChatRoomActions({ room }: Props) {
           >
             {muted ? "알림 켜기" : "알림 음소거"}
           </button>
-          {canLeave ? (
-            <button
-              type="button"
-              className={cn(styles.menuItem, styles.menuItemDanger)}
-              onClick={onLeave}
-              disabled={busy}
-              role="menuitem"
-            >
-              방 나가기
-            </button>
-          ) : null}
+          <button
+            type="button"
+            className={cn(styles.menuItem, styles.menuItemDanger)}
+            onClick={onLeave}
+            disabled={busy}
+            role="menuitem"
+          >
+            채팅방 나가기
+          </button>
         </div>
       ) : null}
       {editOpen ? <RoomEditModal room={room} onClose={() => setEditOpen(false)} /> : null}

@@ -3,7 +3,6 @@ import type { FileEntry, Project, Room, User } from "@hanmir/shared";
 import { Avatar } from "@/components/ui/Avatar";
 import { Tag } from "@/components/ui/Tag";
 import { ProgressBar } from "@/components/ui/ProgressBar";
-import { IconButton } from "@/components/ui/IconButton";
 import { CloseIcon } from "@/components/ui/icons";
 import { cn } from "@/lib/classNames";
 import { MemberRemoveButton } from "./MemberRemoveButton";
@@ -60,9 +59,15 @@ export function RoomInfoPane({
     <aside className={styles.pane}>
       <div className={styles.head}>
         <h3>채팅방 정보</h3>
-        <IconButton aria-label="닫기" className={styles.headBtn}>
+        {/* 채팅방 닫기 — 방을 닫고 채팅 목록으로 돌아간다. */}
+        <Link
+          href="/chat"
+          aria-label="채팅방 닫기"
+          title="채팅방 닫기 — 채팅 목록으로"
+          className={cn("icon-btn", styles.headBtn)}
+        >
           <CloseIcon size={14} />
-        </IconButton>
+        </Link>
       </div>
 
       {project ? (

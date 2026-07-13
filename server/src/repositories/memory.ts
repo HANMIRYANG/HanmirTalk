@@ -339,6 +339,9 @@ class MemoryRoomRepository implements RoomRepository {
   // 채팅 목록 per-user 고정 — Set<roomId> per userId (mute 와 동일 구조).
   private readonly pinnedByUser = new Map<string, Set<string>>();
 
+  // direct 방 "나가기" per-user 숨김 (PG 의 room_members.hidden 대응).
+  private readonly hiddenByUser = new Map<string, Set<string>>();
+
   constructor() {
     const seeded = clone(seedRooms);
     const kimMutes = new Set<string>();
@@ -381,6 +384,9 @@ class MemoryRoomRepository implements RoomRepository {
     out.muted = userId ? this.mutedByUser.get(userId)?.has(room.id) ?? false : undefined;
     out.pinned = userId
       ? this.pinnedByUser.get(userId)?.has(room.id) ?? false
+      : undefined;
+    out.hiddenForCaller = userId
+      ? this.hiddenByUser.get(userId)?.has(room.id) ?? false
       : undefined;
     return out;
   }
@@ -438,7 +444,11 @@ class MemoryRoomRepository implements RoomRepository {
         r.members.some((m) => m.userId === a) &&
         r.members.some((m) => m.userId === b)
     );
-    if (existing) return this.decorate(existing, a);
+    if (existing) {
+      // 다시 대화를 시작하는 쪽의 "나가기" 숨김은 여기서 해제.
+      this.hiddenByUser.get(a)?.delete(existing.id);
+      return this.decorate(existing, a);
+    }
     return this.create(
       {
         // Direct-room name is just a placeholder; the UI renders the
@@ -473,8 +483,10 @@ class MemoryRoomRepository implements RoomRepository {
       ...current,
       members: current.members.filter((m) => m.userId !== userId)
     };
-    // Also drop their mute state so it doesn't linger if they get re-added.
+    // Also drop their mute/hidden state so it doesn't linger if they get
+    // re-added.
     this.mutedByUser.get(userId)?.delete(id);
+    this.hiddenByUser.get(userId)?.delete(id);
     return this.decorate(this.data[idx]);
   }
 
@@ -537,6 +549,31 @@ class MemoryRoomRepository implements RoomRepository {
     }
     this.data[idx] = { ...current, members: remaining };
     return { ok: true, archived: false };
+  }
+
+  async setHidden(
+    id: string,
+    userId: string,
+    hidden: boolean
+  ): Promise<Room | undefined> {
+    const room = this.data.find((r) => r.id === id);
+    if (!room) return undefined;
+    let set = this.hiddenByUser.get(userId);
+    if (!set) {
+      set = new Set<string>();
+      this.hiddenByUser.set(userId, set);
+    }
+    if (hidden) set.add(id);
+    else set.delete(id);
+    return this.decorate(room, userId);
+  }
+
+  async unhideAll(id: string): Promise<string[]> {
+    const out: string[] = [];
+    for (const [userId, set] of this.hiddenByUser) {
+      if (set.delete(id)) out.push(userId);
+    }
+    return out;
   }
 }
 

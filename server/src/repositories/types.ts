@@ -160,6 +160,13 @@ export interface RoomRepository {
   // room transitions to is_active=false (soft archive — no hard delete
   // so historical messages keep their fk references).
   leave(id: string, userId: string): Promise<{ ok: true; archived: boolean } | { ok: false }>;
+  // direct(1:1) 방 "나가기" — 멤버십은 유지하고 내 목록에서만 숨긴다
+  // (room_members.hidden, 마이그 032). 멤버십을 지우면 findOrCreateDirect
+  // 가 기존 방을 못 찾아 중복 방이 생기므로 숨김으로만 처리한다.
+  setHidden(id: string, userId: string, hidden: boolean): Promise<Room | undefined>;
+  // 방의 숨김을 전부 해제하고 해제된 userId 목록을 반환 — 새 메시지가
+  // 도착하면 숨긴 사람의 목록에 방이 다시 나타나야 한다 (카카오 DM 동작).
+  unhideAll(id: string): Promise<string[]>;
 }
 
 export interface MessageRepository {

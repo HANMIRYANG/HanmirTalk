@@ -25,7 +25,6 @@ import styles from "./tasks.module.css";
 type ViewMode = "list" | "board" | "timeline" | "table";
 
 interface TasksWorkspaceProps {
-  projectId: string;
   doneCount: number;
   tasks: TaskItem[];
   users: User[];
@@ -33,7 +32,6 @@ interface TasksWorkspaceProps {
 }
 
 export function TasksWorkspace({
-  projectId,
   doneCount,
   tasks,
   users,
@@ -180,12 +178,10 @@ export function TasksWorkspace({
       <div className="content no-pad">
         {view === "list" ? (
           <ListView
-            tasks={paged}
+            tasks={filtered}
             doneCount={doneCount}
             done={done}
             userById={userById}
-            projectId={projectId}
-            users={users}
           />
         ) : view === "board" ? (
           <BoardView
@@ -197,8 +193,9 @@ export function TasksWorkspace({
         ) : (
           <TableView tasks={paged} userById={userById} onCsv={() => downloadCsv(filtered, userById)} />
         )}
-        {/* 보드 뷰는 컬럼별 자연 스크롤 유지 — 페이지네이션 제외 */}
-        {view !== "board" ? (
+        {/* 목록 뷰는 그룹별 5건 페이지네이션, 보드 뷰는 컬럼별 자연
+            스크롤 — 전역 페이지네이션은 타임라인/표 뷰에서만 쓴다. */}
+        {view === "timeline" || view === "table" ? (
           <TasksPagination page={page} pageCount={pageCount} onPageChange={setPage} />
         ) : null}
       </div>
