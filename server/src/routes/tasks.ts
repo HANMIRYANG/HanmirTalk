@@ -98,6 +98,10 @@ function parseUpdateTask(body: unknown): UpdateTaskInput | { error: string } {
     if (typeof b.isKeyTask !== "boolean") return { error: "isKeyTask_invalid" };
     out.isKeyTask = b.isKeyTask;
   }
+  if (b.milestoneId !== undefined) {
+    if (!isString(b.milestoneId)) return { error: "milestoneId_invalid" };
+    out.milestoneId = b.milestoneId;
+  }
   return out;
 }
 
@@ -149,6 +153,14 @@ export function createTasksRouter(repos: Repositories): Router {
     if ("error" in parsed) {
       res.status(400).json({ error: parsed.error });
       return;
+    }
+    // 연관 마일스톤은 같은 프로젝트의 것만 허용 ("" 는 연결 해제라 통과).
+    if (parsed.milestoneId) {
+      const project = await repos.projects.findById(access.projectId);
+      if (!project?.milestones.some((m) => m.id === parsed.milestoneId)) {
+        res.status(400).json({ error: "milestone_not_found" });
+        return;
+      }
     }
     // Capture pre-update assignees so we can diff after the update and
     // notify only newly added members.

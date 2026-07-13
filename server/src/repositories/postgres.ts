@@ -790,6 +790,7 @@ interface TaskRow {
   progress: number;
   parent_task_id: string | null;
   is_key_task: boolean | null;
+  milestone_id: string | null;
   subtask_count: string | number | null;
 }
 
@@ -817,6 +818,7 @@ function rowToTask(row: TaskRow): TaskItem {
     progress: row.progress ?? 0,
     parentTaskId: row.parent_task_id ?? undefined,
     isKeyTask: row.is_key_task ?? false,
+    milestoneId: row.milestone_id ?? undefined,
     subtaskCount: row.subtask_count != null ? Number(row.subtask_count) : 0
   };
 }
@@ -826,7 +828,7 @@ function rowToTask(row: TaskRow): TaskItem {
 const TASK_SELECT = `
   SELECT id, code, project_id, title, status, priority, assignee_id,
          reviewer_id, start_date, due_date, due_label, progress,
-         parent_task_id, is_key_task,
+         parent_task_id, is_key_task, milestone_id,
          (SELECT array_agg(ta.user_id ORDER BY ta.created_at)
             FROM task_assignees ta WHERE ta.task_id = tasks.id) AS assignee_ids,
          (SELECT COUNT(*) FROM tasks c WHERE c.parent_task_id = tasks.id) AS subtask_count
@@ -877,12 +879,12 @@ class PgTaskRepository implements TaskRepository {
       `INSERT INTO tasks (
          code, project_id, title, description, assignee_id, reviewer_id,
          status, priority, start_date, due_date, due_label, progress, created_by,
-         parent_task_id, is_key_task
+         parent_task_id, is_key_task, milestone_id
        )
        VALUES (
          $1, $2, $3, $4, $5, $6,
          $7, $8, $9, $10, $11, COALESCE($12, 0), $13,
-         $14, COALESCE($15, false)
+         $14, COALESCE($15, false), $16
        )
        RETURNING id`,
       [
@@ -900,7 +902,8 @@ class PgTaskRepository implements TaskRepository {
         input.progress ?? null,
         createdBy.id,
         input.parentTaskId ?? null,
-        input.isKeyTask ?? null
+        input.isKeyTask ?? null,
+        input.milestoneId || null
       ]
     );
     if (assigneeIds.length > 0) {
@@ -936,6 +939,7 @@ class PgTaskRepository implements TaskRepository {
     if (input.progress !== undefined) add("progress", input.progress);
     if (input.description !== undefined) add("description", input.description);
     if (input.isKeyTask !== undefined) add("is_key_task", input.isKeyTask);
+    if (input.milestoneId !== undefined) add("milestone_id", input.milestoneId || null);
     if (sets.length === 0) return this.findById(id);
     sets.push("updated_at = NOW()");
     values.push(id);

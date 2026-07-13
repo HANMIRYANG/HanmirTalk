@@ -167,7 +167,7 @@ export function MilestonesCard({ projectId, milestones, canManage }: Props) {
   return (
     <section className={cn("card", styles.section)}>
       <div className="card__head">
-        <h3>주요 일정</h3>
+        <h3>주요 마일스톤</h3>
         <span className="muted">
           {milestones.length}개 마일스톤 ·{" "}
           {milestones.filter((m) => m.status === "done").length}개 완료
@@ -186,7 +186,7 @@ export function MilestonesCard({ projectId, milestones, canManage }: Props) {
       {milestones.length === 0 ? (
         <div className="muted t-sm" style={{ padding: 16 }}>
           등록된 마일스톤이 없습니다.
-          {canManage ? " 위 버튼으로 주요 일정을 추가하세요." : ""}
+          {canManage ? " 위 버튼으로 주요 마일스톤을 추가하세요." : ""}
         </div>
       ) : (
         <div className={styles.milestoneList}>

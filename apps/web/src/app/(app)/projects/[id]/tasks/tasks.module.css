@@ -180,7 +180,7 @@
   align-items: center;
   gap: 3px;
 }
-/* 033 — 하위 업무 행 들여쓰기 + 주요 업무 ★ 배지 */
+/* 033 — 하위 업무 행 들여쓰기 + 상단 고정(★) 핀 토글 */
 .titleSub {
   padding-left: 18px;
   font-weight: 500;
@@ -189,10 +189,34 @@
   color: var(--text-4);
   font-size: 11px;
 }
-.keyBadge {
-  color: var(--brand-orange, #f59e0b);
-  font-size: 12px;
+.pinBtn {
+  background: none;
+  border: none;
+  padding: 0 2px;
+  font-size: 13px;
   line-height: 1;
+  cursor: pointer;
+  color: var(--text-4);
+  opacity: 0;
+  transition: opacity 0.1s ease, color 0.1s ease;
+}
+.tasks tbody tr:hover .pinBtn,
+.pinBtn:focus,
+.pinBtnActive { opacity: 1; }
+.pinBtnActive { color: var(--brand-orange, #f59e0b); }
+.pinBtn:disabled { cursor: progress; }
+/* 034 — 연관 마일스톤 배지 */
+.msBadge {
+  font-size: 11px;
+  color: var(--brand-orange, #f59e0b);
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .assignees { display: flex; }

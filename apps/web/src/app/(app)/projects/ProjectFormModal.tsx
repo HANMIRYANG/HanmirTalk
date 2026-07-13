@@ -136,6 +136,8 @@ interface TaskDraftRow {
   description: string;
   startDate: string;
   dueDate: string;
+  // 연관 마일스톤의 title — 등록 시 생성된 마일스톤 id 로 매칭해 연결.
+  milestone: string;
 }
 
 export function ProjectFormModal({
@@ -154,7 +156,7 @@ export function ProjectFormModal({
   const [aiNote, setAiNote] = useState<string | null>(null);
   // 마일스톤 초안 — 생성 성공 후 addMilestone 으로 일괄 저장.
   const [milestones, setMilestones] = useState<MilestoneRow[]>([]);
-  // 주요 업무 초안 — 생성 성공 후 isKeyTask=true 업무로 일괄 등록.
+  // 업무 초안 — 생성 성공 후 업무로 일괄 등록 (마일스톤 title 매칭으로 연결).
   const [draftTasks, setDraftTasks] = useState<TaskDraftRow[]>([]);
 
   useEffect(() => {
@@ -193,10 +195,10 @@ export function ProjectFormModal({
         externalPartners: draft.externalPartners || f.externalPartners
       }));
       if (draft.milestones.length > 0) setMilestones(draft.milestones);
-      const aiTasks = draft.tasks ?? [];
+      const aiTasks = (draft.tasks ?? []).map((t) => ({ ...t, milestone: t.milestone || "" }));
       if (aiTasks.length > 0) setDraftTasks(aiTasks);
       setAiNote(
-        `초안이 채워졌습니다 (마일스톤 ${draft.milestones.length}건 · 주요 업무 ${aiTasks.length}건 포함). 내용을 확인·수정한 뒤 추가해 주세요.`
+        `초안이 채워졌습니다 (마일스톤 ${draft.milestones.length}건 · 업무 ${aiTasks.length}건 포함). 내용을 확인·수정한 뒤 추가해 주세요.`
       );
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
@@ -269,39 +271,43 @@ export function ProjectFormModal({
       if (mode.kind === "create") {
         const created = await projectService.createProject(common as CreateProjectInput);
         // 마일스톤 초안 저장 — 실패해도 프로젝트는 생성된 상태이므로
-        // 안내만 하고 진행 (상세의 '주요 일정' 카드에서 재시도 가능).
+        // 안내만 하고 진행 (상세의 '주요 마일스톤' 카드에서 재시도 가능).
         const validMilestones = milestones.filter((m) => m.title.trim() && m.date);
+        // 업무 초안의 마일스톤 연결용 — 방금 저장한 마일스톤 title → id.
+        const milestoneIdByTitle = new Map<string, string>();
         if (validMilestones.length > 0) {
           try {
             for (const m of validMilestones) {
-              await projectService.addMilestone(created.id, {
+              const saved = await projectService.addMilestone(created.id, {
                 title: m.title.trim(),
                 ...(m.subtitle.trim() ? { subtitle: m.subtitle.trim() } : {}),
                 date: m.date
               });
+              milestoneIdByTitle.set(m.title.trim(), saved.id);
             }
           } catch {
             window.alert(
-              "프로젝트는 생성되었지만 마일스톤 일부 저장에 실패했습니다. 상세 페이지의 '주요 일정'에서 다시 추가해 주세요."
+              "프로젝트는 생성되었지만 마일스톤 일부 저장에 실패했습니다. 상세 페이지의 '주요 마일스톤'에서 다시 추가해 주세요."
             );
           }
         }
-        // 주요 업무 초안 — 마일스톤과 동일 패턴으로 isKeyTask 업무 일괄 등록.
+        // 업무 초안 — 마일스톤과 동일 패턴으로 일괄 등록, title 매칭으로 연결.
         const validTasks = draftTasks.filter((t) => t.title.trim());
         if (validTasks.length > 0) {
           try {
             for (const t of validTasks) {
+              const milestoneId = milestoneIdByTitle.get(t.milestone.trim());
               await taskService.createTask(created.id, {
                 title: t.title.trim(),
-                isKeyTask: true,
                 ...(t.description.trim() ? { description: t.description.trim() } : {}),
                 ...(t.startDate ? { startDate: t.startDate } : {}),
-                ...(t.dueDate ? { dueDate: t.dueDate } : {})
+                ...(t.dueDate ? { dueDate: t.dueDate } : {}),
+                ...(milestoneId ? { milestoneId } : {})
               });
             }
           } catch {
             window.alert(
-              "프로젝트는 생성되었지만 주요 업무 일부 등록에 실패했습니다. '업무' 탭에서 다시 추가해 주세요."
+              "프로젝트는 생성되었지만 업무 일부 등록에 실패했습니다. '업무' 탭에서 다시 추가해 주세요."
             );
           }
         }
@@ -628,7 +634,7 @@ export function ProjectFormModal({
         {!isEdit ? (
           <div style={{ marginTop: 14 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-              <b style={{ fontSize: 13 }}>마일스톤 (선택)</b>
+              <b style={{ fontSize: 13 }}>주요 마일스톤 (선택)</b>
               <button
                 type="button"
                 className="btn btn--outline btn--sm"
@@ -642,7 +648,7 @@ export function ProjectFormModal({
             {milestones.length === 0 ? (
               <p className="muted t-sm" style={{ margin: 0 }}>
                 AI 초안 생성 시 자동으로 채워지며, 생성 후 상세 페이지의 &lsquo;주요
-                일정&rsquo; 카드에서도 관리할 수 있습니다.
+                마일스톤&rsquo; 카드에서도 관리할 수 있습니다.
               </p>
             ) : (
               <div style={{ display: "grid", gap: 6 }}>
@@ -698,14 +704,14 @@ export function ProjectFormModal({
         {!isEdit ? (
           <div style={{ marginTop: 14 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-              <b style={{ fontSize: 13 }}>주요 업무 (선택)</b>
+              <b style={{ fontSize: 13 }}>업무 (선택)</b>
               <button
                 type="button"
                 className="btn btn--outline btn--sm"
                 onClick={() =>
                   setDraftTasks((t) => [
                     ...t,
-                    { title: "", description: "", startDate: "", dueDate: "" }
+                    { title: "", description: "", startDate: "", dueDate: "", milestone: "" }
                   ])
                 }
               >
@@ -714,8 +720,8 @@ export function ProjectFormModal({
             </div>
             {draftTasks.length === 0 ? (
               <p className="muted t-sm" style={{ margin: 0 }}>
-                AI 초안 생성 시 자동으로 채워지며, 프로젝트 생성과 함께 &lsquo;업무&rsquo;
-                탭에 주요 업무(★)로 등록됩니다.
+                AI 초안 생성 시 마일스톤과 연결된 업무들이 자동으로 채워지며,
+                프로젝트 생성과 함께 &lsquo;업무&rsquo; 탭에 등록됩니다.
               </p>
             ) : (
               <div style={{ display: "grid", gap: 6 }}>
@@ -732,9 +738,29 @@ export function ProjectFormModal({
                         )
                       }
                     />
-                    <input
+                    <select
                       className="field"
                       style={{ flex: "0 0 150px" }}
+                      title="관련 마일스톤"
+                      value={row.milestone}
+                      onChange={(e) =>
+                        setDraftTasks((t) =>
+                          t.map((r, j) => (j === i ? { ...r, milestone: e.target.value } : r))
+                        )
+                      }
+                    >
+                      <option value="">마일스톤 없음</option>
+                      {milestones
+                        .filter((m) => m.title.trim())
+                        .map((m) => (
+                          <option key={m.title} value={m.title}>
+                            ⬥ {m.title}
+                          </option>
+                        ))}
+                    </select>
+                    <input
+                      className="field"
+                      style={{ flex: "0 0 130px" }}
                       type="date"
                       title="시작일"
                       value={row.startDate}
@@ -746,7 +772,7 @@ export function ProjectFormModal({
                     />
                     <input
                       className="field"
-                      style={{ flex: "0 0 150px" }}
+                      style={{ flex: "0 0 130px" }}
                       type="date"
                       title="마감일"
                       value={row.dueDate}
@@ -760,7 +786,7 @@ export function ProjectFormModal({
                       type="button"
                       className="btn btn--outline btn--sm"
                       onClick={() => setDraftTasks((t) => t.filter((_, j) => j !== i))}
-                      aria-label="주요 업무 삭제"
+                      aria-label="업무 초안 삭제"
                     >
                       ✕
                     </button>

@@ -32,13 +32,20 @@ export default async function ProjectTasksPage({ params }: Props) {
         project={project}
         activeTab="tasks"
         viewer={{ isMember, isAdmin }}
-        rightActions={<TaskCreateButton projectId={params.id} users={users} />}
+        rightActions={
+          <TaskCreateButton
+            projectId={params.id}
+            users={users}
+            milestones={project.milestones}
+          />
+        }
       />
       <TasksWorkspace
         projectId={params.id}
         doneCount={project.taskCounts.done}
         tasks={tasks}
         users={users}
+        milestones={project.milestones}
         meId={me.id}
       />
     </>

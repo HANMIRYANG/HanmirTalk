@@ -1221,7 +1221,8 @@ class MemoryTaskRepository implements TaskRepository {
       dueLabel: input.dueLabel ?? input.dueDate ?? "미정",
       progress: input.progress ?? 0,
       parentTaskId: input.parentTaskId,
-      isKeyTask: input.isKeyTask ?? false
+      isKeyTask: input.isKeyTask ?? false,
+      milestoneId: input.milestoneId || undefined
     };
     this._data.push(task);
     recomputeProjectCounts(this.deps.projects._data, this._data, projectId);
@@ -1238,6 +1239,8 @@ class MemoryTaskRepository implements TaskRepository {
       if (value === undefined) continue;
       (next as unknown as Record<string, unknown>)[key] = value as unknown;
     }
+    // PG 는 milestone_id = "" || null 로 해제 — 빈 문자열을 undefined 로 정규화.
+    if (input.milestoneId !== undefined) next.milestoneId = input.milestoneId || undefined;
     this._data[idx] = next;
     recomputeProjectCounts(this.deps.projects._data, this._data, next.projectId);
     return clone(next);

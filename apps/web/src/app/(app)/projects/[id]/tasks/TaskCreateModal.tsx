@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import type {
   CreateTaskInput,
+  Milestone,
   TaskItem,
   TaskPriority,
   TaskStatus,
@@ -38,6 +39,7 @@ interface FormState {
   progress: string;
   description: string;
   isKeyTask: boolean;
+  milestoneId: string;
 }
 
 const emptyForm = (
@@ -53,7 +55,8 @@ const emptyForm = (
   dueDate: "",
   progress: "0",
   description: initialDescription ?? "",
-  isKeyTask: false
+  isKeyTask: false,
+  milestoneId: ""
 });
 
 interface TaskCreateModalProps {
@@ -66,8 +69,10 @@ interface TaskCreateModalProps {
   // 매번 form 을 리셋하므로 같은 값을 다시 넘기면 그대로 채워진다.
   initialTitle?: string;
   initialDescription?: string;
-  // 033 — 지정 시 해당 업무의 하위 업무로 생성 (주요 업무 체크박스 숨김).
+  // 033 — 지정 시 해당 업무의 하위 업무로 생성 (상단 고정 체크박스 숨김).
   parentTask?: { id: string; title: string } | null;
+  // 034 — 관련 마일스톤 드롭다운 (없거나 빈 배열이면 숨김).
+  milestones?: Milestone[];
   onCreated?: (task: TaskItem) => void;
 }
 
@@ -90,6 +95,7 @@ export function TaskCreateModal({
   initialTitle,
   initialDescription,
   parentTask,
+  milestones,
   onCreated
 }: TaskCreateModalProps) {
   const router = useRouter();
@@ -146,7 +152,8 @@ export function TaskCreateModal({
       ...(form.dueDate ? { dueDate: form.dueDate } : {}),
       ...(form.description.trim() ? { description: form.description.trim() } : {}),
       ...(parentTask ? { parentTaskId: parentTask.id } : {}),
-      ...(!parentTask && form.isKeyTask ? { isKeyTask: true } : {})
+      ...(!parentTask && form.isKeyTask ? { isKeyTask: true } : {}),
+      ...(form.milestoneId ? { milestoneId: form.milestoneId } : {})
     };
 
     setSubmitting(true);
@@ -262,6 +269,24 @@ export function TaskCreateModal({
               onChange={(e) => setForm((f) => ({ ...f, dueDate: e.target.value }))}
             />
           </label>
+          {milestones && milestones.length > 0 ? (
+            <label>
+              관련 마일스톤 (선택)
+              <select
+                className="field"
+                value={form.milestoneId}
+                onChange={(e) => setForm((f) => ({ ...f, milestoneId: e.target.value }))}
+              >
+                <option value="">없음</option>
+                {milestones.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    ⬥ {m.title}
+                    {m.date ? ` · ${m.date}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <label>
             진행률 (%)
             <input
@@ -293,7 +318,7 @@ export function TaskCreateModal({
                 checked={form.isKeyTask}
                 onChange={(e) => setForm((f) => ({ ...f, isKeyTask: e.target.checked }))}
               />
-              주요 업무로 등록 (목록 상단에 ★ 표시로 고정 정렬)
+              목록 상단에 고정 (★) — 목록의 별 아이콘으로 언제든 해제할 수 있습니다.
             </label>
           ) : null}
           <div className={fstyles.span2}>

@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import type { TaskStatus, User } from "@hanmir/shared";
+import type { Milestone, TaskStatus, User } from "@hanmir/shared";
 import { TaskCreateModal } from "./TaskCreateModal";
 
 interface TaskCreateButtonProps {
   projectId: string;
   users: User[];
+  milestones?: Milestone[];
   defaultStatus?: TaskStatus;
   label?: string;
   className?: string;
@@ -15,6 +16,7 @@ interface TaskCreateButtonProps {
 export function TaskCreateButton({
   projectId,
   users,
+  milestones,
   defaultStatus,
   label = "+ 업무 추가",
   className = "btn btn--primary btn--sm"
@@ -30,6 +32,7 @@ export function TaskCreateButton({
         onClose={() => setOpen(false)}
         projectId={projectId}
         users={users}
+        milestones={milestones}
         defaultStatus={defaultStatus}
       />
     </>

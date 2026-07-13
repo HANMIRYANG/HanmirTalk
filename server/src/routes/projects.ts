@@ -64,6 +64,8 @@ function parseCreateTask(body: unknown): CreateTaskInput | { error: string } {
     return { error: "parentTaskId_invalid" };
   if (b.isKeyTask !== undefined && typeof b.isKeyTask !== "boolean")
     return { error: "isKeyTask_invalid" };
+  if (b.milestoneId !== undefined && !isString(b.milestoneId))
+    return { error: "milestoneId_invalid" };
   return {
     title: b.title.trim(),
     code: isString(b.code) ? b.code : undefined,
@@ -77,7 +79,8 @@ function parseCreateTask(body: unknown): CreateTaskInput | { error: string } {
     progress: isNumber(b.progress) ? Math.max(0, Math.min(100, b.progress)) : undefined,
     description: isString(b.description) ? b.description : undefined,
     parentTaskId: isString(b.parentTaskId) ? b.parentTaskId : undefined,
-    isKeyTask: typeof b.isKeyTask === "boolean" ? b.isKeyTask : undefined
+    isKeyTask: typeof b.isKeyTask === "boolean" ? b.isKeyTask : undefined,
+    milestoneId: isString(b.milestoneId) && b.milestoneId ? b.milestoneId : undefined
   };
 }
 
@@ -524,6 +527,14 @@ export function createProjectsRouter(repos: Repositories): Router {
       }
       if (parent.parentTaskId) {
         res.status(400).json({ error: "parent_is_subtask" });
+        return;
+      }
+    }
+    // 연관 마일스톤은 같은 프로젝트의 것만 허용.
+    if (parsed.milestoneId) {
+      const project = await repos.projects.findById(req.params.projectId);
+      if (!project?.milestones.some((m) => m.id === parsed.milestoneId)) {
+        res.status(400).json({ error: "milestone_not_found" });
         return;
       }
     }

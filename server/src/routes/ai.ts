@@ -241,7 +241,8 @@ function sanitizeProjectDraft(raw: unknown): ProjectDraft {
             title: asString(row.title, 120),
             description: asString(row.description, 500),
             startDate: asDate(row.startDate),
-            dueDate: asDate(row.dueDate)
+            dueDate: asDate(row.dueDate),
+            milestone: asString(row.milestone, 150)
           };
         })
         .filter((t) => t.title)

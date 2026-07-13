@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { TaskItem, User } from "@hanmir/shared";
+import type { Milestone, TaskItem, User } from "@hanmir/shared";
 import { ChevronDownIcon, SearchIcon } from "@/components/ui/icons";
 import { cn } from "@/lib/classNames";
 import {
@@ -10,6 +10,7 @@ import {
   STATUS_OPTIONS,
   useTaskFilters,
   type AssigneeFilter,
+  type MilestoneFilter,
   type PriorityFilter,
   type SortBy,
   type StatusFilter
@@ -30,6 +31,7 @@ interface TasksWorkspaceProps {
   doneCount: number;
   tasks: TaskItem[];
   users: User[];
+  milestones: Milestone[];
   meId: string;
 }
 
@@ -38,6 +40,7 @@ export function TasksWorkspace({
   doneCount,
   tasks,
   users,
+  milestones,
   meId
 }: TasksWorkspaceProps) {
   const [view, setView] = useState<ViewMode>("list");
@@ -48,6 +51,10 @@ export function TasksWorkspace({
     () => new Map(users.map((u) => [u.id, u] as const)),
     [users]
   );
+  const milestoneNameById = useMemo(
+    () => new Map(milestones.map((m) => [m.id, m.title] as const)),
+    [milestones]
+  );
 
   const {
     statusFilter,
@@ -56,6 +63,8 @@ export function TasksWorkspace({
     setAssigneeFilter,
     priorityFilter,
     setPriorityFilter,
+    milestoneFilter,
+    setMilestoneFilter,
     sortBy,
     setSortBy,
     search,
@@ -148,6 +157,36 @@ export function TasksWorkspace({
             </select>
           )}
         />
+        {milestones.length > 0 ? (
+          <FilterSelect
+            label="마일스톤"
+            value={
+              milestoneFilter === "all"
+                ? "전체"
+                : milestoneFilter === "none"
+                ? "미연결"
+                : milestoneNameById.get(milestoneFilter) ?? "선택"
+            }
+            render={() => (
+              <select
+                className={styles.nativeSelect}
+                value={milestoneFilter}
+                onChange={(e) => setMilestoneFilter(e.target.value as MilestoneFilter)}
+                aria-label="마일스톤 필터"
+              >
+                <option value="all">전체</option>
+                <option value="none">미연결</option>
+                <optgroup label="마일스톤">
+                  {milestones.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.title}
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+            )}
+          />
+        ) : null}
         <FilterSelect
           label="정렬"
           value={sortLabel}
@@ -188,6 +227,7 @@ export function TasksWorkspace({
             done={done}
             allTasks={tasks}
             userById={userById}
+            milestoneNameById={milestoneNameById}
             onAddSubtask={setSubtaskParent}
           />
         ) : view === "board" ? (
@@ -212,6 +252,7 @@ export function TasksWorkspace({
         onClose={() => setSubtaskParent(null)}
         projectId={projectId}
         users={users}
+        milestones={milestones}
         parentTask={subtaskParent}
       />
     </>

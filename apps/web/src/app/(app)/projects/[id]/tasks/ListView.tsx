@@ -20,10 +20,12 @@ interface ListViewProps {
   // 필터와 무관한 전체 목록 — 하위 업무를 부모 밑에 붙이기 위한 원본.
   allTasks: TaskItem[];
   userById: Map<string, User>;
+  // 034 — 연관 마일스톤 배지 표시용 (id → title).
+  milestoneNameById?: Map<string, string>;
   onAddSubtask?: (task: TaskItem) => void;
 }
 
-// 그룹 내 정렬: 주요 업무(★) 우선, 나머지는 기존 순서 유지 (stable sort).
+// 그룹 내 정렬: 상단 고정(★) 우선, 나머지는 기존 순서 유지 (stable sort).
 function keyTasksFirst(list: TaskItem[]): TaskItem[] {
   return [...list].sort((a, b) => Number(b.isKeyTask ?? false) - Number(a.isKeyTask ?? false));
 }
@@ -34,6 +36,7 @@ export function ListView({
   done,
   allTasks,
   userById,
+  milestoneNameById,
   onAddSubtask
 }: ListViewProps) {
   // 하위 업무는 자신의 상태와 무관하게 부모 행 아래에 붙는다. 그룹 분류는
@@ -74,7 +77,7 @@ export function ListView({
   const todo = visibleParents.filter((t) => t.status === "todo" && notLate(t));
   const doneParents = done.filter((t) => !t.parentTaskId);
 
-  const groupProps = { userById, childrenByParent, onAddSubtask };
+  const groupProps = { userById, childrenByParent, milestoneNameById, onAddSubtask };
 
   return (
     <div className={styles.tblWrap}>
@@ -139,6 +142,7 @@ function TaskGroup({
   emptyText,
   userById,
   childrenByParent,
+  milestoneNameById,
   onAddSubtask,
   showThead,
   defaultOpen = true
@@ -150,6 +154,7 @@ function TaskGroup({
   emptyText: string;
   userById: Map<string, User>;
   childrenByParent: Map<string, TaskItem[]>;
+  milestoneNameById?: Map<string, string>;
   onAddSubtask?: (task: TaskItem) => void;
   showThead?: boolean;
   defaultOpen?: boolean;
@@ -243,6 +248,7 @@ function TaskGroup({
                     task={t}
                     subtasks={childrenByParent.get(t.id) ?? []}
                     userById={userById}
+                    milestoneNameById={milestoneNameById}
                     onAddSubtask={onAddSubtask}
                   />
                 ))
@@ -265,22 +271,32 @@ function TaskRowWithChildren({
   task,
   subtasks,
   userById,
+  milestoneNameById,
   onAddSubtask
 }: {
   task: TaskItem;
   subtasks: TaskItem[];
   userById: Map<string, User>;
+  milestoneNameById?: Map<string, string>;
   onAddSubtask?: (task: TaskItem) => void;
 }) {
+  const milestoneName = (t: TaskItem) =>
+    t.milestoneId ? milestoneNameById?.get(t.milestoneId) : undefined;
   return (
     <>
       <TaskRow
         task={task}
         assignees={resolveAssignees(task, userById)}
+        milestoneName={milestoneName(task)}
         onAddSubtask={onAddSubtask}
       />
       {subtasks.map((c) => (
-        <TaskRow key={c.id} task={c} assignees={resolveAssignees(c, userById)} />
+        <TaskRow
+          key={c.id}
+          task={c}
+          assignees={resolveAssignees(c, userById)}
+          milestoneName={milestoneName(c)}
+        />
       ))}
     </>
   );

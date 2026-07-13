@@ -6,6 +6,8 @@ import type { TaskItem, TaskPriority, TaskStatus, User } from "@hanmir/shared";
 export type StatusFilter = "open" | "all" | TaskStatus;
 export type AssigneeFilter = "all" | "me" | string; // user id
 export type PriorityFilter = "all" | TaskPriority;
+// 034 — "none" = 마일스톤 미연결 업무만, 그 외 문자열 = milestone id.
+export type MilestoneFilter = "all" | "none" | string;
 export type SortBy = "due" | "priority" | "title";
 
 export const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
@@ -44,6 +46,7 @@ export function useTaskFilters(
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("open");
   const [assigneeFilter, setAssigneeFilter] = useState<AssigneeFilter>("all");
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("all");
+  const [milestoneFilter, setMilestoneFilter] = useState<MilestoneFilter>("all");
   const [sortBy, setSortBy] = useState<SortBy>("due");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -51,7 +54,7 @@ export function useTaskFilters(
   // 필터/검색/정렬이 바뀌면 1페이지로 리셋.
   useEffect(() => {
     setPage(1);
-  }, [statusFilter, assigneeFilter, priorityFilter, sortBy, search]);
+  }, [statusFilter, assigneeFilter, priorityFilter, milestoneFilter, sortBy, search]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -61,6 +64,8 @@ export function useTaskFilters(
     if (assigneeFilter === "me") xs = xs.filter((t) => t.assigneeIds.includes(meId));
     else if (assigneeFilter !== "all") xs = xs.filter((t) => t.assigneeIds.includes(assigneeFilter));
     if (priorityFilter !== "all") xs = xs.filter((t) => t.priority === priorityFilter);
+    if (milestoneFilter === "none") xs = xs.filter((t) => !t.milestoneId);
+    else if (milestoneFilter !== "all") xs = xs.filter((t) => t.milestoneId === milestoneFilter);
     if (q) xs = xs.filter((t) => t.title.toLowerCase().includes(q) || t.code.toLowerCase().includes(q));
     xs.sort((a, b) => {
       if (sortBy === "due") {
@@ -72,7 +77,7 @@ export function useTaskFilters(
       return a.title.localeCompare(b.title);
     });
     return xs;
-  }, [tasks, statusFilter, assigneeFilter, priorityFilter, sortBy, search, meId]);
+  }, [tasks, statusFilter, assigneeFilter, priorityFilter, milestoneFilter, sortBy, search, meId]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / TASKS_PAGE_SIZE));
   const safePage = Math.min(page, pageCount);
@@ -103,6 +108,8 @@ export function useTaskFilters(
     setAssigneeFilter,
     priorityFilter,
     setPriorityFilter,
+    milestoneFilter,
+    setMilestoneFilter,
     sortBy,
     setSortBy,
     search,

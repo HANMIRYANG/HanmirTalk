@@ -458,9 +458,11 @@ export interface TaskItem {
   delayDays?: number;
   progress: number;
   // 033_task_hierarchy — 1단계 계층. parentTaskId 가 있으면 하위 업무,
-  // isKeyTask 는 주요 업무(그룹 내 최상위 정렬 + ★ 배지).
+  // isKeyTask 는 상단 고정 핀(그룹 내 최상위 정렬 + ★ 배지).
   parentTaskId?: string;
   isKeyTask?: boolean;
+  // 034 — 연관 마일스톤 (선택). 목록에 ⬥ 배지·필터로 표시.
+  milestoneId?: string;
   subtaskCount?: number;
   isGroupedAsDelayed?: boolean;
 }
@@ -479,6 +481,7 @@ export interface CreateTaskInput {
   description?: string;
   parentTaskId?: string;
   isKeyTask?: boolean;
+  milestoneId?: string;
 }
 
 export interface UpdateTaskInput {
@@ -496,6 +499,8 @@ export interface UpdateTaskInput {
   progress?: number;
   description?: string;
   isKeyTask?: boolean;
+  // "" 를 보내면 연결 해제.
+  milestoneId?: string;
 }
 
 // Phase 7 J-1 — DB-backed sales status event. PATCH /products/:id 의
@@ -1446,9 +1451,16 @@ export interface ProjectDraft {
   startDate: string; // YYYY-MM-DD (불명이면 "")
   dueDate: string;
   milestones: { title: string; subtitle: string; date: string }[];
-  // 주요 업무 초안 — 프로젝트 생성 성공 후 POST /projects/:id/tasks 로
-  // isKeyTask=true 업무로 일괄 등록된다 (마일스톤과 동일 패턴).
-  tasks: { title: string; description: string; startDate: string; dueDate: string }[];
+  // 업무 초안 — 프로젝트 생성 성공 후 POST /projects/:id/tasks 로 일괄
+  // 등록된다 (마일스톤과 동일 패턴). milestone 은 연관 마일스톤의 title
+  // (milestones[].title 과 일치해야 등록 시 milestoneId 로 연결됨).
+  tasks: {
+    title: string;
+    description: string;
+    startDate: string;
+    dueDate: string;
+    milestone: string;
+  }[];
 }
 
 // Claude 회의록 구조화 출력 (fenced JSON) — DOCX 렌더 입력.

@@ -28,11 +28,13 @@ const PRIO_TONE: Record<string, "red" | "amber" | "default"> = {
   low: "default"
 };
 
-type BusyAction = "status" | "progress" | "delete";
+type BusyAction = "status" | "progress" | "delete" | "pin";
 
 interface TaskRowProps {
   task: TaskItem;
   assignees: User[];
+  // 034 — 연관 마일스톤 이름 (있을 때 ⬥ 배지 표시).
+  milestoneName?: string;
   // 033 — 상위 업무 행에서만 전달됨. 클릭 시 하위 업무 추가 모달 오픈.
   onAddSubtask?: (task: TaskItem) => void;
 }
@@ -47,7 +49,7 @@ function describeError(err: unknown): string {
   return "처리에 실패했습니다. 잠시 후 다시 시도해 주세요.";
 }
 
-export function TaskRow({ task, assignees, onAddSubtask }: TaskRowProps) {
+export function TaskRow({ task, assignees, milestoneName, onAddSubtask }: TaskRowProps) {
   const router = useRouter();
   const [busy, setBusy] = useState<BusyAction | null>(null);
   const [progressDraft, setProgressDraft] = useState<string>(String(task.progress));
@@ -106,6 +108,12 @@ export function TaskRow({ task, assignees, onAddSubtask }: TaskRowProps) {
     void run("delete", () => taskService.deleteTask(task.id));
   };
 
+  const onTogglePin = () => {
+    void run("pin", () =>
+      taskService.updateTask(task.id, { isKeyTask: !task.isKeyTask })
+    );
+  };
+
   return (
     <tr className={cn(rowBusy && styles.rowBusy)}>
       <td>
@@ -120,13 +128,23 @@ export function TaskRow({ task, assignees, onAddSubtask }: TaskRowProps) {
       <td>
         <div className={cn(styles.title, task.parentTaskId && styles.titleSub)}>
           {task.parentTaskId ? <span className={styles.subGlyph}>└</span> : null}
-          {task.isKeyTask ? (
-            <span className={styles.keyBadge} title="주요 업무">
-              ★
-            </span>
-          ) : null}
+          <button
+            type="button"
+            className={cn(styles.pinBtn, task.isKeyTask && styles.pinBtnActive)}
+            onClick={onTogglePin}
+            disabled={rowBusy}
+            aria-label={task.isKeyTask ? "상단 고정 해제" : "상단 고정"}
+            title={task.isKeyTask ? "상단 고정 해제" : "상단 고정"}
+          >
+            {task.isKeyTask ? "★" : "☆"}
+          </button>
           {task.title}
           <span className={styles.id}>{task.code}</span>
+          {milestoneName ? (
+            <span className={styles.msBadge} title={`마일스톤: ${milestoneName}`}>
+              ⬥ {milestoneName}
+            </span>
+          ) : null}
           {task.subtaskCount ? (
             <span className={styles.subs}>↳ 하위 {task.subtaskCount}</span>
           ) : null}
