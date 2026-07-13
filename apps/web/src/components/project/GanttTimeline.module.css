@@ -36,6 +36,10 @@
 }
 .labelRow:hover { background: var(--bg-soft); }
 .labelIndent { padding-left: 28px; }
+/* 033 — 하위 업무 행 (부모보다 한 단계 더 들여쓰기) */
+.labelIndentSub { padding-left: 44px; }
+.labelKey { font-weight: 700; }
+.subGlyph { color: var(--text-4); font-size: 11px; margin-right: 4px; }
 
 .chev { color: var(--text-4); width: 10px; display: inline-flex; }
 

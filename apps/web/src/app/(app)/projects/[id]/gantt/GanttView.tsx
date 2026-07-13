@@ -130,45 +130,91 @@ export function GanttView({ tasks, milestones, users, meId }: Props) {
     if (days < MIN_DAYS) days = MIN_DAYS;
 
     const clampDay = (n: number) => Math.max(0, Math.min(days - 1, n));
-    const sortable: { sort: number; row: GanttRow }[] = [];
+
+    type DatedEntry = (typeof dated)[number];
+    const makeTaskRow = (
+      entry: DatedEntry,
+      indent: boolean
+    ): { sort: number; row: GanttRow } | null => {
+      const rawFrom = dayDiff(chartStart, entry.start);
+      const rawTo = dayDiff(chartStart, entry.end);
+      if (rawTo < 0 || rawFrom > days - 1) return null;
+      const from = clampDay(rawFrom);
+      const to = clampDay(Math.max(rawFrom, rawTo));
+      const firstAssignee = entry.task.assigneeIds.length
+        ? usersById.get(entry.task.assigneeIds[0])
+        : undefined;
+      return {
+        sort: from,
+        row: {
+          kind: "task",
+          label: entry.task.title,
+          taskId: entry.task.code,
+          assigneeInitials:
+            firstAssignee?.initials || firstAssignee?.name.slice(0, 2) || "—",
+          assigneeTone: firstAssignee?.avatarTone ?? "default",
+          progressLabel: `${entry.task.progress}%`,
+          progressColor: entry.state === "late" ? "var(--danger)" : undefined,
+          from,
+          to,
+          state: entry.state,
+          progress: entry.task.progress,
+          indent,
+          emphasis: entry.task.isKeyTask ?? false
+        }
+      };
+    };
+
+    // 033 A안 — 상위 업무 행 바로 아래에 하위 업무를 들여쓰기 행으로 붙인다.
+    // 그룹(부모+하위 묶음/마일스톤) 단위로 시작일 정렬 후 평탄화.
+    const groups: { sort: number; rows: GanttRow[] }[] = [];
 
     for (const { milestone, date } of visibleMilestones) {
       const day = dayDiff(chartStart, date);
       if (day < 0 || day > days - 1) continue;
-      sortable.push({ sort: day, row: { kind: "milestone", label: milestone.title, day } });
-    }
-
-    for (const { task, start, end, state } of visible) {
-      const rawFrom = dayDiff(chartStart, start);
-      const rawTo = dayDiff(chartStart, end);
-      if (rawTo < 0 || rawFrom > days - 1) continue;
-      const from = clampDay(rawFrom);
-      const to = clampDay(Math.max(rawFrom, rawTo));
-      const firstAssignee = task.assigneeIds.length
-        ? usersById.get(task.assigneeIds[0])
-        : undefined;
-      sortable.push({
-        sort: from,
-        row: {
-          kind: "task",
-          label: task.title,
-          taskId: task.code,
-          assigneeInitials: firstAssignee?.initials || firstAssignee?.name.slice(0, 2) || "—",
-          assigneeTone: firstAssignee?.avatarTone ?? "default",
-          progressLabel: `${task.progress}%`,
-          progressColor: state === "late" ? "var(--danger)" : undefined,
-          from,
-          to,
-          state,
-          progress: task.progress
-        }
+      groups.push({
+        sort: day,
+        rows: [{ kind: "milestone", label: milestone.title, day }]
       });
     }
 
-    sortable.sort((a, b) => a.sort - b.sort);
+    const childEntries = visible.filter((d) => d.task.parentTaskId);
+    const childrenByParent = new Map<string, DatedEntry[]>();
+    for (const c of childEntries) {
+      const list = childrenByParent.get(c.task.parentTaskId!);
+      if (list) list.push(c);
+      else childrenByParent.set(c.task.parentTaskId!, [c]);
+    }
+    const placedChildren = new Set<string>();
+
+    for (const entry of visible) {
+      if (entry.task.parentTaskId) continue;
+      const parentRow = makeTaskRow(entry, false);
+      if (!parentRow) continue;
+      const rows = [parentRow.row];
+      const kids = (childrenByParent.get(entry.task.id) ?? [])
+        .slice()
+        .sort((a, b) => a.start.getTime() - b.start.getTime());
+      for (const kid of kids) {
+        const kidRow = makeTaskRow(kid, true);
+        if (!kidRow) continue;
+        rows.push(kidRow.row);
+        placedChildren.add(kid.task.id);
+      }
+      groups.push({ sort: parentRow.sort, rows });
+    }
+
+    // 부모가 필터/기간에서 빠진 하위 업무는 단독 행으로 표시 (들여쓰기 없음).
+    for (const kid of childEntries) {
+      if (placedChildren.has(kid.task.id)) continue;
+      const kidRow = makeTaskRow(kid, false);
+      if (kidRow) groups.push({ sort: kidRow.sort, rows: [kidRow.row] });
+    }
+
+    groups.sort((a, b) => a.sort - b.sort);
 
     return {
-      rows: sortable.map((s) => s.row),
+      rows: groups.flatMap((g) => g.rows),
       startDate: chartStart,
       totalDays: days,
       todayIndex: dayDiff(chartStart, today),

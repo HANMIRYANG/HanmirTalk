@@ -20,11 +20,13 @@ import { BoardView } from "./BoardView";
 import { TimelineView } from "./TimelineView";
 import { TableView } from "./TableView";
 import { TasksPagination } from "./TasksPagination";
+import { TaskCreateModal } from "./TaskCreateModal";
 import styles from "./tasks.module.css";
 
 type ViewMode = "list" | "board" | "timeline" | "table";
 
 interface TasksWorkspaceProps {
+  projectId: string;
   doneCount: number;
   tasks: TaskItem[];
   users: User[];
@@ -32,12 +34,15 @@ interface TasksWorkspaceProps {
 }
 
 export function TasksWorkspace({
+  projectId,
   doneCount,
   tasks,
   users,
   meId
 }: TasksWorkspaceProps) {
   const [view, setView] = useState<ViewMode>("list");
+  // 033 — 목록 행의 [+하위] 로 여는 하위 업무 추가 모달의 부모 업무.
+  const [subtaskParent, setSubtaskParent] = useState<TaskItem | null>(null);
 
   const userById = useMemo(
     () => new Map(users.map((u) => [u.id, u] as const)),
@@ -181,7 +186,9 @@ export function TasksWorkspace({
             tasks={filtered}
             doneCount={doneCount}
             done={done}
+            allTasks={tasks}
             userById={userById}
+            onAddSubtask={setSubtaskParent}
           />
         ) : view === "board" ? (
           <BoardView
@@ -199,6 +206,14 @@ export function TasksWorkspace({
           <TasksPagination page={page} pageCount={pageCount} onPageChange={setPage} />
         ) : null}
       </div>
+
+      <TaskCreateModal
+        open={subtaskParent !== null}
+        onClose={() => setSubtaskParent(null)}
+        projectId={projectId}
+        users={users}
+        parentTask={subtaskParent}
+      />
     </>
   );
 }

@@ -94,6 +94,10 @@ function parseUpdateTask(body: unknown): UpdateTaskInput | { error: string } {
     if (!isString(b.description)) return { error: "description_invalid" };
     out.description = b.description;
   }
+  if (b.isKeyTask !== undefined) {
+    if (typeof b.isKeyTask !== "boolean") return { error: "isKeyTask_invalid" };
+    out.isKeyTask = b.isKeyTask;
+  }
   return out;
 }
 

@@ -53,7 +53,10 @@ export function TableView({
             tasks.map((t) => (
               <tr key={t.id}>
                 <td className={styles.tableCode}>{t.code}</td>
-                <td className={styles.tableTitle}>{t.title}</td>
+                <td className={styles.tableTitle}>
+                  {t.parentTaskId ? "↳ " : t.isKeyTask ? "★ " : ""}
+                  {t.title}
+                </td>
                 <td>
                   <Tag tone={STATUS_TONE[t.status]} dot>
                     {taskStatusLabel[t.status]}

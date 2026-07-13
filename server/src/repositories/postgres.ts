@@ -788,6 +788,9 @@ interface TaskRow {
   due_date: Date | null;
   due_label: string | null;
   progress: number;
+  parent_task_id: string | null;
+  is_key_task: boolean | null;
+  subtask_count: string | number | null;
 }
 
 function rowToTask(row: TaskRow): TaskItem {
@@ -811,7 +814,10 @@ function rowToTask(row: TaskRow): TaskItem {
     dueDate: row.due_date ? dueDate : undefined,
     dueLabel: row.due_label ?? dueDate ?? "미정",
     dueState: computeDueState(row.due_date, row.status),
-    progress: row.progress ?? 0
+    progress: row.progress ?? 0,
+    parentTaskId: row.parent_task_id ?? undefined,
+    isKeyTask: row.is_key_task ?? false,
+    subtaskCount: row.subtask_count != null ? Number(row.subtask_count) : 0
   };
 }
 
@@ -820,8 +826,10 @@ function rowToTask(row: TaskRow): TaskItem {
 const TASK_SELECT = `
   SELECT id, code, project_id, title, status, priority, assignee_id,
          reviewer_id, start_date, due_date, due_label, progress,
+         parent_task_id, is_key_task,
          (SELECT array_agg(ta.user_id ORDER BY ta.created_at)
-            FROM task_assignees ta WHERE ta.task_id = tasks.id) AS assignee_ids
+            FROM task_assignees ta WHERE ta.task_id = tasks.id) AS assignee_ids,
+         (SELECT COUNT(*) FROM tasks c WHERE c.parent_task_id = tasks.id) AS subtask_count
   FROM tasks
 `;
 
@@ -868,11 +876,13 @@ class PgTaskRepository implements TaskRepository {
     const { rows } = await this.pool.query<{ id: string }>(
       `INSERT INTO tasks (
          code, project_id, title, description, assignee_id, reviewer_id,
-         status, priority, start_date, due_date, due_label, progress, created_by
+         status, priority, start_date, due_date, due_label, progress, created_by,
+         parent_task_id, is_key_task
        )
        VALUES (
          $1, $2, $3, $4, $5, $6,
-         $7, $8, $9, $10, $11, COALESCE($12, 0), $13
+         $7, $8, $9, $10, $11, COALESCE($12, 0), $13,
+         $14, COALESCE($15, false)
        )
        RETURNING id`,
       [
@@ -888,7 +898,9 @@ class PgTaskRepository implements TaskRepository {
         input.dueDate || null,
         input.dueLabel ?? input.dueDate ?? null,
         input.progress ?? null,
-        createdBy.id
+        createdBy.id,
+        input.parentTaskId ?? null,
+        input.isKeyTask ?? null
       ]
     );
     if (assigneeIds.length > 0) {
@@ -923,6 +935,7 @@ class PgTaskRepository implements TaskRepository {
     if (input.dueLabel !== undefined) add("due_label", input.dueLabel);
     if (input.progress !== undefined) add("progress", input.progress);
     if (input.description !== undefined) add("description", input.description);
+    if (input.isKeyTask !== undefined) add("is_key_task", input.isKeyTask);
     if (sets.length === 0) return this.findById(id);
     sets.push("updated_at = NOW()");
     values.push(id);

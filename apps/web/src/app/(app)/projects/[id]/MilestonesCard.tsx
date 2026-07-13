@@ -113,7 +113,7 @@ export function MilestonesCard({ projectId, milestones, canManage }: Props) {
     setError(null);
     const title = form.title.trim();
     if (!title) {
-      setError("마일스톤 이름은 필수입니다.");
+      setError("마일스톤 제목은 필수입니다.");
       return;
     }
     if (!form.date) {
@@ -262,7 +262,7 @@ export function MilestonesCard({ projectId, milestones, canManage }: Props) {
           <form id="milestone-form" onSubmit={onSubmit} noValidate>
             <div className={fstyles.formGrid}>
               <label className={fstyles.span2}>
-                이름
+                제목
                 <input
                   className="field"
                   value={form.title}

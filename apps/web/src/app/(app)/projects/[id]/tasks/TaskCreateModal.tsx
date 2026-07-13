@@ -37,6 +37,7 @@ interface FormState {
   dueDate: string;
   progress: string;
   description: string;
+  isKeyTask: boolean;
 }
 
 const emptyForm = (
@@ -51,7 +52,8 @@ const emptyForm = (
   assigneeIds: [],
   dueDate: "",
   progress: "0",
-  description: initialDescription ?? ""
+  description: initialDescription ?? "",
+  isKeyTask: false
 });
 
 interface TaskCreateModalProps {
@@ -64,6 +66,8 @@ interface TaskCreateModalProps {
   // 매번 form 을 리셋하므로 같은 값을 다시 넘기면 그대로 채워진다.
   initialTitle?: string;
   initialDescription?: string;
+  // 033 — 지정 시 해당 업무의 하위 업무로 생성 (주요 업무 체크박스 숨김).
+  parentTask?: { id: string; title: string } | null;
   onCreated?: (task: TaskItem) => void;
 }
 
@@ -85,6 +89,7 @@ export function TaskCreateModal({
   defaultStatus = "todo",
   initialTitle,
   initialDescription,
+  parentTask,
   onCreated
 }: TaskCreateModalProps) {
   const router = useRouter();
@@ -139,7 +144,9 @@ export function TaskCreateModal({
       ...(form.code.trim() ? { code: form.code.trim() } : {}),
       ...(form.assigneeIds.length > 0 ? { assigneeIds: form.assigneeIds } : {}),
       ...(form.dueDate ? { dueDate: form.dueDate } : {}),
-      ...(form.description.trim() ? { description: form.description.trim() } : {})
+      ...(form.description.trim() ? { description: form.description.trim() } : {}),
+      ...(parentTask ? { parentTaskId: parentTask.id } : {}),
+      ...(!parentTask && form.isKeyTask ? { isKeyTask: true } : {})
     };
 
     setSubmitting(true);
@@ -163,8 +170,12 @@ export function TaskCreateModal({
     <Modal
       open={open}
       onClose={close}
-      title="업무 추가"
-      description="제목 외 항목은 모두 선택사항이며, 추가 후 인라인에서 수정할 수 있습니다."
+      title={parentTask ? "하위 업무 추가" : "업무 추가"}
+      description={
+        parentTask
+          ? `'${parentTask.title}' 아래에 하위 업무를 추가합니다.`
+          : "제목 외 항목은 모두 선택사항이며, 추가 후 인라인에서 수정할 수 있습니다."
+      }
       width={620}
       footer={
         <>
@@ -272,6 +283,19 @@ export function TaskCreateModal({
               maxLength={500}
             />
           </label>
+          {!parentTask ? (
+            <label
+              className={fstyles.span2}
+              style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+            >
+              <input
+                type="checkbox"
+                checked={form.isKeyTask}
+                onChange={(e) => setForm((f) => ({ ...f, isKeyTask: e.target.checked }))}
+              />
+              주요 업무로 등록 (목록 상단에 ★ 표시로 고정 정렬)
+            </label>
+          ) : null}
           <div className={fstyles.span2}>
             <div className={styles.assigneeHead}>
               <span>담당자</span>

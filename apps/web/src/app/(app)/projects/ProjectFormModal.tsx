@@ -12,6 +12,7 @@ import type {
 import { projectStatusLabel, salesStatusLabel } from "@hanmir/shared";
 import { Modal } from "@/components/ui/Modal";
 import { projectService } from "@/services/project.service";
+import { taskService } from "@/services/task.service";
 import { aiService } from "@/services/ai.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
@@ -133,6 +134,13 @@ interface MilestoneRow {
   date: string;
 }
 
+interface TaskDraftRow {
+  title: string;
+  description: string;
+  startDate: string;
+  dueDate: string;
+}
+
 export function ProjectFormModal({
   open,
   mode,
@@ -149,6 +157,8 @@ export function ProjectFormModal({
   const [aiNote, setAiNote] = useState<string | null>(null);
   // 마일스톤 초안 — 생성 성공 후 addMilestone 으로 일괄 저장.
   const [milestones, setMilestones] = useState<MilestoneRow[]>([]);
+  // 주요 업무 초안 — 생성 성공 후 isKeyTask=true 업무로 일괄 등록.
+  const [draftTasks, setDraftTasks] = useState<TaskDraftRow[]>([]);
 
   useEffect(() => {
     if (!open) return;
@@ -158,6 +168,7 @@ export function ProjectFormModal({
     setAiBusy(false);
     setAiNote(null);
     setMilestones([]);
+    setDraftTasks([]);
   }, [open, mode]);
 
   const runAiDraft = async () => {
@@ -186,8 +197,10 @@ export function ProjectFormModal({
         externalPartners: draft.externalPartners || f.externalPartners
       }));
       if (draft.milestones.length > 0) setMilestones(draft.milestones);
+      const aiTasks = draft.tasks ?? [];
+      if (aiTasks.length > 0) setDraftTasks(aiTasks);
       setAiNote(
-        `초안이 채워졌습니다 (마일스톤 ${draft.milestones.length}건 포함). 내용을 확인·수정한 뒤 추가해 주세요.`
+        `초안이 채워졌습니다 (마일스톤 ${draft.milestones.length}건 · 주요 업무 ${aiTasks.length}건 포함). 내용을 확인·수정한 뒤 추가해 주세요.`
       );
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
@@ -274,6 +287,25 @@ export function ProjectFormModal({
             );
           }
         }
+        // 주요 업무 초안 — 마일스톤과 동일 패턴으로 isKeyTask 업무 일괄 등록.
+        const validTasks = draftTasks.filter((t) => t.title.trim());
+        if (validTasks.length > 0) {
+          try {
+            for (const t of validTasks) {
+              await taskService.createTask(created.id, {
+                title: t.title.trim(),
+                isKeyTask: true,
+                ...(t.description.trim() ? { description: t.description.trim() } : {}),
+                ...(t.startDate ? { startDate: t.startDate } : {}),
+                ...(t.dueDate ? { dueDate: t.dueDate } : {})
+              });
+            }
+          } catch {
+            window.alert(
+              "프로젝트는 생성되었지만 주요 업무 일부 등록에 실패했습니다. '업무' 탭에서 다시 추가해 주세요."
+            );
+          }
+        }
         onSubmitted?.(created);
       } else {
         const payload: UpdateProjectInput = {
@@ -346,8 +378,8 @@ export function ProjectFormModal({
               🤖 AI로 작성 (선택)
             </div>
             <p className="muted t-sm" style={{ margin: "0 0 8px" }}>
-              프로젝트를 자유롭게 서술하면 AI가 아래 폼과 마일스톤 초안을
-              채웁니다. 예: &ldquo;9월 말까지 HC-850 양산 준비. 도료사업본부 주관,
+              프로젝트를 자유롭게 서술하면 AI가 아래 폼과 마일스톤·주요 업무
+              초안을 채웁니다. 예: &ldquo;9월 말까지 HC-850 양산 준비. 도료사업본부 주관,
               7월 파일럿 생산, 8월 라인 시운전, 예산 1억.&rdquo;
             </p>
             <textarea
@@ -664,6 +696,81 @@ export function ProjectFormModal({
                       className="btn btn--outline btn--sm"
                       onClick={() => setMilestones((m) => m.filter((_, j) => j !== i))}
                       aria-label="마일스톤 삭제"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null}
+        {!isEdit ? (
+          <div style={{ marginTop: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <b style={{ fontSize: 13 }}>주요 업무 (선택)</b>
+              <button
+                type="button"
+                className="btn btn--outline btn--sm"
+                onClick={() =>
+                  setDraftTasks((t) => [
+                    ...t,
+                    { title: "", description: "", startDate: "", dueDate: "" }
+                  ])
+                }
+              >
+                + 업무 추가
+              </button>
+            </div>
+            {draftTasks.length === 0 ? (
+              <p className="muted t-sm" style={{ margin: 0 }}>
+                AI 초안 생성 시 자동으로 채워지며, 프로젝트 생성과 함께 &lsquo;업무&rsquo;
+                탭에 주요 업무(★)로 등록됩니다.
+              </p>
+            ) : (
+              <div style={{ display: "grid", gap: 6 }}>
+                {draftTasks.map((row, i) => (
+                  <div key={i} style={{ display: "flex", gap: 6 }}>
+                    <input
+                      className="field"
+                      style={{ flex: 1 }}
+                      placeholder="업무명"
+                      value={row.title}
+                      onChange={(e) =>
+                        setDraftTasks((t) =>
+                          t.map((r, j) => (j === i ? { ...r, title: e.target.value } : r))
+                        )
+                      }
+                    />
+                    <input
+                      className="field"
+                      style={{ flex: "0 0 150px" }}
+                      type="date"
+                      title="시작일"
+                      value={row.startDate}
+                      onChange={(e) =>
+                        setDraftTasks((t) =>
+                          t.map((r, j) => (j === i ? { ...r, startDate: e.target.value } : r))
+                        )
+                      }
+                    />
+                    <input
+                      className="field"
+                      style={{ flex: "0 0 150px" }}
+                      type="date"
+                      title="마감일"
+                      value={row.dueDate}
+                      onChange={(e) =>
+                        setDraftTasks((t) =>
+                          t.map((r, j) => (j === i ? { ...r, dueDate: e.target.value } : r))
+                        )
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="btn btn--outline btn--sm"
+                      onClick={() => setDraftTasks((t) => t.filter((_, j) => j !== i))}
+                      aria-label="주요 업무 삭제"
                     >
                       ✕
                     </button>

@@ -457,6 +457,10 @@ export interface TaskItem {
   dueState?: "late" | "today" | "normal";
   delayDays?: number;
   progress: number;
+  // 033_task_hierarchy — 1단계 계층. parentTaskId 가 있으면 하위 업무,
+  // isKeyTask 는 주요 업무(그룹 내 최상위 정렬 + ★ 배지).
+  parentTaskId?: string;
+  isKeyTask?: boolean;
   subtaskCount?: number;
   isGroupedAsDelayed?: boolean;
 }
@@ -473,6 +477,8 @@ export interface CreateTaskInput {
   dueLabel?: string;
   progress?: number;
   description?: string;
+  parentTaskId?: string;
+  isKeyTask?: boolean;
 }
 
 export interface UpdateTaskInput {
@@ -489,6 +495,7 @@ export interface UpdateTaskInput {
   delayDays?: number;
   progress?: number;
   description?: string;
+  isKeyTask?: boolean;
 }
 
 // Phase 7 J-1 — DB-backed sales status event. PATCH /products/:id 의
@@ -635,12 +642,23 @@ export interface Product {
 
 // Phase 9 — 통합 검색 결과. 각 도메인은 검색어에 대해 독립 조회되고
 // 도메인별 상한이 있다. messages는 호출자가 접근 가능한 방으로 스코프됨.
+//
+// matchedField/snippet — 제목이 아닌 필드(설명 등)에서 매칭된 경우
+// UI가 "왜 이 결과가 나왔는지"를 보여주기 위한 매칭 컨텍스트.
+// 엔터티 객체에 optional 필드로 얹어 하위 호환을 유지한다.
+export interface SearchMatch {
+  matchedField?: string;
+  snippet?: string;
+}
+
 export interface SearchResults {
   query: string;
   messages: ChatMessage[];
   files: FileEntry[];
-  projects: Project[];
-  products: Product[];
+  projects: (Project & SearchMatch)[];
+  products: (Product & SearchMatch)[];
+  // 업무는 제목·코드 매칭. projectName 은 결과 카드 메타 표시용.
+  tasks: (TaskItem & SearchMatch & { projectName?: string })[];
 }
 
 export interface FileEntry {
@@ -1428,6 +1446,9 @@ export interface ProjectDraft {
   startDate: string; // YYYY-MM-DD (불명이면 "")
   dueDate: string;
   milestones: { title: string; subtitle: string; date: string }[];
+  // 주요 업무 초안 — 프로젝트 생성 성공 후 POST /projects/:id/tasks 로
+  // isKeyTask=true 업무로 일괄 등록된다 (마일스톤과 동일 패턴).
+  tasks: { title: string; description: string; startDate: string; dueDate: string }[];
 }
 
 // Claude 회의록 구조화 출력 (fenced JSON) — DOCX 렌더 입력.

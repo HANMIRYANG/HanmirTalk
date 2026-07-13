@@ -21,9 +21,10 @@ const SALES_TONE = {
 
 interface ProductsPagedGridProps {
   products: Product[];
+  view: "grid" | "list";
 }
 
-export function ProductsPagedGrid({ products }: ProductsPagedGridProps) {
+export function ProductsPagedGrid({ products, view }: ProductsPagedGridProps) {
   const [page, setPage] = useState(1);
 
   const pageCount = Math.max(1, Math.ceil(products.length / PAGE_SIZE));
@@ -32,6 +33,40 @@ export function ProductsPagedGrid({ products }: ProductsPagedGridProps) {
     products.length > PAGE_SIZE
       ? products.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
       : products;
+
+  if (view === "list") {
+    return (
+      <>
+        <div className={styles.list}>
+          {paged.map((p) => (
+            <Link key={p.id} href={`/products/${p.id}`} className={styles.row}>
+              {p.imageAttachmentId ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  className={styles.rowThumb}
+                  src={`${apiBaseUrl}/files/${p.imageAttachmentId}/download`}
+                  alt={p.name}
+                  style={{ objectFit: "contain", background: "#fff" }}
+                />
+              ) : (
+                <div className={styles.rowThumb} />
+              )}
+              <div className={styles.rowName}>
+                <span className={styles.rowTitle}>{p.fullName}</span>
+              </div>
+              <div className={styles.rowCategory}>{p.subCategory}</div>
+              <div className={styles.rowStatus}>
+                <Tag tone={SALES_TONE[p.salesStatus]} dot>
+                  {salesStatusLabel[p.salesStatus]}
+                </Tag>
+              </div>
+            </Link>
+          ))}
+        </div>
+        <Pagination page={safePage} pageCount={pageCount} onChange={setPage} />
+      </>
+    );
+  }
 
   return (
     <>

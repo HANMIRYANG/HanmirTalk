@@ -1,0 +1,183 @@
+# 24. 개선 계획서 — 2026-07 요청 8건
+
+> 작성일: 2026-07-13 · 코드베이스 조사 기반 (파일:줄번호는 조사 시점 기준)
+> 다음 마이그레이션 번호: **033** (현재 최신 032_room_member_hidden.sql)
+
+## 요약
+
+| # | 항목 | 성격 | 규모 | 우선순위 |
+|---|------|------|------|----------|
+| 8 | 로그인이 자꾸 풀림 | 버그 (전 사용자 영향) | 중 | **P1** |
+| 4 | 마일스톤 폼 라벨 "이름" → "제목" | 문구 수정 | 극소 | P1 (즉시) |
+| 6 | 통합검색 매칭 텍스트 미표시 | 버그성 UX | 중 | P1 |
+| 1 | AI 생성 주요 업무 → 업무 자동 등록 | 기능 개선 | 중 | P2 |
+| 5 | 프로젝트/제품 탭 그리드↔리스트 토글 | 기능 추가 | 소 | P2 |
+| 2 | 하위 업무 + 간트 표시 | 기능 추가 (스키마 변경) | 대 | P3 |
+| 3 | 주요 업무 리스트 최상위 배치 | 의견 (논의 필요) | — | P3 (2번과 함께) |
+| 7 | 파일함 폴더 업로드 + 드래그앤드롭 | 기능 추가 | 대 | P3 |
+
+제안 단계: **Phase 1** = 8·4·6 (버그/문구), **Phase 2** = 1·5 (편의), **Phase 3** = 2·3·7 (구조 변경, 사전 논의 필요).
+
+---
+
+## 1. AI 프로젝트 생성 — 주요 업무가 업무에 등록되지 않음
+
+### 현재 구조
+- AI 초안(`POST /ai/project-draft`, `server/src/routes/ai.ts:405`)이 생성하는 것은 **목표(goals)·산출물(outputs)·마일스톤(milestones)·설명 등**이며, 이는 `projects` 테이블의 `goals TEXT[]`, `outputs TEXT[]` 컬럼과 `project_milestones` 테이블에 저장되는 단순 텍스트입니다. 사용자가 보는 "주요 업무"의 실체는 이 텍스트 배열입니다.
+- AI 프롬프트 스키마(`server/src/ai/anthropic.ts:187-198` `PROJECT_DRAFT_SYSTEM`)에 **tasks 필드 자체가 없고**, 프로젝트 생성 API(`POST /projects`, `server/src/routes/projects.ts:312`)도 tasks를 생성하지 않습니다.
+- 즉 "AI가 만든 주요 업무"는 `tasks` 테이블(업무)과 완전히 분리된 텍스트라서, 업무 탭에서 다시 수기 입력해야 하는 게 현재 구조상 필연입니다.
+
+### 개선안
+마일스톤이 이미 쓰는 패턴(프로젝트 생성 성공 후 프론트가 `POST /projects/:id/milestones`를 반복 호출, `ProjectFormModal.tsx:261-276`)을 업무에도 그대로 적용합니다.
+
+1. **AI 스키마 확장**: `PROJECT_DRAFT_SYSTEM` 프롬프트에 `tasks: [{ title, description?, startDate?, dueDate?, priority? }]` 추가, `sanitizeProjectDraft()`(`ai.ts:221-251`)에 tasks 정제 로직 추가.
+2. **폼 표시**: `ProjectFormModal.tsx`의 AI 초안 결과에 "주요 업무" 편집 가능 리스트 추가 (마일스톤 리스트와 동일 UI). 사용자가 등록 전 수정/삭제 가능.
+3. **자동 등록**: 프로젝트 생성 성공 후 `POST /projects/:projectId/tasks`(`projects.ts:503`)를 반복 호출. 마일스톤과 동일하게 개별 실패는 프로젝트 생성을 롤백하지 않고 경고만 표시.
+
+### 작업 범위
+- 서버: `ai.ts` 프롬프트+정제 (DB 변경 없음)
+- 프론트: `ProjectFormModal.tsx` 초안 필드 + 생성 후 루프
+- 3번 항목이 확정되면 이때 생성되는 업무에 "주요 업무" 플래그를 함께 부여 (아래 3번 참조)
+
+---
+
+## 2. 하위 업무 생성 기능 + 간트 표시
+
+### 현재 구조
+- `tasks` 테이블은 완전한 평면 구조 — `parent_task_id` 같은 계층 컬럼이 **없습니다** (`server/src/db/schema.sql:147-163`).
+- 공유 타입에 `subtaskCount?` 필드가 이미 선언돼 있으나(`packages/shared/src/types.ts:460`) 서버가 채우지 않는 미구현 힌트 상태입니다.
+- 간트는 업무 1개=1행, 마일스톤 1개=1행의 평면 목록(`GanttView.tsx:135-166`)이며, `GanttRow` 타입에 **`kind:"group"`(들여쓰기 포함)이 이미 정의돼 있지만 미사용**입니다(`components/project/GanttTimeline.tsx:8-34`) — 하위 업무 표시에 바로 활용 가능한 렌더 경로입니다.
+
+### 개선안
+1. **DB — 마이그레이션 033**: `ALTER TABLE tasks ADD COLUMN parent_task_id UUID REFERENCES tasks(id) ON DELETE CASCADE` + 인덱스. **계층은 1단계만 허용** (하위 업무의 하위 업무 금지 — API에서 검증). 무한 계층은 간트·목록·진행률 계산을 전부 복잡하게 만들므로 1단계 제한을 권장합니다.
+2. **서버**: `parseCreateTask`(`projects.ts:46-76`)에 `parentTaskId` 허용(같은 프로젝트 소속 + 부모가 이미 하위 업무가 아닌지 검증), `rowToTask`/`TASK_SELECT`(`postgres.ts:793-826`)에 `parent_task_id`와 `subtaskCount` 채우기, 부모 삭제 시 CASCADE.
+3. **업무 리스트**: `TaskRow`에 "＋ 하위 업무" 액션 추가 → `TaskCreateModal`을 parentTaskId 지정 모드로 오픈. `ListView.tsx`의 상태별 그룹핑 내에서 하위 업무는 부모 바로 아래 들여쓰기(└)로 표시. 부모와 하위의 상태가 다른 경우 **하위 업무는 부모의 상태 그룹에 함께 표시**(부모 기준 묶음 유지)를 권장.
+4. **간트 (논의 사항)** — 두 안:
+   - **A안 (권장)**: 부모 업무를 일반 막대 행으로 그대로 두고, 그 아래 하위 업무들을 들여쓰기 행으로 표시. 기존 `group` 렌더 경로의 indent만 활용. 구현 단순, 정보 손실 없음.
+   - **B안**: 부모를 접기/펼치기 가능한 그룹 행으로 승격하고, 부모 막대는 하위 업무들의 min(시작)~max(마감)을 자동 스팬. 보기 좋지만 부모 자체 일정과 자동 스팬이 충돌할 수 있어 규칙 정의 필요.
+   - 어느 안이든 시작·마감일이 없는 하위 업무는 기존 "일정 미지정" 처리(`GanttView.tsx:90-93`)를 따름.
+
+### 작업 범위
+DB(033) + 서버(라우트·리포지토리) + 프론트(ListView/BoardView/TableView/TaskCreateModal/GanttView/GanttTimeline). 보드·표 뷰에서의 하위 업무 표시 방식(들여쓰기 vs 부모 카드에 카운트만)도 구현 시 결정 필요.
+
+---
+
+## 3. 주요 업무의 리스트 최상위 배치 (의견 — 확정 전)
+
+### 현재 구조
+- `tasks`에 정렬용 `position`/`order` 컬럼이 없고 항상 `created_at ASC`(`postgres.ts:849`), 리스트는 상태별 그룹핑이라 "최상위 고정"을 표현할 축이 없습니다.
+
+### 제안 (2번과 묶어서 진행 권장)
+- **마이그레이션 033에 `is_key_task BOOLEAN DEFAULT false` 컬럼을 함께 추가.**
+- 1번의 AI 자동 등록 업무에 `is_key_task = true` 부여, 업무 생성/수정 폼에도 "주요 업무" 체크박스 노출.
+- 정렬: 각 상태 그룹 내에서 주요 업무 우선 → 나머지 생성순. 주요 업무에는 배지(예: ★) 표시.
+- 하위 업무는 주요 업무 밑에만 달 수 있게 제한할지, 모든 업무에 허용할지가 논점입니다. **모든 업무에 허용하되 주요 업무는 정렬·배지로만 구분**하는 쪽을 권장합니다 — "주요 업무만 부모가 될 수 있다"는 제약은 실제 업무 흐름에서 불편해지기 쉽습니다.
+
+> 이 항목은 사용자 의견 단계이므로, 위 방향(플래그 + 그룹 내 우선 정렬 + 배지)으로 확정할지 회신 필요.
+
+---
+
+## 4. 마일스톤 폼 라벨 "이름" → "제목" ✅ 확인 결과: 라벨만 수정하면 됨
+
+- 데이터는 DB·API·타입 전 계층에서 이미 `title` 필드입니다 (`packages/shared/src/types.ts:349-369`, `server/src/routes/projects.ts:99-114`). **UI 라벨만 "이름"으로 표기돼 있습니다.**
+- 수정 지점 (모두 `apps/web/src/app/(app)/projects/[id]/MilestonesCard.tsx`):
+  - 폼 라벨 "이름" → "제목" (`:264-274`)
+  - 유효성 메시지 "마일스톤 이름은 필수입니다." → "마일스톤 제목은 필수입니다." (`:116`)
+- 서버/DB 변경 없음. 5분 작업.
+
+---
+
+## 5. 프로젝트 탭·제품정보 탭 그리드↔리스트 전환 토글
+
+### 현재 구조
+- 두 페이지는 구조가 사실상 동일: `Topbar` + toolbar(좌측 "N개" 메타, 우측 생성 버튼) + `PagedGrid`(카드 12개 페이지네이션).
+  - 프로젝트: `projects/page.tsx:16-20`, `ProjectsPagedGrid.tsx`, 버튼 `ProjectCreateButton.tsx`
+  - 제품: `products/page.tsx:23-27`, `ProductsPagedGrid.tsx`, 버튼 `ProductCreateButton.tsx`
+- 뷰 전환 토글 패턴은 파일함(`FileLibrary.tsx:518-529`)과 업무(`TasksWorkspace.tsx:75-86`)에 이미 확립돼 있음 — `seg`/`segBtn`/`segActive` CSS(`tasks.module.css:11-31`) 재사용 가능.
+- 뷰 상태 영속화(localStorage)는 코드베이스에 전례 없음 — 신규 패턴으로 추가.
+
+### 개선안
+1. 공용 `ViewToggle` 클라이언트 컴포넌트 신설: 그리드(⊞)/리스트(≡) 아이콘 2버튼, `localStorage`에 페이지별 키(`projects:view`, `products:view`)로 저장, 기본값 그리드.
+2. 요청대로 **생성 버튼 바로 왼쪽**에 배치 — toolbar 우측 영역을 `ViewToggle + CreateButton` flex로 묶음 (`projects/page.tsx:18`, `products/page.tsx:25`).
+3. `ProjectsPagedGrid`/`ProductsPagedGrid`에 `view` prop 추가: 리스트 모드는 1열 행 레이아웃(제품은 좌측 소형 썸네일 + 이름/카테고리/상태, 프로젝트는 이름/부서/기간/진행률). 페이지네이션(12개)은 두 모드 공통 유지.
+   - 참고: 두 Grid는 서버 컴포넌트인 page에서 렌더되므로, view 상태를 가진 클라이언트 래퍼로 감싸는 소규모 구조 조정 필요.
+
+---
+
+## 6. 통합검색 — 매칭된 텍스트/제목이 안 보이는 문제
+
+### 원인 (확인됨)
+- 통합검색(`GET /search`, `server/src/routes/search.ts`)은 프로젝트를 `name·code·description`으로 매칭하지만(`search.ts:60-65`), 응답은 **원본 엔터티 객체 그대로**라서 "어느 필드에서 매칭됐는지" 정보가 없습니다.
+- 프론트 `ProjectHit`(`SearchResultsView.tsx:242-245`)은 `코드 + 프로젝트명`만 제목으로 표시하고 설명 스니펫을 렌더링하지 않습니다.
+- → "매출"이 **프로젝트 설명**에 있어서 매칭됐는데, 화면에는 프로젝트 이름("한미르 업무 정리")만 떠서 왜 나왔는지 알 수 없는 상태. 메시지 히트만 하이라이트가 구현돼 있음(`:287-309`).
+- 추가 공백: 검색 대상이 메시지·파일·프로젝트·제품 4종뿐 — **업무(tasks)·회의록은 검색되지 않습니다.**
+
+### 개선안
+1. **서버**: 검색 응답을 매칭 컨텍스트 포함 구조로 확장 — 각 히트에 `matchedField`("name"|"description"|…)와 `snippet`(매칭어 주변 ±40자) 추가. 기존 엔터티 필드는 유지해 하위 호환.
+2. **프론트**: `ProjectHit`/`ProductHit`에 메시지 히트와 동일한 `highlight()` 스니펫 줄 추가 — 제목은 그대로 엔터티 이름, 그 아래 매칭 스니펫에 `<mark>` 하이라이트.
+3. **(제안) 검색 대상에 업무 추가**: `tasks.title`/`description` ILIKE 검색을 4종에 추가하고 결과 섹션 "업무" 신설. "매출"이 업무 제목에 있다면 현재는 아예 안 나오는데, 사용자 기대("관련 제목이 나와야")에는 이게 더 부합할 수 있음.
+
+### 작업 범위
+서버 `search.ts`(+ tasks 검색 시 `postgres.ts` 리포 메서드), 공유 타입 `SearchResults`, 프론트 `SearchResultsView.tsx`. DB 변경 없음.
+
+---
+
+## 7. 파일함 — 폴더 업로드 + 드래그앤드롭 (방안 검토)
+
+### 현재 구조
+- 폴더 트리(`file_folders`, 마이그레이션 023)·권한(루트 부서폴더 `member_ids`)·비밀번호 폴더까지 갖춰져 있고, `attachments.folder_id`로 파일-폴더 매핑도 존재.
+- 그러나 업로드는 전부 "숨김 input, **단일 파일**"(`FileUploadButton.tsx:40-46`, 서버 `upload.single`, `files.ts:401`)이고, **드래그앤드롭·webkitdirectory·다중 업로드가 코드베이스 전체에 전무**합니다.
+
+### 제안 방안: 클라이언트 주도 순차 업로드 (서버 최소 변경)
+서버를 `upload.array`로 바꾸는 대신, **기존 단일 업로드 API를 클라이언트가 반복 호출**하는 방식을 권장합니다. 이유: (a) 서버 50MB 크기 제한·확장자 필터·폴더 권한 검증 로직을 그대로 재사용, (b) 파일별 성공/실패를 개별 보고 가능, (c) 메모리 스토리지(multer.memoryStorage) 특성상 대량 동시 수신은 메모리 위험.
+
+1. **드래그앤드롭**: `FileLibrary.tsx` 콘텐츠 영역에 드롭존(onDragOver/onDrop + 드래그 중 오버레이 UI). 드롭 시 `DataTransferItem.webkitGetAsEntry()`로 파일/디렉터리 엔트리를 재귀 순회해 `{ file, relativePath }` 목록 생성.
+2. **폴더 선택 버튼**: 기존 업로드 버튼 옆에 "폴더 업로드" 버튼 추가 — `<input type="file" webkitdirectory>` 사용, `file.webkitRelativePath`로 상대 경로 확보.
+3. **폴더 재현**: 상대 경로에서 디렉터리 트리를 추출 → 기존 `POST /files/folders`(`files.ts:241`)로 현재 폴더 아래에 하위 폴더를 순차 생성(동명 폴더는 재사용) → 각 파일을 해당 `folderId`로 `POST /files/upload`.
+4. **업로드 큐 UI**: 진행률(n/전체)·실패 목록(크기 초과 413, 차단 확장자 등)을 요약 표시. 회의 PPT 업로드에 이미 있는 `chunk-upload-queue.ts` 패턴 참고 가능.
+5. **제약/정책 (확인 필요)**:
+   - 루트(부서 폴더) 레벨에는 admin만 폴더 생성 가능하므로, 폴더 업로드는 **부서 폴더 내부에서만 허용**하는 게 자연스러움.
+   - 1회 업로드 상한(예: 파일 200개 / 총 1GB) 설정 권장 — 무제한 드롭 방지.
+   - 개별 파일 50MB 제한(`UPLOAD_MAX_BYTES`)과 확장자 허용목록은 그대로 적용, 걸린 파일은 스킵+보고.
+
+### 작업 범위
+프론트 중심(`FileLibrary.tsx`, `FileUploadButton.tsx` 확장 or 신규 `UploadDropzone`/큐 컴포넌트). 서버는 변경 없음(방안 채택 시). multiple 파일 선택(`multiple` 속성)도 이참에 함께 지원.
+
+---
+
+## 8. 로그인이 자꾸 풀리는 문제 — 원인 확인됨 (복합)
+
+### 인증 구조 요약
+불투명 랜덤 토큰 방식. 액세스 토큰(1시간, httpOnly 쿠키 `hanmir_token`)은 **서버 메모리 Map**(`server/src/auth/session.ts:16-42`)에, 리프레시 토큰(30일, 회전식)은 DB에 저장.
+
+### 원인 우선순위
+| 순위 | 원인 | 위치 |
+|------|------|------|
+| **P1** | 액세스 세션이 서버 메모리에만 있어 **재배포·재시작마다 전 사용자 세션 소멸** | `session.ts:16-42` |
+| **P1-b** | SSR(새로고침/페이지 진입)은 리프레시를 못 함 — 401이면 유효한 30일 리프레시 토큰이 있어도 **즉시 /login 리다이렉트** | `(app)/layout.tsx`, `lib/server-auth.ts:30-36`, `api-client.ts:119-131` (갱신 로직이 브라우저 전용 + 리프레시 쿠키 Path가 `/api/v1/auth`로 스코프) |
+| P2 | 액세스 1시간 **고정 만료**(슬라이딩 없음) + Next 미들웨어 부재 — 1시간 유휴 후 첫 페이지 로드가 곧장 튕김 | `routes/auth.ts:24`, `session.ts:14` |
+| P2-b | 쿠키 `SameSite=Strict` — 외부 링크(메신저/이메일)로 진입 시 첫 요청에 쿠키 미전송 → /login | `auth/token.ts:83` |
+| P3 | 다중 탭에서 리프레시 회전 경쟁 — 늦은 탭이 폐기된 토큰으로 갱신 시도 → 쿠키 전체 삭제 → 동반 로그아웃 | `routes/auth.ts:200-205`, `api-client.ts:56-82` |
+
+**핵심 시나리오**: 재배포(또는 1시간 유휴) 후 새로고침 한 번 → 메모리 세션 없음 → SSR이 갱신 불가 → /login. 리프레시 토큰이 멀쩡히 살아있는데도 로그인이 풀립니다.
+
+### 수정 계획 (효과 큰 순)
+1. **Next `middleware.ts` 신설 (P1-b·P2 해소, 최우선)**: 액세스 쿠키가 없거나 `/auth/me`가 401인데 리프레시 쿠키가 있으면, 미들웨어에서 `/auth/refresh`를 프록시 호출해 새 쿠키를 Set-Cookie로 심고 요청을 통과시킴. 리프레시 쿠키 Path를 `/api/v1/auth` → 미들웨어가 읽을 수 있는 범위로 조정 필요(httpOnly는 유지).
+2. **세션 스토어 DB 이관 (P1 해소) — 마이그레이션 034**: `sessions(token_hash, user_id, expires_at)` 테이블로 이동(짧은 인메모리 캐시 병행). 재배포해도 액세스 세션 유지. ※ 1번만으로도 사용자 체감은 거의 해결되지만(리프레시로 자동 복구), 근본 해결은 이것.
+3. **`SameSite=Strict` → `Lax`** (P2-b): 세션 쿠키 표준 설정. CSRF 관점에서 상태 변경은 모두 POST/PATCH이므로 Lax로 안전.
+4. **리프레시 회전 유예** (P3): 직전 폐기 토큰을 60초간 재사용 허용(같은 신규 토큰 반환)해 다중 탭 경쟁 흡수. + `invalid_refresh` 시 쿠키 전체 삭제 전에 액세스 토큰 유효 여부 확인.
+5. (선택) 액세스 TTL을 1시간 → 12시간으로 늘리는 건 1·2 적용 후 필요성 재평가.
+
+### 작업 범위
+서버 `auth/`(session.ts, routes/auth.ts, token.ts) + DB(034) + 프론트 `middleware.ts` 신설. **배포 순서 주의**: 마이그레이션 034 선적용 후 서버 배포(032 때와 동일한 원칙).
+
+---
+
+## 논의 결과 및 구현 상태 (2026-07-13 확정·구현 완료)
+
+1. **(3번)** 권장안 확정 — `is_key_task` 플래그 + 상태 그룹 내 우선 정렬 + ★배지. 하위 업무 부모 자격은 전체 업무에 허용.
+2. **(2번)** A안 확정 — 부모 일반 행 + 하위 업무 들여쓰기(└) 행. 계층은 1단계 제한.
+3. **(7번)** 기본값으로 진행 — 1회 상한 200파일/총 1GB, 폴더 업로드 버튼은 부서 폴더 내부(쓰기 권한)에서만 노출. 서버 무수정(클라이언트 순차 업로드) 방안 채택.
+4. **(8번)** SSR 자동 갱신 우선 확정 — 구현은 Next 미들웨어 대신 API 측 `GET /auth/bounce` 리다이렉트 방식 채택(리프레시 쿠키 Path 스코프 문제를 쿠키 변경 없이 우회, 동일 효과). SameSite=Lax 전환 + 회전 유예 60초 포함. 세션 DB 이관(마이그레이션 034)은 보류.
+
+전 항목(1~8) 구현 완료. **배포 시 마이그레이션 033_task_hierarchy.sql 선적용 필수.**

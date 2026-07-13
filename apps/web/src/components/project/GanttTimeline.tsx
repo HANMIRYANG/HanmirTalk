@@ -26,6 +26,10 @@ export type GanttRow =
       to: number;
       state: "done" | "progress" | "late" | "pending";
       progress?: number;
+      // 033 — 하위 업무는 부모 행 아래에 한 단계 더 들여쓰기.
+      indent?: boolean;
+      // 주요 업무(★) — 라벨 강조.
+      emphasis?: boolean;
     }
   | {
       kind: "milestone";
@@ -98,9 +102,18 @@ export function GanttTimeline({
             );
           }
           return (
-            <div key={idx} className={cn(styles.labelRow, styles.labelIndent)}>
+            <div
+              key={idx}
+              className={cn(
+                styles.labelRow,
+                styles.labelIndent,
+                row.indent && styles.labelIndentSub
+              )}
+            >
               <span className={styles.chev} />
-              <div className={styles.labelName}>
+              <div className={cn(styles.labelName, row.emphasis && styles.labelKey)}>
+                {row.indent ? <span className={styles.subGlyph}>└</span> : null}
+                {row.emphasis ? "★ " : ""}
                 {row.label}
                 <span className={styles.labelTaskId}>{row.taskId}</span>
               </div>

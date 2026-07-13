@@ -233,6 +233,20 @@ function sanitizeProjectDraft(raw: unknown): ProjectDraft {
         .filter((m) => m.title && m.date)
         .slice(0, 12)
     : [];
+  const tasks = Array.isArray(r.tasks)
+    ? r.tasks
+        .map((t) => {
+          const row = (t ?? {}) as Record<string, unknown>;
+          return {
+            title: asString(row.title, 120),
+            description: asString(row.description, 500),
+            startDate: asDate(row.startDate),
+            dueDate: asDate(row.dueDate)
+          };
+        })
+        .filter((t) => t.title)
+        .slice(0, 12)
+    : [];
   return {
     name: asString(r.name, 200),
     fullName: asString(r.fullName, 200),
@@ -246,7 +260,8 @@ function sanitizeProjectDraft(raw: unknown): ProjectDraft {
     externalPartners: asString(r.externalPartners, 200),
     startDate: asDate(r.startDate),
     dueDate: asDate(r.dueDate),
-    milestones
+    milestones,
+    tasks
   };
 }
 

@@ -180,6 +180,20 @@
   align-items: center;
   gap: 3px;
 }
+/* 033 — 하위 업무 행 들여쓰기 + 주요 업무 ★ 배지 */
+.titleSub {
+  padding-left: 18px;
+  font-weight: 500;
+}
+.subGlyph {
+  color: var(--text-4);
+  font-size: 11px;
+}
+.keyBadge {
+  color: var(--brand-orange, #f59e0b);
+  font-size: 12px;
+  line-height: 1;
+}
 
 .assignees { display: flex; }
 .assigneeAvatar {

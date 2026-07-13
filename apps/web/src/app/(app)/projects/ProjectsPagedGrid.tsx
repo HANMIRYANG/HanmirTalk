@@ -22,9 +22,10 @@ const TONE_BY_STATUS = {
 
 interface ProjectsPagedGridProps {
   projects: Project[];
+  view: "grid" | "list";
 }
 
-export function ProjectsPagedGrid({ projects }: ProjectsPagedGridProps) {
+export function ProjectsPagedGrid({ projects, view }: ProjectsPagedGridProps) {
   const [page, setPage] = useState(1);
 
   const pageCount = Math.max(1, Math.ceil(projects.length / PAGE_SIZE));
@@ -33,6 +34,37 @@ export function ProjectsPagedGrid({ projects }: ProjectsPagedGridProps) {
     projects.length > PAGE_SIZE
       ? projects.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
       : projects;
+
+  if (view === "list") {
+    return (
+      <>
+        <div className={styles.list}>
+          {paged.map((p) => (
+            <Link key={p.id} href={`/projects/${p.id}`} className={styles.row}>
+              <div className={styles.rowName}>
+                <span className={styles.rowTitle}>{p.fullName}</span>
+                <span className={styles.rowCode}>{p.code}</span>
+              </div>
+              <div className={styles.rowDept}>{p.department}</div>
+              <div className={styles.rowPeriod}>
+                {p.startDate} ~ {p.dueDate}
+              </div>
+              <div className={styles.rowStatus}>
+                <Tag tone={TONE_BY_STATUS[p.status]} dot>
+                  {projectStatusLabel[p.status]}
+                </Tag>
+              </div>
+              <div className={styles.rowProgress}>
+                <ProgressBar value={p.progress} className={styles.rowBar} />
+                <span className={styles.progressVal}>{p.progress}%</span>
+              </div>
+            </Link>
+          ))}
+        </div>
+        <Pagination page={safePage} pageCount={pageCount} onChange={setPage} />
+      </>
+    );
+  }
 
   return (
     <>

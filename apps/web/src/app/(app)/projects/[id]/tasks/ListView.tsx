@@ -10,26 +10,71 @@ import { resolveAssignees } from "./taskViewUtils";
 import styles from "./tasks.module.css";
 
 // 그룹당 페이지 크기 — 각 상태 그룹이 5건 단위로 자체 페이지네이션한다.
+// (033 이후 페이지 단위는 상위 업무 기준 — 하위 업무는 부모에 붙어 렌더)
 const GROUP_PAGE_SIZE = 5;
 
 interface ListViewProps {
   tasks: TaskItem[];
   doneCount: number;
   done: TaskItem[];
+  // 필터와 무관한 전체 목록 — 하위 업무를 부모 밑에 붙이기 위한 원본.
+  allTasks: TaskItem[];
   userById: Map<string, User>;
+  onAddSubtask?: (task: TaskItem) => void;
 }
 
-export function ListView({ tasks, doneCount, done, userById }: ListViewProps) {
+// 그룹 내 정렬: 주요 업무(★) 우선, 나머지는 기존 순서 유지 (stable sort).
+function keyTasksFirst(list: TaskItem[]): TaskItem[] {
+  return [...list].sort((a, b) => Number(b.isKeyTask ?? false) - Number(a.isKeyTask ?? false));
+}
+
+export function ListView({
+  tasks,
+  doneCount,
+  done,
+  allTasks,
+  userById,
+  onAddSubtask
+}: ListViewProps) {
+  // 하위 업무는 자신의 상태와 무관하게 부모 행 아래에 붙는다. 그룹 분류는
+  // 상위 업무만 대상으로 하되, 필터에 걸린 하위 업무의 부모는 부모가
+  // 필터에서 빠졌더라도 그룹에 승격시켜 하위 업무가 사라지지 않게 한다.
+  const byId = new Map(allTasks.map((t) => [t.id, t] as const));
+  const childrenByParent = new Map<string, TaskItem[]>();
+  for (const t of allTasks) {
+    if (!t.parentTaskId) continue;
+    const list = childrenByParent.get(t.parentTaskId);
+    if (list) list.push(t);
+    else childrenByParent.set(t.parentTaskId, [t]);
+  }
+
+  const visibleParents: TaskItem[] = [];
+  const seen = new Set<string>();
+  const pushParent = (t: TaskItem) => {
+    if (seen.has(t.id)) return;
+    seen.add(t.id);
+    visibleParents.push(t);
+  };
+  for (const t of tasks) {
+    if (!t.parentTaskId) {
+      pushParent(t);
+      continue;
+    }
+    const parent = byId.get(t.parentTaskId);
+    if (parent) pushParent(parent);
+  }
+
   // 지연은 상태와 무관한 교차 그룹이라 먼저 분리하고, 상태 그룹들은
   // 지연을 제외해 한 업무가 두 그룹에 중복 노출되지 않게 한다.
-  // 검토중/보류 그룹이 없던 이전 구현은 해당 상태로 바꾼 업무가 목록
-  // 뷰에서 아예 사라지는 문제가 있었다 (상태 필터로도 안 보임).
-  const delayed = tasks.filter((t) => t.dueState === "late" && t.status !== "done");
+  const delayed = visibleParents.filter((t) => t.dueState === "late" && t.status !== "done");
   const notLate = (t: TaskItem) => t.dueState !== "late";
-  const inProgress = tasks.filter((t) => t.status === "in_progress" && notLate(t));
-  const review = tasks.filter((t) => t.status === "review" && notLate(t));
-  const onHold = tasks.filter((t) => t.status === "on_hold" && notLate(t));
-  const todo = tasks.filter((t) => t.status === "todo" && notLate(t));
+  const inProgress = visibleParents.filter((t) => t.status === "in_progress" && notLate(t));
+  const review = visibleParents.filter((t) => t.status === "review" && notLate(t));
+  const onHold = visibleParents.filter((t) => t.status === "on_hold" && notLate(t));
+  const todo = visibleParents.filter((t) => t.status === "todo" && notLate(t));
+  const doneParents = done.filter((t) => !t.parentTaskId);
+
+  const groupProps = { userById, childrenByParent, onAddSubtask };
 
   return (
     <div className={styles.tblWrap}>
@@ -37,47 +82,47 @@ export function ListView({ tasks, doneCount, done, userById }: ListViewProps) {
         label="지연 업무"
         count={delayed.length}
         accent="danger"
-        tasks={delayed}
+        tasks={keyTasksFirst(delayed)}
         emptyText="지연된 업무가 없습니다."
-        userById={userById}
         showThead
+        {...groupProps}
       />
       <TaskGroup
         label="진행중"
         count={inProgress.length}
-        tasks={inProgress}
+        tasks={keyTasksFirst(inProgress)}
         emptyText="진행 중인 업무가 없습니다."
-        userById={userById}
+        {...groupProps}
       />
       <TaskGroup
         label="검토중"
         count={review.length}
-        tasks={review}
+        tasks={keyTasksFirst(review)}
         emptyText="검토 중인 업무가 없습니다."
-        userById={userById}
+        {...groupProps}
       />
       <TaskGroup
         label="보류"
         count={onHold.length}
-        tasks={onHold}
+        tasks={keyTasksFirst(onHold)}
         emptyText="보류된 업무가 없습니다."
-        userById={userById}
+        {...groupProps}
       />
       <TaskGroup
         label="대기"
         count={todo.length}
-        tasks={todo}
+        tasks={keyTasksFirst(todo)}
         emptyText="대기 중인 업무가 없습니다."
-        userById={userById}
+        {...groupProps}
       />
       <TaskGroup
         label="완료"
         count={doneCount}
         accent="success"
-        tasks={done}
+        tasks={keyTasksFirst(doneParents)}
         emptyText="완료된 업무가 없습니다."
-        userById={userById}
         defaultOpen={false}
+        {...groupProps}
       />
     </div>
   );
@@ -93,6 +138,8 @@ function TaskGroup({
   tasks,
   emptyText,
   userById,
+  childrenByParent,
+  onAddSubtask,
   showThead,
   defaultOpen = true
 }: {
@@ -102,6 +149,8 @@ function TaskGroup({
   tasks: TaskItem[];
   emptyText: string;
   userById: Map<string, User>;
+  childrenByParent: Map<string, TaskItem[]>;
+  onAddSubtask?: (task: TaskItem) => void;
   showThead?: boolean;
   defaultOpen?: boolean;
 }) {
@@ -189,7 +238,13 @@ function TaskGroup({
                 </tr>
               ) : (
                 paged.map((t) => (
-                  <TaskRow key={t.id} task={t} assignees={resolveAssignees(t, userById)} />
+                  <TaskRowWithChildren
+                    key={t.id}
+                    task={t}
+                    subtasks={childrenByParent.get(t.id) ?? []}
+                    userById={userById}
+                    onAddSubtask={onAddSubtask}
+                  />
                 ))
               )}
             </tbody>
@@ -202,6 +257,31 @@ function TaskGroup({
           />
         </>
       ) : null}
+    </>
+  );
+}
+
+function TaskRowWithChildren({
+  task,
+  subtasks,
+  userById,
+  onAddSubtask
+}: {
+  task: TaskItem;
+  subtasks: TaskItem[];
+  userById: Map<string, User>;
+  onAddSubtask?: (task: TaskItem) => void;
+}) {
+  return (
+    <>
+      <TaskRow
+        task={task}
+        assignees={resolveAssignees(task, userById)}
+        onAddSubtask={onAddSubtask}
+      />
+      {subtasks.map((c) => (
+        <TaskRow key={c.id} task={c} assignees={resolveAssignees(c, userById)} />
+      ))}
     </>
   );
 }

@@ -1174,18 +1174,31 @@ class MemoryTaskRepository implements TaskRepository {
 
   constructor(private readonly deps: { projects: MemoryProjectRepository }) {}
 
+  // PG 는 TASK_SELECT 서브쿼리로 subtaskCount 를 채운다 — 메모리 구현은
+  // 조회 시점에 계산해 동일한 형태를 유지한다.
+  private withSubtaskCount(t: TaskItem): TaskItem {
+    return {
+      ...clone(t),
+      subtaskCount: this._data.filter((c) => c.parentTaskId === t.id).length
+    };
+  }
+
   async list(): Promise<TaskItem[]> {
-    return clone(this._data);
+    return this._data.map((t) => this.withSubtaskCount(t));
   }
   async listDueCandidates(): Promise<TaskItem[]> {
-    return clone(this._data.filter((t) => Boolean(t.dueDate) && t.status !== "done"));
+    return this._data
+      .filter((t) => Boolean(t.dueDate) && t.status !== "done")
+      .map((t) => this.withSubtaskCount(t));
   }
   async listByProject(projectId: string): Promise<TaskItem[]> {
-    return clone(this._data.filter((t) => t.projectId === projectId));
+    return this._data
+      .filter((t) => t.projectId === projectId)
+      .map((t) => this.withSubtaskCount(t));
   }
   async findById(id: string): Promise<TaskItem | undefined> {
     const found = this._data.find((t) => t.id === id);
-    return found ? clone(found) : undefined;
+    return found ? this.withSubtaskCount(found) : undefined;
   }
 
   async create(
@@ -1206,7 +1219,9 @@ class MemoryTaskRepository implements TaskRepository {
       startDate: input.startDate,
       dueDate: input.dueDate,
       dueLabel: input.dueLabel ?? input.dueDate ?? "미정",
-      progress: input.progress ?? 0
+      progress: input.progress ?? 0,
+      parentTaskId: input.parentTaskId,
+      isKeyTask: input.isKeyTask ?? false
     };
     this._data.push(task);
     recomputeProjectCounts(this.deps.projects._data, this._data, projectId);
@@ -1232,6 +1247,10 @@ class MemoryTaskRepository implements TaskRepository {
     const idx = this._data.findIndex((t) => t.id === id);
     if (idx < 0) return false;
     const [removed] = this._data.splice(idx, 1);
+    // PG 는 parent_task_id ON DELETE CASCADE — 하위 업무 동반 삭제를 재현.
+    for (let i = this._data.length - 1; i >= 0; i--) {
+      if (this._data[i].parentTaskId === id) this._data.splice(i, 1);
+    }
     recomputeProjectCounts(this.deps.projects._data, this._data, removed.projectId);
     return true;
   }

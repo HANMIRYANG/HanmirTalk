@@ -1,12 +1,16 @@
+import { createHash } from "crypto";
 import { Router, type Request, type Response } from "express";
+import type { User } from "@hanmir/shared";
 import type { Repositories } from "../repositories/types";
+import { config } from "../config";
 import { sessionStore } from "../auth/session";
 import { requireAuth } from "../auth/middleware";
 import {
   clearAuthCookies,
   extractRefreshToken,
   extractToken,
-  setAuthCookies
+  setAuthCookies,
+  setBounceGuardCookie
 } from "../auth/token";
 import { auditLog } from "../audit";
 
@@ -18,7 +22,9 @@ import { auditLog } from "../audit";
 // 15-min access, any idle ≥15 min produced a forced re-login despite a
 // valid 30-day refresh. 1 hour covers normal business-hour navigation
 // while keeping refresh rotation as the primary security boundary.
-// Future: a Next.js middleware refresh would let us drop this back down.
+// GET /auth/bounce (below) now gives SSR a recovery path — the layout
+// redirects through it on 401 — so idle past 1 hour silently re-issues
+// instead of forcing re-login.
 // Exported so /system/security-policy (Phase 8 K-3) reports the live values
 // without re-declaring them.
 export const ACCESS_MAX_AGE_SEC = 60 * 60;
@@ -87,6 +93,99 @@ async function issueSessionFor(
     refreshMaxAgeSec: REFRESH_MAX_AGE_SEC
   });
   return { accessToken: access.token, refreshToken: refresh.token };
+}
+
+// 리프레시 회전 유예 — 다중 탭이 같은 리프레시 토큰으로 동시에 /refresh 를
+// 치면 첫 탭의 회전이 나머지 탭의 토큰을 무효화해 강제 로그아웃됐다.
+// 회전 직후 60초 동안 "방금 폐기된 토큰 해시 → 새로 발급된 리프레시"를
+// 인메모리로 기억해 두고, 늦게 도착한 탭에는 같은 새 토큰을 다시 내려준다.
+// (단일 프로세스 운영 전제 — loginAttempts 와 같은 접근.)
+const ROTATION_GRACE_MS = 60_000;
+const rotationGrace = new Map<
+  string,
+  { refreshToken: string; userId: string; until: number }
+>();
+
+function rotationGraceKey(rawToken: string): string {
+  return createHash("sha256").update(rawToken).digest("hex");
+}
+
+function recordRotationGrace(oldRawToken: string, refreshToken: string, userId: string): void {
+  const now = Date.now();
+  for (const [key, entry] of rotationGrace) {
+    if (entry.until <= now) rotationGrace.delete(key);
+  }
+  rotationGrace.set(rotationGraceKey(oldRawToken), {
+    refreshToken,
+    userId,
+    until: now + ROTATION_GRACE_MS
+  });
+}
+
+function findRotationGrace(
+  rawToken: string
+): { refreshToken: string; userId: string } | undefined {
+  const entry = rotationGrace.get(rotationGraceKey(rawToken));
+  if (!entry || entry.until <= Date.now()) return undefined;
+  return entry;
+}
+
+// 유예 맵에는 살아 있는 리프레시 평문이 담기므로, "세션 전부 무효화"가
+// 목적인 로그아웃·비밀번호 변경 시에는 해당 사용자 항목도 함께 비운다.
+function clearRotationGraceForUser(userId: string): void {
+  for (const [key, entry] of rotationGrace) {
+    if (entry.userId === userId) rotationGrace.delete(key);
+  }
+}
+
+type RefreshFailure = "missing_refresh" | "invalid_refresh" | "user_inactive";
+
+// POST /refresh 와 GET /bounce 가 공유하는 회전 본체. 성공 시 새 쿠키를
+// res 에 심고 user 를 돌려준다. 실패 시 쿠키 정리는 호출부 책임
+// (refresh 는 401 JSON, bounce 는 302 /login 으로 각자 마무리).
+async function rotateRefreshSession(
+  repos: Repositories,
+  req: Request,
+  res: Response
+): Promise<{ ok: true; user: User } | { ok: false; error: RefreshFailure }> {
+  const refreshRaw = extractRefreshToken(req);
+  if (!refreshRaw) return { ok: false, error: "missing_refresh" };
+  const resolved = await repos.refreshTokens.resolve(refreshRaw);
+  if (!resolved) {
+    // 회전 유예: 방금 다른 탭이 회전시킨 토큰이면 같은 새 토큰을 재발급.
+    const grace = findRotationGrace(refreshRaw);
+    if (!grace) return { ok: false, error: "invalid_refresh" };
+    const user = await repos.users.findById(grace.userId);
+    if (!user || user.isActive === false) return { ok: false, error: "user_inactive" };
+    const access = sessionStore.issue(user.id);
+    setAuthCookies(res, {
+      accessToken: access.token,
+      refreshToken: grace.refreshToken,
+      accessMaxAgeSec: ACCESS_MAX_AGE_SEC,
+      refreshMaxAgeSec: REFRESH_MAX_AGE_SEC
+    });
+    return { ok: true, user };
+  }
+  const user = await repos.users.findById(resolved.userId);
+  if (!user || user.isActive === false) {
+    await repos.refreshTokens.revoke(resolved.tokenId);
+    return { ok: false, error: "user_inactive" };
+  }
+  // Rotation: revoke the just-used refresh row so a replay (e.g. token
+  // theft) cannot reuse it. Then issue a brand-new pair.
+  await repos.refreshTokens.revoke(resolved.tokenId);
+  const { refreshToken } = await issueSessionFor(repos, res, user.id, clientContext(req));
+  recordRotationGrace(refreshRaw, refreshToken, user.id);
+  return { ok: true, user };
+}
+
+// bounce 의 리다이렉트 목적지는 웹 오리진 기준. 운영(caddy 동일 오리진)
+// 에서는 상대경로로 충분하지만, dev 처럼 API(4000)와 웹(3000)이 다른
+// 오리진이면 상대경로가 API 오리진으로 풀리므로 CORS_ORIGIN 을 붙인다.
+function webUrl(path: string): string {
+  const origin = config.corsOrigin.split(",")[0]?.trim();
+  if (!origin || !origin.startsWith("http")) return path;
+  return `${origin.replace(/\/$/, "")}${path}`;
 }
 
 export function createAuthRouter(repos: Repositories): Router {
@@ -168,7 +267,13 @@ export function createAuthRouter(repos: Repositories): Router {
     const refreshRaw = extractRefreshToken(req);
     if (refreshRaw) {
       const resolved = await repos.refreshTokens.resolve(refreshRaw);
-      if (resolved) await repos.refreshTokens.revoke(resolved.tokenId);
+      if (resolved) {
+        await repos.refreshTokens.revoke(resolved.tokenId);
+        clearRotationGraceForUser(resolved.userId);
+      } else {
+        const grace = findRotationGrace(refreshRaw);
+        if (grace) clearRotationGraceForUser(grace.userId);
+      }
     }
     clearAuthCookies(res);
     res.json({ ok: true });
@@ -178,30 +283,39 @@ export function createAuthRouter(repos: Repositories): Router {
   // issue new), and mint a fresh access token. Returns 401 on missing or
   // expired refresh so the client can redirect to /login.
   router.post("/refresh", async (req, res) => {
-    const refreshRaw = extractRefreshToken(req);
-    if (!refreshRaw) {
-      res.status(401).json({ error: "missing_refresh" });
-      return;
-    }
-    const resolved = await repos.refreshTokens.resolve(refreshRaw);
-    if (!resolved) {
+    const result = await rotateRefreshSession(repos, req, res);
+    if (!result.ok) {
       // Clear stale cookies so the browser doesn't keep replaying them.
-      clearAuthCookies(res);
-      res.status(401).json({ error: "invalid_refresh" });
+      // (missing_refresh 는 지울 것도 없음 — 기존 동작 유지.)
+      if (result.error !== "missing_refresh") clearAuthCookies(res);
+      res.status(401).json({ error: result.error });
       return;
     }
-    const user = await repos.users.findById(resolved.userId);
-    if (!user || user.isActive === false) {
-      await repos.refreshTokens.revoke(resolved.tokenId);
-      clearAuthCookies(res);
-      res.status(401).json({ error: "user_inactive" });
+    res.json({ ok: true, user: result.user });
+  });
+
+  // GET /auth/bounce?next=<path> — SSR 세션 복구용. 페이지 요청에는
+  // 리프레시 쿠키(Path=/api/v1/auth 스코프)가 실리지 않아 Next 레이아웃이
+  // 직접 갱신할 수 없으므로, 만료 감지 시 브라우저를 이 엔드포인트로
+  // 302 시켜 쿠키 Path 안에서 회전시킨 뒤 원래 경로로 되돌려 보낸다.
+  router.get("/bounce", async (req, res) => {
+    const rawNext = typeof req.query.next === "string" ? req.query.next : "";
+    const next =
+      rawNext.startsWith("/") && !rawNext.startsWith("//") && !rawNext.startsWith("/\\")
+        ? rawNext
+        : "/";
+    setBounceGuardCookie(res);
+    const result = await rotateRefreshSession(repos, req, res);
+    if (!result.ok) {
+      // missing_refresh 는 지우지 않는다 — 기존 SameSite=Strict 쿠키를 가진
+      // 브라우저가 외부 링크(크로스 사이트 내비게이션)로 진입하면 쿠키가
+      // 하나도 실리지 않은 채 여기 도달하는데, 그때 Max-Age=0 을 내리면
+      // 멀쩡한 세션 쿠키까지 파기된다. 진짜 무효 토큰만 정리.
+      if (result.error !== "missing_refresh") clearAuthCookies(res);
+      res.redirect(302, webUrl("/login"));
       return;
     }
-    // Rotation: revoke the just-used refresh row so a replay (e.g. token
-    // theft) cannot reuse it. Then issue a brand-new pair.
-    await repos.refreshTokens.revoke(resolved.tokenId);
-    await issueSessionFor(repos, res, user.id, clientContext(req));
-    res.json({ ok: true, user });
+    res.redirect(302, webUrl(next));
   });
 
   router.get("/me", requireAuth, (req, res) => {
@@ -234,6 +348,7 @@ export function createAuthRouter(repos: Repositories): Router {
     // Defense: invalidate every other session for this user so an attacker
     // who already stole a refresh token loses access immediately.
     await repos.refreshTokens.revokeAllForUser(me.id);
+    clearRotationGraceForUser(me.id);
     await auditLog(repos, req, {
       action: "auth.password.change",
       targetType: "user",

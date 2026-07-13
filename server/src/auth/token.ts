@@ -3,6 +3,7 @@ import { config } from "../config";
 
 export const SESSION_COOKIE = "hanmir_token";
 export const REFRESH_COOKIE = "hanmir_refresh";
+export const BOUNCE_GUARD_COOKIE = "hanmir_bounced";
 
 // Refresh cookie is scoped to /auth/* so it isn't sent on every API call.
 // Path includes apiPrefix because the cookie attribute Path is matched
@@ -56,6 +57,13 @@ export function setAuthCookies(
   }));
 }
 
+// Loop guard for GET /auth/bounce. The SSR layer only redirects to bounce
+// when this cookie is absent, so a broken refresh can't ping-pong between
+// the app and the bounce endpoint — worst case one extra hop per 20s.
+export function setBounceGuardCookie(res: Response): void {
+  res.append("Set-Cookie", buildCookie(BOUNCE_GUARD_COOKIE, "1", { path: "/", maxAgeSec: 20 }));
+}
+
 // Clear both auth cookies. Mirrors setAuthCookies' Path attributes so the
 // browser actually drops them — a Set-Cookie with a different Path won't
 // match the existing cookie and the clear silently fails.
@@ -76,11 +84,13 @@ function buildCookie(
     `${name}=${encodeURIComponent(value)}`,
     `Path=${opts.path}`,
     "HttpOnly",
-    // Strict prevents the cookie from being attached to cross-site requests
-    // entirely — fine here because the SPA and API share an origin (or are
-    // CORS-configured peers, which is still same-site in browser terms when
-    // explicitly listed).
-    "SameSite=Strict",
+    // Lax (not Strict): Strict drops the cookies on top-level navigations
+    // that originate cross-site — e.g. a link to the app shared in an
+    // external messenger — so the first page render looked logged-out and
+    // bounced users to /login despite a live session. Lax still withholds
+    // cookies from cross-site subresource/XHR requests, which is the CSRF
+    // surface that matters here.
+    "SameSite=Lax",
     `Max-Age=${opts.maxAgeSec}`
   ];
   if (SECURE) parts.push("Secure");

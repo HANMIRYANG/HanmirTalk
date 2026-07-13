@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent
+} from "react";
 import { useRouter } from "next/navigation";
 import type {
   FileEntry,
@@ -21,7 +28,17 @@ import { Pagination } from "@/components/ui/Pagination";
 import { fileService } from "@/services/file.service";
 import { ApiError } from "@/services/api-client";
 import { cn } from "@/lib/classNames";
-import { FileUploadButton } from "./FileUploadButton";
+import { handleSessionExpired } from "@/lib/client-auth";
+import { FileUploadButton, FolderUploadButton } from "./FileUploadButton";
+import { UploadQueueModal, type UploadQueueState } from "./UploadQueueModal";
+import {
+  collectDropItems,
+  hasDirectories,
+  itemsFromFiles,
+  limitError,
+  runUploadBatch,
+  type UploadItem
+} from "./upload-batch";
 import { CardView, FilterSelect, ListTable, ScopeBtn, fileTag } from "./FileViews";
 import { FolderGrid } from "./FolderGrid";
 import { FolderCreateModal } from "./FolderCreateModal";
@@ -137,6 +154,14 @@ export function FileLibrary({
   >(null);
   const [membersModal, setMembersModal] = useState<FileFolder | null>(null);
 
+  // 일괄 업로드 큐 상태 + 드롭존
+  const [uploadState, setUploadState] = useState<UploadQueueState | null>(null);
+  const [cancelRequested, setCancelRequested] = useState(false);
+  const uploadingRef = useRef(false);
+  const cancelRef = useRef(false);
+  const [dragOver, setDragOver] = useState(false);
+  const dragDepth = useRef(0);
+
   const userById = useMemo(() => new Map(users.map((u) => [u.id, u] as const)), [users]);
   const folderById = useMemo(
     () => new Map(folderList.map((f) => [f.id, f] as const)),
@@ -227,6 +252,96 @@ export function FileLibrary({
   }, [scope, typeFilter, ownerFilter, periodFilter, sortBy, search]);
 
   const reloadFolder = useCallback(() => setFolderReload((n) => n + 1), []);
+
+  const uploading = uploadState?.phase === "uploading";
+
+  // 선택/폴더선택/드롭 공통 진입점 — 순차 업로드 실행 후 목록 갱신.
+  const startUpload = useCallback(
+    async (items: UploadItem[]) => {
+      if (uploadingRef.current) return;
+      const limitMsg = limitError(items);
+      if (limitMsg) {
+        window.alert(limitMsg);
+        return;
+      }
+      if (!currentFolderId && hasDirectories(items)) {
+        window.alert("폴더 업로드는 부서 폴더를 연 상태에서만 가능합니다.");
+        return;
+      }
+      uploadingRef.current = true;
+      cancelRef.current = false;
+      setCancelRequested(false);
+      setUploadState({ phase: "uploading", current: 0, total: items.length, name: "" });
+      const result = await runUploadBatch({
+        items,
+        baseFolderId: currentFolderId ?? undefined,
+        existingFolders: folderList,
+        isCancelled: () => cancelRef.current,
+        onProgress: (p) => setUploadState({ phase: "uploading", ...p }),
+        onFolderCreated: (folder) => setFolderList((prev) => [...prev, folder])
+      });
+      uploadingRef.current = false;
+      if (result.sessionExpired) {
+        setUploadState(null);
+        handleSessionExpired(router);
+        return;
+      }
+      setUploadState({
+        phase: "done",
+        current: items.length,
+        total: items.length,
+        name: "",
+        result
+      });
+      if (result.ok > 0 || result.foldersCreated > 0) {
+        if (currentFolderId) reloadFolder();
+        router.refresh();
+      }
+    },
+    [currentFolderId, folderList, reloadFolder, router]
+  );
+
+  const pickFiles = useCallback(
+    (files: File[]) => void startUpload(itemsFromFiles(files)),
+    [startUpload]
+  );
+
+  // 드롭존 — 폴더 스코프에서는 쓰기 권한이 있어야 활성.
+  const dropAllowed = currentFolderId == null || canWriteInCurrent;
+
+  const hasDraggedFiles = (e: DragEvent<HTMLElement>) =>
+    e.dataTransfer.types.includes("Files");
+
+  const onDragEnter = (e: DragEvent<HTMLElement>) => {
+    if (!hasDraggedFiles(e)) return;
+    e.preventDefault();
+    dragDepth.current += 1;
+    setDragOver(true);
+  };
+
+  const onDragOver = (e: DragEvent<HTMLElement>) => {
+    if (!hasDraggedFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = dropAllowed && !uploading ? "copy" : "none";
+  };
+
+  const onDragLeave = (e: DragEvent<HTMLElement>) => {
+    if (!hasDraggedFiles(e)) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragOver(false);
+  };
+
+  const onDrop = (e: DragEvent<HTMLElement>) => {
+    if (!hasDraggedFiles(e)) return;
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragOver(false);
+    if (!dropAllowed || uploadingRef.current) return;
+    // DataTransferItem 은 핸들러 반환 후 무효화 — 동기 시점에 순회 시작.
+    void collectDropItems(e.dataTransfer)
+      .then(startUpload)
+      .catch(() => window.alert("드롭한 항목을 읽지 못했습니다. 다시 시도해 주세요."));
+  };
 
   const openFolder = useCallback((folder: FileFolder) => {
     setScope({ kind: "folder", id: folder.id });
@@ -477,7 +592,13 @@ export function FileLibrary({
         ))}
       </aside>
 
-      <main className={styles.main}>
+      <main
+        className={styles.main}
+        onDragEnter={onDragEnter}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+      >
         <section className={styles.bar}>
           <div className={styles.crumb}>
             <button
@@ -615,13 +736,13 @@ export function FileLibrary({
               </div>
               {isFolderScope ? (
                 canWriteInCurrent ? (
-                  <FileUploadButton
-                    folderId={currentFolderId ?? undefined}
-                    onUploaded={reloadFolder}
-                  />
+                  <>
+                    <FolderUploadButton onPick={pickFiles} disabled={uploading} />
+                    <FileUploadButton onPick={pickFiles} disabled={uploading} />
+                  </>
                 ) : null
               ) : (
-                <FileUploadButton />
+                <FileUploadButton onPick={pickFiles} disabled={uploading} />
               )}
             </div>
           </div>
@@ -724,8 +845,40 @@ export function FileLibrary({
             </>
           ) : null}
         </div>
+
+        {dragOver ? (
+          <div
+            className={cn(styles.dropOverlay, !dropAllowed && styles.dropOverlayDenied)}
+          >
+            <div className={styles.dropOverlayBox}>
+              <div className={styles.dropOverlayTitle}>
+                {!dropAllowed
+                  ? "이 폴더에는 업로드 권한이 없습니다"
+                  : uploading
+                  ? "업로드가 진행 중입니다"
+                  : "여기에 파일을 놓아 업로드"}
+              </div>
+              {dropAllowed && !uploading ? (
+                <div className={styles.dropOverlaySub}>
+                  {currentFolder
+                    ? `"${currentFolder.name}" 폴더에 업로드됩니다. 폴더를 놓으면 구조가 그대로 만들어집니다.`
+                    : "전체 파일에 업로드됩니다."}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
       </main>
 
+      <UploadQueueModal
+        state={uploadState}
+        cancelRequested={cancelRequested}
+        onCancel={() => {
+          cancelRef.current = true;
+          setCancelRequested(true);
+        }}
+        onClose={() => setUploadState(null)}
+      />
       <FolderCreateModal
         open={createModal != null}
         onClose={() => setCreateModal(null)}

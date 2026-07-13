@@ -35,6 +35,7 @@ export default async function ProjectTasksPage({ params }: Props) {
         rightActions={<TaskCreateButton projectId={params.id} users={users} />}
       />
       <TasksWorkspace
+        projectId={params.id}
         doneCount={project.taskCounts.done}
         tasks={tasks}
         users={users}

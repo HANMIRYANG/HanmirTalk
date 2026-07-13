@@ -39,7 +39,10 @@ export function BoardView({
               ) : (
                 list.map((t) => (
                   <div key={t.id} className={styles.boardCard}>
-                    <div className={styles.boardCardTitle}>{t.title}</div>
+                    <div className={styles.boardCardTitle}>
+                      {t.parentTaskId ? "↳ " : t.isKeyTask ? "★ " : ""}
+                      {t.title}
+                    </div>
                     <div className={styles.boardCardMeta}>
                       <span className={styles.boardCardCode}>{t.code}</span>
                       <Tag tone={PRIO_TONE[t.priority]}>{taskPriorityLabel[t.priority]}</Tag>

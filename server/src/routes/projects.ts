@@ -60,6 +60,10 @@ function parseCreateTask(body: unknown): CreateTaskInput | { error: string } {
   if (b.progress !== undefined) {
     if (!isNumber(b.progress)) return { error: "progress_invalid" };
   }
+  if (b.parentTaskId !== undefined && !isString(b.parentTaskId))
+    return { error: "parentTaskId_invalid" };
+  if (b.isKeyTask !== undefined && typeof b.isKeyTask !== "boolean")
+    return { error: "isKeyTask_invalid" };
   return {
     title: b.title.trim(),
     code: isString(b.code) ? b.code : undefined,
@@ -71,7 +75,9 @@ function parseCreateTask(body: unknown): CreateTaskInput | { error: string } {
     dueDate: isString(b.dueDate) ? b.dueDate : undefined,
     dueLabel: isString(b.dueLabel) ? b.dueLabel : undefined,
     progress: isNumber(b.progress) ? Math.max(0, Math.min(100, b.progress)) : undefined,
-    description: isString(b.description) ? b.description : undefined
+    description: isString(b.description) ? b.description : undefined,
+    parentTaskId: isString(b.parentTaskId) ? b.parentTaskId : undefined,
+    isKeyTask: typeof b.isKeyTask === "boolean" ? b.isKeyTask : undefined
   };
 }
 
@@ -507,6 +513,19 @@ export function createProjectsRouter(repos: Repositories): Router {
     if ("error" in parsed) {
       res.status(400).json({ error: parsed.error });
       return;
+    }
+    // 하위 업무는 1단계만 — 부모는 같은 프로젝트 소속이면서 자신이
+    // 하위 업무가 아니어야 한다.
+    if (parsed.parentTaskId) {
+      const parent = await repos.tasks.findById(parsed.parentTaskId);
+      if (!parent || parent.projectId !== req.params.projectId) {
+        res.status(400).json({ error: "parent_not_found" });
+        return;
+      }
+      if (parent.parentTaskId) {
+        res.status(400).json({ error: "parent_is_subtask" });
+        return;
+      }
     }
     const task = await repos.tasks.create(req.params.projectId, parsed, {
       id: req.currentUser!.id

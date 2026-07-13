@@ -33,6 +33,8 @@ type BusyAction = "status" | "progress" | "delete";
 interface TaskRowProps {
   task: TaskItem;
   assignees: User[];
+  // 033 — 상위 업무 행에서만 전달됨. 클릭 시 하위 업무 추가 모달 오픈.
+  onAddSubtask?: (task: TaskItem) => void;
 }
 
 function describeError(err: unknown): string {
@@ -45,7 +47,7 @@ function describeError(err: unknown): string {
   return "처리에 실패했습니다. 잠시 후 다시 시도해 주세요.";
 }
 
-export function TaskRow({ task, assignees }: TaskRowProps) {
+export function TaskRow({ task, assignees, onAddSubtask }: TaskRowProps) {
   const router = useRouter();
   const [busy, setBusy] = useState<BusyAction | null>(null);
   const [progressDraft, setProgressDraft] = useState<string>(String(task.progress));
@@ -116,7 +118,13 @@ export function TaskRow({ task, assignees }: TaskRowProps) {
         />
       </td>
       <td>
-        <div className={styles.title}>
+        <div className={cn(styles.title, task.parentTaskId && styles.titleSub)}>
+          {task.parentTaskId ? <span className={styles.subGlyph}>└</span> : null}
+          {task.isKeyTask ? (
+            <span className={styles.keyBadge} title="주요 업무">
+              ★
+            </span>
+          ) : null}
           {task.title}
           <span className={styles.id}>{task.code}</span>
           {task.subtaskCount ? (
@@ -193,6 +201,18 @@ export function TaskRow({ task, assignees }: TaskRowProps) {
       <td>
         <div className={styles.priorityCell}>
           <Tag tone={PRIO_TONE[task.priority]}>{taskPriorityLabel[task.priority]}</Tag>
+          {onAddSubtask && !task.parentTaskId ? (
+            <button
+              type="button"
+              className={styles.deleteBtn}
+              onClick={() => onAddSubtask(task)}
+              disabled={rowBusy}
+              aria-label="하위 업무 추가"
+              title="하위 업무 추가"
+            >
+              +하위
+            </button>
+          ) : null}
           <button
             type="button"
             className={styles.deleteBtn}

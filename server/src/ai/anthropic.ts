@@ -192,10 +192,13 @@ const PROJECT_DRAFT_SYSTEM =
   '"department":"주관 부서","description":"한 단락 개요","goals":["목표"],"outputs":["산출물"],' +
   '"type":"유형 (예: 제품 양산, 연구개발)","budget":"예산 (언급 시)","externalPartners":"외부 협력 (언급 시)",' +
   '"startDate":"YYYY-MM-DD","dueDate":"YYYY-MM-DD",' +
-  '"milestones":[{"title":"단계명","subtitle":"부연","date":"YYYY-MM-DD"}]}.' +
+  '"milestones":[{"title":"단계명","subtitle":"부연","date":"YYYY-MM-DD"}],' +
+  '"tasks":[{"title":"업무명","description":"업무 내용 한두 문장","startDate":"YYYY-MM-DD","dueDate":"YYYY-MM-DD"}]}.' +
   " 상대 일정(다음 달, 3분기 등)은 오늘 날짜 기준으로 환산." +
   " 언급되지 않은 값은 빈 문자열/빈 배열. milestones 는 서술을 근거로 3~6개," +
-  " 시작~마감 사이에 고르게 배치. 코드펜스 밖에 다른 텍스트 금지.";
+  " 시작~마감 사이에 고르게 배치. tasks 는 이 프로젝트를 완수하기 위한 주요" +
+  " 업무 3~8개 — 실행 단위의 구체적인 일감으로, 마일스톤(시점)과 구분한다." +
+  " 업무 날짜가 불명확하면 빈 문자열. 코드펜스 밖에 다른 텍스트 금지.";
 
 export async function draftProjectFromPrompt(
   prompt: string,

@@ -34,7 +34,8 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
     ? results.messages.length +
       results.files.length +
       results.projects.length +
-      results.products.length
+      results.products.length +
+      (results.tasks?.length ?? 0)
     : 0;
 
   return (
@@ -49,7 +50,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
             type="text"
             name="q"
             defaultValue={rawQuery}
-            placeholder="메시지·파일·프로젝트·제품 검색 (2자 이상)"
+            placeholder="메시지·파일·프로젝트·업무·제품 검색 (2자 이상)"
             className={styles.searchInput}
             autoFocus
           />
@@ -60,8 +61,8 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
 
         {!rawQuery ? (
           <div className={styles.empty}>
-            상단 입력란에 검색어를 입력하세요. 메시지·파일·프로젝트·제품을 한
-            번에 검색합니다.
+            상단 입력란에 검색어를 입력하세요. 메시지·파일·프로젝트·업무·제품을
+            한 번에 검색합니다.
           </div>
         ) : tooShort ? (
           <div className={styles.empty}>검색어는 2자 이상 입력해주세요.</div>

@@ -112,7 +112,7 @@ export function createSystemRouter(deps: SystemDeps): Router {
       refreshTokenTtlDays: Math.round(REFRESH_MAX_AGE_SEC / 86400),
       refreshTokenRotation: true,
       cookieHttpOnly: true,
-      cookieSameSite: "Strict",
+      cookieSameSite: "Lax",
       cookieSecure: config.corsOrigin.startsWith("https://"),
       uploadMaxMb: Math.round(config.uploadMaxBytes / (1024 * 1024)),
       auditLogging: true,

@@ -9,16 +9,19 @@ import type {
   Project,
   ProjectStatus,
   SalesStatus,
-  SearchResults
+  SearchMatch,
+  SearchResults,
+  TaskItem,
+  TaskStatus
 } from "@hanmir/shared";
-import { projectStatusLabel, salesStatusLabel } from "@hanmir/shared";
+import { projectStatusLabel, salesStatusLabel, taskStatusLabel } from "@hanmir/shared";
 import { Avatar } from "@/components/ui/Avatar";
 import { Tag } from "@/components/ui/Tag";
 import { fileService } from "@/services/file.service";
 import { cn } from "@/lib/classNames";
 import styles from "./search.module.css";
 
-type Tab = "all" | "messages" | "files" | "projects" | "products";
+type Tab = "all" | "messages" | "files" | "projects" | "products" | "tasks";
 
 interface Props {
   results: SearchResults;
@@ -47,14 +50,18 @@ const SALES_TONE: Record<SalesStatus, "blue" | "green" | "amber" | "red" | "defa
 export function SearchResultsView({ results, roomNames }: Props) {
   const [tab, setTab] = useState<Tab>("all");
   const { messages, files, projects, products, query } = results;
+  // 구버전 서버 응답(tasks 필드 없음)과의 호환.
+  const tasks = results.tasks ?? [];
 
   const counts = {
     messages: messages.length,
     files: files.length,
     projects: projects.length,
-    products: products.length
+    products: products.length,
+    tasks: tasks.length
   };
-  const total = counts.messages + counts.files + counts.projects + counts.products;
+  const total =
+    counts.messages + counts.files + counts.projects + counts.products + counts.tasks;
 
   if (total === 0) {
     return (
@@ -69,6 +76,7 @@ export function SearchResultsView({ results, roomNames }: Props) {
     { key: "messages", label: "메시지", count: counts.messages },
     { key: "files", label: "파일", count: counts.files },
     { key: "projects", label: "프로젝트", count: counts.projects },
+    { key: "tasks", label: "업무", count: counts.tasks },
     { key: "products", label: "제품", count: counts.products }
   ];
 
@@ -129,7 +137,20 @@ export function SearchResultsView({ results, roomNames }: Props) {
           onMore={tab === "all" ? () => setTab("projects") : undefined}
         >
           {limit(projects).map((p) => (
-            <ProjectHit key={p.id} p={p} />
+            <ProjectHit key={p.id} p={p} query={query} />
+          ))}
+        </Section>
+      ) : null}
+
+      {show("tasks") && counts.tasks > 0 ? (
+        <Section
+          title="업무"
+          fullCount={counts.tasks}
+          shown={limit(tasks).length}
+          onMore={tab === "all" ? () => setTab("tasks") : undefined}
+        >
+          {limit(tasks).map((t) => (
+            <TaskHit key={t.id} t={t} query={query} />
           ))}
         </Section>
       ) : null}
@@ -142,7 +163,7 @@ export function SearchResultsView({ results, roomNames }: Props) {
           onMore={tab === "all" ? () => setTab("products") : undefined}
         >
           {limit(products).map((p) => (
-            <ProductHit key={p.id} p={p} />
+            <ProductHit key={p.id} p={p} query={query} />
           ))}
         </Section>
       ) : null}
@@ -234,15 +255,21 @@ function FileHit({ f }: { f: FileEntry }) {
   );
 }
 
-function ProjectHit({ p }: { p: Project }) {
+// 매칭이 제목이 아닌 필드(설명 등)에서 났을 때 그 근거를 보여주는 스니펫 줄.
+function MatchSnippet({ hit, query }: { hit: SearchMatch; query: string }) {
+  if (!hit.snippet) return null;
+  return <span className={styles.hitSnippet}>{highlight(hit.snippet, query)}</span>;
+}
+
+function ProjectHit({ p, query }: { p: Project & SearchMatch; query: string }) {
   return (
     <li className={styles.item}>
       <Link href={`/projects/${p.id}`} className={cn(styles.link, styles.hit)}>
         <span className={styles.hitMain}>
           <span className={styles.hitTitle}>
-            {p.code ? `${p.code} ` : ""}
-            {p.name}
+            {highlight(`${p.code ? `${p.code} ` : ""}${p.name}`, query)}
           </span>
+          <MatchSnippet hit={p} query={query} />
           <span className={styles.hitMeta}>
             <Tag tone={PROJECT_TONE[p.status] ?? "default"} dot>
               {projectStatusLabel[p.status]}
@@ -255,12 +282,51 @@ function ProjectHit({ p }: { p: Project }) {
   );
 }
 
-function ProductHit({ p }: { p: Product }) {
+const TASK_TONE: Record<TaskStatus, "blue" | "green" | "amber" | "red" | "default"> = {
+  todo: "default",
+  in_progress: "blue",
+  review: "amber",
+  done: "green",
+  on_hold: "amber"
+};
+
+function TaskHit({
+  t,
+  query
+}: {
+  t: TaskItem & SearchMatch & { projectName?: string };
+  query: string;
+}) {
+  return (
+    <li className={styles.item}>
+      <Link
+        href={`/projects/${t.projectId}/tasks`}
+        className={cn(styles.link, styles.hit)}
+      >
+        <span className={styles.hitMain}>
+          <span className={styles.hitTitle}>{highlight(t.title, query)}</span>
+          <MatchSnippet hit={t} query={query} />
+          <span className={styles.hitMeta}>
+            <Tag tone={TASK_TONE[t.status] ?? "default"} dot>
+              {taskStatusLabel[t.status]}
+            </Tag>
+            {t.projectName ? `${t.projectName} · ` : ""}
+            {t.code}
+            {t.dueDate ? ` · 마감 ${t.dueDate}` : ""}
+          </span>
+        </span>
+      </Link>
+    </li>
+  );
+}
+
+function ProductHit({ p, query }: { p: Product & SearchMatch; query: string }) {
   return (
     <li className={styles.item}>
       <Link href={`/products/${p.id}`} className={cn(styles.link, styles.hit)}>
         <span className={styles.hitMain}>
-          <span className={styles.hitTitle}>{p.fullName || p.name}</span>
+          <span className={styles.hitTitle}>{highlight(p.fullName || p.name, query)}</span>
+          <MatchSnippet hit={p} query={query} />
           <span className={styles.hitMeta}>
             <Tag tone={SALES_TONE[p.salesStatus] ?? "default"} dot>
               {salesStatusLabel[p.salesStatus]}
