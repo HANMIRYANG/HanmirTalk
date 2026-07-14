@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ChatMessage, User } from "@hanmir/shared";
 import { chatService } from "@/services/chat.service";
 import { MessageItem } from "./MessageItem";
@@ -15,6 +15,10 @@ import { ThreadDrawer } from "./ThreadDrawer";
 // 같은 id 로 다시 찾아 갱신한다 (useEffect 로 동기화).
 
 const OLDER_PAGE_SIZE = 100;
+
+// SSR 중 useLayoutEffect 경고 회피 — 서버에서는 no-op useEffect 로 대체.
+const useIsomorphicLayoutEffect =
+  typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 interface ChatRoomMessagesProps {
   roomId: string;
@@ -43,6 +47,11 @@ export function ChatRoomMessages({
   users
 }: ChatRoomMessagesProps) {
   const [openThreadId, setOpenThreadId] = useState<string | null>(null);
+  // 타임라인은 페이지가 아니라 .msgs 컨테이너가 스크롤한다. 진입 시
+  // 최신 메시지(맨 아래)로 이동하고, 이후에는 사용자가 바닥 근처에
+  // 있을 때만 새 메시지를 따라 내려간다 (과거 대화를 읽는 중이면 유지).
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const stickToBottom = useRef(true);
   // "이전 메시지 보기" 로 로드한 과거 메시지 — SSR refresh 가 와도 client
   // state 라 유지된다. SSR 윈도우와 겹치면 id 기준으로 중복 제거.
   const [older, setOlder] = useState<ChatMessage[]>([]);
@@ -94,6 +103,33 @@ export function ChatRoomMessages({
     }
   }, [openThreadId, parentMessage]);
 
+  // 최초 진입 — 첫 페인트 전에 맨 아래(최신)로. smooth 없이 즉시 이동해
+  // 위에서부터 훑고 내려오는 플래시를 방지한다.
+  useIsomorphicLayoutEffect(() => {
+    bottomRef.current?.scrollIntoView({ block: "end" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 스크롤 위치로 "바닥에 붙어 있는지"를 추적 — 새 메시지가 렌더된 뒤가
+  // 아니라 사용자가 스크롤한 시점 기준이라 첨부 등 큰 메시지에도 안전.
+  useEffect(() => {
+    const scroller = bottomRef.current?.parentElement;
+    if (!scroller) return;
+    const onScroll = () => {
+      stickToBottom.current =
+        scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
+    };
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    return () => scroller.removeEventListener("scroll", onScroll);
+  }, []);
+
+  const latestId = allMessages[allMessages.length - 1]?.id;
+  useEffect(() => {
+    if (stickToBottom.current) {
+      bottomRef.current?.scrollIntoView({ block: "end" });
+    }
+  }, [latestId]);
+
   return (
     <>
       {mayHaveOlder && !reachedStart ? (
@@ -124,6 +160,7 @@ export function ChatRoomMessages({
           onOpenThread={(target) => setOpenThreadId(target.id)}
         />
       ))}
+      <div ref={bottomRef} aria-hidden="true" />
       {parentMessage ? (
         <ThreadDrawer
           parentMessage={parentMessage}

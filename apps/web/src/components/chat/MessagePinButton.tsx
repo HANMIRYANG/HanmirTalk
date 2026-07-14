@@ -14,11 +14,12 @@ interface MessagePinButtonProps {
   isPinned: boolean;
 }
 
-export function MessagePinButton({ roomId, messageId, isPinned }: MessagePinButtonProps) {
+// 고정/해제 로직 — hover 핀 버튼과 우클릭 컨텍스트 메뉴가 공유한다.
+export function usePinToggle({ roomId, messageId, isPinned }: MessagePinButtonProps) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
 
-  const onClick = async () => {
+  const toggle = async () => {
     if (busy) return;
     setBusy(true);
     try {
@@ -39,11 +40,18 @@ export function MessagePinButton({ roomId, messageId, isPinned }: MessagePinButt
     }
   };
 
+  return { busy, toggle };
+}
+
+export function MessagePinButton(props: MessagePinButtonProps) {
+  const { busy, toggle } = usePinToggle(props);
+  const { isPinned } = props;
+
   return (
     <button
       type="button"
       className={styles.btn}
-      onClick={onClick}
+      onClick={toggle}
       disabled={busy}
       title={isPinned ? "고정 해제" : "메시지 고정"}
       aria-label={isPinned ? "고정 해제" : "메시지 고정"}

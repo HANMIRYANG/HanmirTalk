@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { IconButton } from "@/components/ui/IconButton";
-import { CloseIcon, PinIcon } from "@/components/ui/icons";
+import { CloseIcon } from "@/components/ui/icons";
 import {
   RoomPanelProvider,
   RoomPanelToggleButton,
@@ -144,9 +143,6 @@ export default async function ChatRoomPage({ params }: Props) {
               isAdmin={me.role === "admin" || me.role === "super_admin"}
             />
             <RoomPanelToggleButton />
-            <IconButton aria-label="고정" title="고정된 메시지 (메시지 hover 후 핀 버튼으로 고정/해제)">
-              <PinIcon size={18} />
-            </IconButton>
             <ChatRoomActions room={room} />
             {/* 채팅방 닫기 — 목록으로 복귀. 정보 패널이 숨는 좁은 화면
                 에서도 사이드바 없이 목록으로 돌아갈 수 있는 진입점. */}

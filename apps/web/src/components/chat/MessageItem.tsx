@@ -1,13 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { ChatMessage, User } from "@hanmir/shared";
 import { Avatar } from "@/components/ui/Avatar";
 import { PinIcon } from "@/components/ui/icons";
 import { cn } from "@/lib/classNames";
 import dynamic from "next/dynamic";
-import { MessagePinButton } from "./MessagePinButton";
+import { MessagePinButton, usePinToggle } from "./MessagePinButton";
 import { renderMessageBody } from "./message-item/MessageBody";
+import {
+  MessageContextMenu,
+  type ContextMenuItem
+} from "./message-item/MessageContextMenu";
 import { MessageEditForm } from "./message-item/MessageEditForm";
 import { MessageAttachmentCard } from "./message-item/MessageAttachmentCard";
 import { ReactionBar } from "./message-item/ReactionBar";
@@ -92,6 +96,13 @@ export function MessageItem({
   const [decisionModalOpen, setDecisionModalOpen] = useState(false);
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [infoModalOpen, setInfoModalOpen] = useState(false);
+  // 우클릭 컨텍스트 메뉴 — 열림 좌표 (null 이면 닫힘).
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const pin = usePinToggle({
+    roomId: roomId ?? "",
+    messageId: message.id,
+    isPinned
+  });
 
   if (message.isSystem) {
     return (
@@ -108,6 +119,69 @@ export function MessageItem({
   // 멤버십만 검증).
   const canViewInfo = !!roomId && !!currentUserId && !message.isDeleted;
 
+  // 우클릭 메뉴 항목 — hover 액션과 동일한 게이트에 답글/고정을 더한
+  // 전체 목록. 항목이 없으면 브라우저 기본 메뉴를 그대로 둔다.
+  const menuItems: ContextMenuItem[] = [];
+  if (!editing && !message.isDeleted) {
+    if (onOpenThread) {
+      menuItems.push({
+        key: "thread",
+        label: "답글 달기",
+        onSelect: () => onOpenThread(message)
+      });
+    }
+    if (canViewInfo) {
+      menuItems.push({
+        key: "info",
+        label: "읽음·반응 확인",
+        onSelect: () => setInfoModalOpen(true)
+      });
+    }
+    if (canPin && roomId) {
+      menuItems.push({
+        key: "pin",
+        label: isPinned ? "고정 해제" : "메시지 고정",
+        disabled: pin.busy,
+        onSelect: pin.toggle
+      });
+    }
+    if (canCreateTask && projectId && users) {
+      menuItems.push({
+        key: "task",
+        label: "업무로 만들기",
+        onSelect: () => setTaskModalOpen(true)
+      });
+    }
+    if (canCreateDecision && projectId) {
+      menuItems.push({
+        key: "decision",
+        label: "결정사항으로 만들기",
+        onSelect: () => setDecisionModalOpen(true)
+      });
+    }
+    if (canEdit) {
+      menuItems.push({ key: "edit", label: "수정", onSelect: startEdit });
+    }
+    if (canDelete) {
+      menuItems.push({
+        key: "delete",
+        label: "삭제",
+        danger: true,
+        disabled: busy,
+        onSelect: onConfirmDelete
+      });
+    }
+  }
+
+  const onContextMenu = (e: ReactMouseEvent<HTMLDivElement>) => {
+    if (menuItems.length === 0) return;
+    // 텍스트를 드래그 선택한 상태면 복사 등 기본 메뉴가 더 유용하다.
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed) return;
+    e.preventDefault();
+    setMenuPos({ x: e.clientX, y: e.clientY });
+  };
+
   return (
     <div
       className={cn(
@@ -115,6 +189,7 @@ export function MessageItem({
         message.groupedWithPrev && styles.grouped,
         message.isDeleted && styles.deleted
       )}
+      onContextMenu={onContextMenu}
     >
       <div className={styles.avatarBlock}>
         <Avatar
@@ -267,6 +342,14 @@ export function MessageItem({
         <MessageInfoModal
           messageId={message.id}
           onClose={() => setInfoModalOpen(false)}
+        />
+      ) : null}
+      {menuPos ? (
+        <MessageContextMenu
+          x={menuPos.x}
+          y={menuPos.y}
+          items={menuItems}
+          onClose={() => setMenuPos(null)}
         />
       ) : null}
     </div>
