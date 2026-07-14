@@ -65,6 +65,17 @@ CREATE TABLE IF NOT EXISTS room_members (
   UNIQUE (room_id, user_id)
 );
 
+-- 비멤버 열람자(관리자)의 읽음 포인터 — room_members 에 행을 만들면
+-- 멤버십 부여가 되므로 별도 테이블 (마이그 035). 멤버는 room_members
+-- .last_read_message_id 를 그대로 쓴다.
+CREATE TABLE IF NOT EXISTS room_read_markers (
+  room_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  last_read_message_id UUID,
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (room_id, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   room_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,

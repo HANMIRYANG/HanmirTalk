@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Room } from "@hanmir/shared";
 import { Avatar } from "@/components/ui/Avatar";
 import { Tag } from "@/components/ui/Tag";
 import { IconButton } from "@/components/ui/IconButton";
+import { Pagination } from "@/components/ui/Pagination";
 import { MicIcon, MuteIcon, PlusIcon } from "@/components/ui/icons";
 import {
   useMeetingRecorder,
@@ -28,9 +29,15 @@ interface ChatListProps {
   // Phase 4 G-2 — required for new-chat modal (filter self out of the
   // user picker, become DM counterparty correctly).
   currentUserId: string;
+  // 관리자 전용 참여/미참여 필터 노출 여부 — 서버가 관리자에게만 비멤버
+  // 방을 내려주므로 UI 게이트일 뿐 권한 경계는 서버에 있다.
+  isAdmin?: boolean;
 }
 
-type Filter = "all" | "unread" | "pinned";
+type Filter = "all" | "unread" | "pinned" | "member" | "nonmember";
+
+// 목록이 무한정 길어지지 않도록 페이지당 12개.
+const ROOMS_PER_PAGE = 12;
 
 interface CtxMenuState {
   room: Room;
@@ -38,10 +45,16 @@ interface CtxMenuState {
   y: number;
 }
 
-export function ChatList({ rooms, activeRoomId, currentUserId }: ChatListProps) {
+export function ChatList({
+  rooms,
+  activeRoomId,
+  currentUserId,
+  isAdmin = false
+}: ChatListProps) {
   const pathname = usePathname() ?? "";
   const router = useRouter();
   const [filter, setFilter] = useState<Filter>("all");
+  const [page, setPage] = useState(1);
   const [newChatOpen, setNewChatOpen] = useState(false);
   // 방 행 우클릭 컨텍스트 메뉴 (알림/고정/나가기). 모바일은 우클릭이
   // 없으므로 방 내부 [더보기] 메뉴가 같은 기능을 제공한다.
@@ -72,13 +85,20 @@ export function ChatList({ rooms, activeRoomId, currentUserId }: ChatListProps) 
     };
   }, [router]);
 
+  const isMemberOf = useCallback(
+    (r: Room) => r.members.some((m) => m.userId === currentUserId),
+    [currentUserId]
+  );
+
   const counts = useMemo(
     () => ({
       all: rooms.length,
       unread: rooms.filter((r) => r.unread > 0).length,
-      pinned: rooms.filter((r) => r.pinned).length
+      pinned: rooms.filter((r) => r.pinned).length,
+      member: rooms.filter(isMemberOf).length,
+      nonmember: rooms.filter((r) => !isMemberOf(r)).length
     }),
-    [rooms]
+    [rooms, isMemberOf]
   );
 
   const visible = useMemo(() => {
@@ -87,13 +107,37 @@ export function ChatList({ rooms, activeRoomId, currentUserId }: ChatListProps) 
         return rooms.filter((r) => r.unread > 0);
       case "pinned":
         return rooms.filter((r) => r.pinned);
+      // 관리자 전용 — 내가 멤버인 방 / 열람만 가능한 비멤버 방 분리.
+      case "member":
+        return rooms.filter(isMemberOf);
+      case "nonmember":
+        return rooms.filter((r) => !isMemberOf(r));
       default:
         return rooms;
     }
-  }, [rooms, filter]);
+  }, [rooms, filter, isMemberOf]);
 
-  const pinned = visible.filter((r) => r.pinned);
-  const others = visible.filter((r) => !r.pinned);
+  // 고정 방 먼저 → 최근 대화. 이 순서 그대로 12개씩 잘라 페이지네이션
+  // 하고, 각 페이지 안에서 그룹 헤더를 다시 계산한다.
+  const ordered = useMemo(() => {
+    const pinnedRooms = visible.filter((r) => r.pinned);
+    const otherRooms = visible.filter((r) => !r.pinned);
+    return [...pinnedRooms, ...otherRooms];
+  }, [visible]);
+
+  const pageCount = Math.max(1, Math.ceil(ordered.length / ROOMS_PER_PAGE));
+  const safePage = Math.min(page, pageCount);
+  const pageRooms = ordered.slice(
+    (safePage - 1) * ROOMS_PER_PAGE,
+    safePage * ROOMS_PER_PAGE
+  );
+  const pinned = pageRooms.filter((r) => r.pinned);
+  const others = pageRooms.filter((r) => !r.pinned);
+
+  const changeFilter = (next: Filter) => {
+    setFilter(next);
+    setPage(1);
+  };
 
   return (
     <aside className={styles.chatlist}>
@@ -117,25 +161,44 @@ export function ChatList({ rooms, activeRoomId, currentUserId }: ChatListProps) 
       <div className={styles.filter}>
         <button
           type="button"
-          onClick={() => setFilter("all")}
+          onClick={() => changeFilter("all")}
           className={cn(styles.pill, filter === "all" && styles.pillActive)}
         >
           전체<span className={styles.pillCount}>{counts.all}</span>
         </button>
         <button
           type="button"
-          onClick={() => setFilter("unread")}
+          onClick={() => changeFilter("unread")}
           className={cn(styles.pill, filter === "unread" && styles.pillActive)}
         >
           읽지 않음<span className={styles.pillCount}>{counts.unread}</span>
         </button>
         <button
           type="button"
-          onClick={() => setFilter("pinned")}
+          onClick={() => changeFilter("pinned")}
           className={cn(styles.pill, filter === "pinned" && styles.pillActive)}
         >
           고정<span className={styles.pillCount}>{counts.pinned}</span>
         </button>
+        {isAdmin ? (
+          <>
+            {/* 관리자 전용 — 서버가 관리자에게만 비멤버 방을 내려준다. */}
+            <button
+              type="button"
+              onClick={() => changeFilter("member")}
+              className={cn(styles.pill, filter === "member" && styles.pillActive)}
+            >
+              참여<span className={styles.pillCount}>{counts.member}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => changeFilter("nonmember")}
+              className={cn(styles.pill, filter === "nonmember" && styles.pillActive)}
+            >
+              미참여<span className={styles.pillCount}>{counts.nonmember}</span>
+            </button>
+          </>
+        ) : null}
       </div>
 
       <div className={styles.scroll}>
@@ -170,6 +233,11 @@ export function ChatList({ rooms, activeRoomId, currentUserId }: ChatListProps) 
                 onContextMenu={openCtxMenu}
               />
             ))}
+            {pageCount > 1 ? (
+              <div className={styles.pager}>
+                <Pagination page={safePage} pageCount={pageCount} onChange={setPage} />
+              </div>
+            ) : null}
           </>
         )}
       </div>

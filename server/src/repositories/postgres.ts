@@ -1065,8 +1065,9 @@ const ROOM_SELECT = `
     (SELECT rm5.hidden FROM room_members rm5
        WHERE rm5.room_id = r.id AND rm5.user_id = $1) AS caller_hidden,
     -- Unread = messages newer than this user's last_read_message and not
-    -- authored by them. last_read_message resolves via room_members; when
-    -- the user has no row, we treat every foreign message as unread.
+    -- authored by them. last_read_message resolves via room_members, or —
+    -- 비멤버 관리자 열람(마이그 035) — room_read_markers. 둘 다 없으면
+    -- every foreign message counts as unread.
     -- Phase 11 — 답글은 ChatList unread 배지에서 제외 (timeline 의 markRead
     -- 가 latest top-level id 만 추적하기 때문 — preview 와 일관). 답글의
     -- "안 봤음" 신호는 알림(notification:new) 으로 따로 전달된다.
@@ -1080,10 +1081,13 @@ const ROOM_SELECT = `
           AND mu.parent_message_id IS NULL
           AND mu.created_at > COALESCE(
             (SELECT mm.created_at FROM messages mm
-              WHERE mm.id = (
-                SELECT rm2.last_read_message_id
-                FROM room_members rm2
-                WHERE rm2.room_id = r.id AND rm2.user_id = $1
+              WHERE mm.id = COALESCE(
+                (SELECT rm2.last_read_message_id
+                  FROM room_members rm2
+                  WHERE rm2.room_id = r.id AND rm2.user_id = $1),
+                (SELECT rr.last_read_message_id
+                  FROM room_read_markers rr
+                  WHERE rr.room_id = r.id AND rr.user_id = $1)
               )),
             TIMESTAMP 'epoch'
           )
@@ -1725,19 +1729,29 @@ class PgMessageRepository implements MessageRepository {
   }
 
   async markRead(roomId: string, userId: string, lastMessageId: string): Promise<void> {
-    // Phase 1 D-8 — UPDATE-only (no INSERT). The previous INSERT ON CONFLICT
-    // implicitly granted membership to anyone who hit this endpoint, which
-    // turned the read-marker into a privilege-escalation primitive. The HTTP
-    // route now enforces membership via ensureRoomAccess before reaching
-    // here, so non-members can no longer call this — but defense in depth:
-    // even if the gate is bypassed, this query simply no-ops for non-members
-    // since no row matches.
-    await this.pool.query(
+    // Phase 1 D-8 — 멤버 행은 UPDATE-only (no INSERT). The previous INSERT
+    // ON CONFLICT implicitly granted membership to anyone who hit this
+    // endpoint, which turned the read-marker into a privilege-escalation
+    // primitive. The HTTP route enforces access via ensureRoomAccess
+    // (member or admin) before reaching here.
+    const updated = await this.pool.query(
       `UPDATE room_members
           SET last_read_message_id = $3
         WHERE room_id = $1 AND user_id = $2`,
       [roomId, userId, lastMessageId]
     );
+    if (updated.rowCount === 0) {
+      // 멤버 행 없음 = 비멤버 관리자 열람 (마이그 035). 멤버십 의미가
+      // 없는 room_read_markers 에만 포인터를 남긴다 — room_members 에는
+      // 절대 INSERT 하지 않으므로 기존 보안 속성 유지.
+      await this.pool.query(
+        `INSERT INTO room_read_markers (room_id, user_id, last_read_message_id)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (room_id, user_id)
+         DO UPDATE SET last_read_message_id = $3, updated_at = NOW()`,
+        [roomId, userId, lastMessageId]
+      );
+    }
   }
 
   async getReadStatus(messageId: string): Promise<MessageReadStatus | undefined> {

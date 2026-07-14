@@ -28,7 +28,11 @@ export default async function ChatHomePage() {
 
   return (
     <div className={styles.row}>
-      <ChatList rooms={rooms} currentUserId={me.id} />
+      <ChatList
+        rooms={rooms}
+        currentUserId={me.id}
+        isAdmin={me.role === "admin" || me.role === "super_admin"}
+      />
       <main className={styles.main}>
         <Topbar title="채팅" sub={`${rooms.length}개 대화방`} />
         <div className="content">
