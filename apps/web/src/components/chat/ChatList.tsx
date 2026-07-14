@@ -7,7 +7,11 @@ import type { Room } from "@hanmir/shared";
 import { Avatar } from "@/components/ui/Avatar";
 import { Tag } from "@/components/ui/Tag";
 import { IconButton } from "@/components/ui/IconButton";
-import { MuteIcon, PlusIcon } from "@/components/ui/icons";
+import { MicIcon, MuteIcon, PlusIcon } from "@/components/ui/icons";
+import {
+  useMeetingRecorder,
+  useMeetingRecorderActions
+} from "@/components/meeting/MeetingRecorderProvider";
 import { getSocket } from "@/lib/socket";
 import { useRouter } from "next/navigation";
 import { chatService } from "@/services/chat.service";
@@ -311,6 +315,36 @@ function ChatRow({
   active?: boolean;
   onContextMenu?: (room: Room, e: React.MouseEvent) => void;
 }) {
+  const router = useRouter();
+  const recorder = useMeetingRecorder();
+  const actions = useMeetingRecorderActions();
+
+  // 이 방을 내가 이 탭에서 녹음 중 — hover 여부와 무관하게 빨간 녹음
+  // 버튼을 상시 표시한다.
+  const recordingHere =
+    recorder.recording?.roomId === room.id &&
+    (recorder.phase === "recording" || recorder.phase === "stopping");
+  // 어딘가에서 녹음/획득 중이면 다른 방의 회의 시작은 막는다 (탭당 1녹음).
+  const micDisabled = recorder.phase !== "idle" || recorder.recording !== null;
+
+  // 행 전체가 Link 라 버튼 클릭이 방 이동으로 번지지 않게 preventDefault.
+  const onMicClick = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (micDisabled) return;
+    await actions.start(room.id, room.name);
+    router.refresh();
+  };
+
+  const onRecClick = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (recorder.phase === "stopping") return;
+    if (!(await confirmDialog("진행 중인 회의 녹음을 종료할까요?", { danger: true }))) return;
+    await actions.stop();
+    router.refresh();
+  };
+
   return (
     <Link
       href={`/chat/${room.id}`}
@@ -340,13 +374,45 @@ function ChatRow({
       </div>
       <div className={styles.meta}>
         <div className={styles.time}>{room.lastMessageAt}</div>
-        {room.unread > 0 ? (
-          <div className={cn(styles.badge, room.muted && styles.badgeMuted)}>{room.unread}</div>
-        ) : room.muted ? (
-          <span className={styles.muteIc}>
-            <MuteIcon size={14} />
-          </span>
-        ) : null}
+        {recordingHere ? (
+          <button
+            type="button"
+            className={styles.recBtn}
+            onClick={onRecClick}
+            disabled={recorder.phase === "stopping"}
+            title="녹음 중 — 클릭하면 회의를 종료합니다"
+            aria-label="회의 녹음 종료"
+          >
+            <span className={styles.recDot} aria-hidden />
+          </button>
+        ) : (
+          <>
+            {room.unread > 0 ? (
+              <div className={cn(styles.badge, room.muted && styles.badgeMuted)}>
+                {room.unread}
+              </div>
+            ) : room.muted ? (
+              <span className={styles.muteIc}>
+                <MuteIcon size={14} />
+              </span>
+            ) : null}
+            {/* hover 시 슬라이드-인 (레퍼런스: 날짜 아래 위치) */}
+            <button
+              type="button"
+              className={styles.micBtn}
+              onClick={onMicClick}
+              disabled={micDisabled}
+              title={
+                micDisabled
+                  ? "이미 진행 중인 녹음이 있습니다"
+                  : "이 방에서 회의 녹음을 시작합니다"
+              }
+              aria-label="회의 시작"
+            >
+              <MicIcon size={13} />
+            </button>
+          </>
+        )}
       </div>
     </Link>
   );

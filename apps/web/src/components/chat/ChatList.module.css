@@ -135,6 +135,83 @@
 .badgeMuted { background: var(--text-4); }
 .muteIc { color: var(--text-4); }
 
+/* ── 행 hover 회의 시작 마이크 (레퍼런스: 날짜 아래 자리) ──
+   평소엔 안 보이고 hover 시 슬라이드-인. 안 읽음 배지/음소거 아이콘과
+   같은 슬롯을 쓰므로 hover 동안엔 배지를 숨겨 행 높이를 유지한다. */
+.micBtn {
+  display: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-3);
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+}
+.row:hover .micBtn {
+  display: grid;
+  animation: micSlideIn 0.16s ease;
+}
+.row:hover .badge,
+.row:hover .muteIc {
+  display: none;
+}
+.micBtn:hover {
+  color: var(--brand-blue);
+  border-color: var(--brand-blue);
+  background: var(--brand-blue-50);
+}
+.micBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+@keyframes micSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 녹음 중 — 빨간 원형 버튼 (hover 무관 상시 표시), 클릭 시 종료. */
+.recBtn {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  background: var(--danger);
+  cursor: pointer;
+  padding: 0;
+  animation: recPulse 1.6s ease-in-out infinite;
+}
+.recBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  animation: none;
+}
+.recDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: #fff;
+}
+@keyframes recPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(220, 38, 38, 0);
+  }
+}
+
 @media (max-width: 900px) {
   .chatlist {
     width: 100%;
