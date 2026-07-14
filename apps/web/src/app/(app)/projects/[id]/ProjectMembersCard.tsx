@@ -8,6 +8,7 @@ import { Tag } from "@/components/ui/Tag";
 import { Modal } from "@/components/ui/Modal";
 import { Pagination } from "@/components/ui/Pagination";
 import { SearchIcon } from "@/components/ui/icons";
+import { confirmDialog, alertDialog } from "@/components/ui/AppDialogHost";
 import { projectService } from "@/services/project.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
@@ -79,7 +80,7 @@ export function ProjectMembersCard({ project, users }: ProjectMembersCardProps) 
         handleSessionExpired(router);
         return;
       }
-      window.alert(describeError(err));
+      alertDialog(describeError(err));
     } finally {
       setBusyUserId(null);
     }
@@ -88,7 +89,7 @@ export function ProjectMembersCard({ project, users }: ProjectMembersCardProps) 
   const onRemove = async (userId: string) => {
     if (busyUserId) return;
     const u = userById.get(userId);
-    if (!window.confirm(`'${u?.name ?? userId}' 멤버를 프로젝트에서 제외하시겠습니까?`)) return;
+    if (!(await confirmDialog(`'${u?.name ?? userId}' 멤버를 프로젝트에서 제외하시겠습니까?`, { danger: true }))) return;
     setBusyUserId(userId);
     try {
       const updated = await projectService.removeProjectMember(project.id, userId);
@@ -99,7 +100,7 @@ export function ProjectMembersCard({ project, users }: ProjectMembersCardProps) 
         handleSessionExpired(router);
         return;
       }
-      window.alert(describeError(err));
+      alertDialog(describeError(err));
     } finally {
       setBusyUserId(null);
     }

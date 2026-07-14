@@ -12,6 +12,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Pagination } from "@/components/ui/Pagination";
 import { ApiError } from "@/services/api-client";
 import { meetingService } from "@/services/meeting.service";
+import { confirmDialog, alertDialog } from "@/components/ui/AppDialogHost";
 import styles from "./PptWaitModal.module.css";
 
 const PAGE_SIZE = 5;
@@ -112,13 +113,13 @@ export function PptWaitModal({
         await meetingService.uploadPpt(meetingId, file);
       } catch (error) {
         if (error instanceof ApiError && error.status === 422) {
-          window.alert(
+          alertDialog(
             "PPTX 파일을 읽을 수 없습니다. 파일을 확인한 뒤 다시 업로드해 주세요."
           );
         } else if (error instanceof ApiError && error.status === 409) {
           // 이미 진행됨 (건너뛰기/타임아웃 선행) — 목록 갱신으로 정리
         } else {
-          window.alert("PPT 업로드에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+          alertDialog("PPT 업로드에 실패했습니다. 잠시 후 다시 시도해 주세요.");
         }
       } finally {
         setBusyId(null);
@@ -130,7 +131,7 @@ export function PptWaitModal({
 
   const onSkip = useCallback(
     async (meeting: Meeting) => {
-      if (!window.confirm(`"${meeting.title}" 회의록을 PPT 없이 생성할까요?`)) return;
+      if (!(await confirmDialog(`"${meeting.title}" 회의록을 PPT 없이 생성할까요?`))) return;
       setBusyId(meeting.id);
       try {
         await meetingService.skipPpt(meeting.id);

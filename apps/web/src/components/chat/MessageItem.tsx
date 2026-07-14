@@ -1,12 +1,18 @@
 "use client";
 
-import { useState, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type TouchEvent as ReactTouchEvent
+} from "react";
 import type { ChatMessage, User } from "@hanmir/shared";
 import { Avatar } from "@/components/ui/Avatar";
 import { PinIcon } from "@/components/ui/icons";
 import { cn } from "@/lib/classNames";
 import dynamic from "next/dynamic";
-import { MessagePinButton, usePinToggle } from "./MessagePinButton";
+import { usePinToggle } from "./message-item/usePinToggle";
 import { renderMessageBody } from "./message-item/MessageBody";
 import {
   MessageContextMenu,
@@ -103,6 +109,17 @@ export function MessageItem({
     messageId: message.id,
     isPinned
   });
+  // 모바일(터치) long-press 타이머 — 훅이므로 시스템 메시지 early return
+  // 보다 앞에 선언한다.
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFired = useRef(false);
+  const cancelLongPress = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+  useEffect(() => cancelLongPress, []);
 
   if (message.isSystem) {
     return (
@@ -178,8 +195,31 @@ export function MessageItem({
     // 텍스트를 드래그 선택한 상태면 복사 등 기본 메뉴가 더 유용하다.
     const selection = window.getSelection();
     if (selection && !selection.isCollapsed) return;
+    cancelLongPress();
     e.preventDefault();
     setMenuPos({ x: e.clientX, y: e.clientY });
+  };
+
+  // 모바일(터치) — hover/우클릭이 없으므로 길게 눌러(500ms) 메뉴를 연다.
+  // Android 는 long-press 가 contextmenu 이벤트로도 들어오지만 iOS Safari
+  // 는 발화하지 않아 자체 타이머가 필요하다.
+  const onTouchStart = (e: ReactTouchEvent<HTMLDivElement>) => {
+    if (menuItems.length === 0 || e.touches.length !== 1) return;
+    const { clientX, clientY } = e.touches[0];
+    longPressFired.current = false;
+    cancelLongPress();
+    longPressTimer.current = setTimeout(() => {
+      longPressTimer.current = null;
+      longPressFired.current = true;
+      setMenuPos({ x: clientX, y: clientY });
+    }, 500);
+  };
+
+  const onTouchEnd = (e: ReactTouchEvent<HTMLDivElement>) => {
+    cancelLongPress();
+    // long-press 로 메뉴가 열렸으면 합성 클릭(mousedown)이 메뉴를 바로
+    // 닫아버리지 않도록 기본 동작을 막는다.
+    if (longPressFired.current && e.cancelable) e.preventDefault();
   };
 
   return (
@@ -190,6 +230,10 @@ export function MessageItem({
         message.isDeleted && styles.deleted
       )}
       onContextMenu={onContextMenu}
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
+      onTouchMove={cancelLongPress}
+      onTouchCancel={cancelLongPress}
     >
       <div className={styles.avatarBlock}>
         <Avatar
@@ -213,76 +257,8 @@ export function MessageItem({
               <PinIcon size={11} /> 고정됨
             </span>
           ) : null}
-          {canPin && roomId && !message.isDeleted ? (
-            <MessagePinButton
-              roomId={roomId}
-              messageId={message.id}
-              isPinned={isPinned}
-            />
-          ) : null}
-          {(canEdit ||
-            canDelete ||
-            canViewInfo ||
-            (canCreateDecision && !message.isDeleted) ||
-            (canCreateTask && !message.isDeleted && projectId && users)) &&
-          !editing ? (
-            <span className={styles.actions}>
-              {canViewInfo ? (
-                <button
-                  type="button"
-                  className={styles.actionBtn}
-                  onClick={() => setInfoModalOpen(true)}
-                  aria-label="읽음·반응 확인"
-                  title="누가 읽었고 누가 반응했는지 확인"
-                >
-                  읽음
-                </button>
-              ) : null}
-              {canCreateTask && !message.isDeleted && projectId && users ? (
-                <button
-                  type="button"
-                  className={styles.actionBtn}
-                  onClick={() => setTaskModalOpen(true)}
-                  aria-label="업무로 만들기"
-                  title="이 메시지를 프로젝트 업무로 추가"
-                >
-                  업무
-                </button>
-              ) : null}
-              {canCreateDecision && !message.isDeleted && projectId ? (
-                <button
-                  type="button"
-                  className={styles.actionBtn}
-                  onClick={() => setDecisionModalOpen(true)}
-                  aria-label="결정사항으로 만들기"
-                  title="이 메시지를 프로젝트 결정사항으로 기록"
-                >
-                  결정사항
-                </button>
-              ) : null}
-              {canEdit ? (
-                <button
-                  type="button"
-                  className={styles.actionBtn}
-                  onClick={startEdit}
-                  aria-label="수정"
-                >
-                  수정
-                </button>
-              ) : null}
-              {canDelete ? (
-                <button
-                  type="button"
-                  className={cn(styles.actionBtn, styles.actionDanger)}
-                  onClick={onConfirmDelete}
-                  disabled={busy}
-                  aria-label="삭제"
-                >
-                  삭제
-                </button>
-              ) : null}
-            </span>
-          ) : null}
+          {/* 액션(답글/읽음/고정/수정/삭제 등)은 우클릭·길게 누르기
+              컨텍스트 메뉴로 일원화 — hover 버튼 중복 제거. */}
         </div>
 
         {editing ? (

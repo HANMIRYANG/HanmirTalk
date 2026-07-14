@@ -24,6 +24,7 @@ import type { Meeting, MeetingStatus } from "@hanmir/shared";
 import { ApiError } from "@/services/api-client";
 import { meetingService } from "@/services/meeting.service";
 import { getSocket } from "@/lib/socket";
+import { confirmDialog, alertDialog } from "@/components/ui/AppDialogHost";
 import { ChunkUploadQueue, type UploadHealth } from "./chunk-upload-queue";
 
 export type RecorderPhase = "idle" | "acquiring" | "recording" | "stopping";
@@ -224,14 +225,15 @@ export function MeetingRecorderProvider({ children }: { children: ReactNode }) {
       if (queue) {
         const drained = await queue.drain(DRAIN_TIMEOUT_MS);
         if (drained === "stuck") {
-          const discard = window.confirm(
-            "일부 오디오 업로드에 실패했습니다. 그래도 회의를 종료할까요?\n실패한 구간은 회의록에서 누락됩니다."
+          const discard = await confirmDialog(
+            "일부 오디오 업로드에 실패했습니다. 그래도 회의를 종료할까요?\n실패한 구간은 회의록에서 누락됩니다.",
+            { danger: true }
           );
           if (!discard) {
             // 재시도 계속 — stopping 상태 유지한 채 한 번 더 기다린다.
             const retry = await queue.drain(DRAIN_TIMEOUT_MS);
             if (retry === "stuck") {
-              window.alert("업로드가 계속 실패해 미전송 구간을 제외하고 종료합니다.");
+              alertDialog("업로드가 계속 실패해 미전송 구간을 제외하고 종료합니다.");
             }
           }
         }
@@ -239,9 +241,9 @@ export function MeetingRecorderProvider({ children }: { children: ReactNode }) {
       await meetingService.finishMeeting(active.meetingId);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
-        window.alert("세션이 만료되었습니다. 다시 로그인해 주세요.");
+        alertDialog("세션이 만료되었습니다. 다시 로그인해 주세요.");
       } else {
-        window.alert("회의 종료 처리에 실패했습니다. 회의는 30분 후 자동 종료됩니다.");
+        alertDialog("회의 종료 처리에 실패했습니다. 회의는 30분 후 자동 종료됩니다.");
       }
     } finally {
       resetToIdle(active.meetingId);
@@ -269,7 +271,7 @@ export function MeetingRecorderProvider({ children }: { children: ReactNode }) {
       if (stoppingRef.current) return; // 내가 종료 중 — 정상 흐름
       // 관리자 원격 종료/취소 or 서버 자동 종료 — finish 호출 없이 정리만.
       resetToIdle(active.meetingId);
-      window.alert("회의가 종료되었습니다.");
+      alertDialog("회의가 종료되었습니다.");
     };
     socket.on("meeting:updated", onMeetingUpdated);
     return () => {
@@ -297,7 +299,7 @@ export function MeetingRecorderProvider({ children }: { children: ReactNode }) {
       nextSeqRef.current = 0;
       startRecorder(stream);
     } catch {
-      window.alert("녹음 구간 전환에 실패해 회의를 종료합니다.");
+      alertDialog("녹음 구간 전환에 실패해 회의를 종료합니다.");
       void stopRef.current();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -338,7 +340,7 @@ export function MeetingRecorderProvider({ children }: { children: ReactNode }) {
       }
     };
     recorder.onerror = () => {
-      window.alert("녹음 장치 오류가 발생해 회의를 종료합니다.");
+      alertDialog("녹음 장치 오류가 발생해 회의를 종료합니다.");
       void stopRef.current();
     };
     const track = stream.getAudioTracks()[0];
@@ -347,7 +349,7 @@ export function MeetingRecorderProvider({ children }: { children: ReactNode }) {
         "ended",
         () => {
           if (stoppingRef.current) return;
-          window.alert("마이크 연결이 끊겨 회의를 종료합니다.");
+          alertDialog("마이크 연결이 끊겨 회의를 종료합니다.");
           void stopRef.current();
         },
         { once: true }
@@ -382,7 +384,7 @@ export function MeetingRecorderProvider({ children }: { children: ReactNode }) {
         onMeetingTooLong: () => {
           // 서버가 이미 finish — recorder 만 정리.
           resetToIdle(meeting.id);
-          window.alert(
+          alertDialog(
             "최대 녹음 시간에 도달하여 회의가 자동 종료되었습니다. 회의록을 생성합니다."
           );
         },
@@ -392,7 +394,7 @@ export function MeetingRecorderProvider({ children }: { children: ReactNode }) {
         },
         onSessionExpired: () => {
           resetToIdle();
-          window.alert(
+          alertDialog(
             "세션이 만료되어 녹음이 중단되었습니다. 다시 로그인 후 '이어서 녹음'으로 재개할 수 있습니다."
           );
         },
@@ -406,7 +408,7 @@ export function MeetingRecorderProvider({ children }: { children: ReactNode }) {
       // 4시간(회의 전체 기준) 자동 종료 — 서버도 거부하지만 클라 선제.
       const remain = Math.max(active.startedAtMs + MAX_MEETING_MS - Date.now(), 5_000);
       maxTimerRef.current = setTimeout(() => {
-        window.alert("최대 녹음 시간(4시간)에 도달하여 회의를 자동 종료합니다.");
+        alertDialog("최대 녹음 시간(4시간)에 도달하여 회의를 자동 종료합니다.");
         void stopRef.current();
       }, remain);
 
@@ -431,11 +433,11 @@ export function MeetingRecorderProvider({ children }: { children: ReactNode }) {
   // 마이크 획득 — 회의 생성보다 먼저 (거부 시 유령 회의를 안 만든다).
   const acquireMic = useCallback(async (): Promise<MediaStream | null> => {
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      window.alert("이 브라우저에서는 녹음을 사용할 수 없습니다. (보안 컨텍스트/미지원)");
+      alertDialog("이 브라우저에서는 녹음을 사용할 수 없습니다. (보안 컨텍스트/미지원)");
       return null;
     }
     if (!pickMimeType()) {
-      window.alert("이 브라우저는 WebM 오디오 녹음을 지원하지 않습니다. Chrome/Edge 를 사용해 주세요.");
+      alertDialog("이 브라우저는 WebM 오디오 녹음을 지원하지 않습니다. Chrome/Edge 를 사용해 주세요.");
       return null;
     }
     try {
@@ -443,13 +445,13 @@ export function MeetingRecorderProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       const name = err instanceof DOMException ? err.name : "";
       if (name === "NotAllowedError") {
-        window.alert(
+        alertDialog(
           "마이크 권한이 거부되었습니다. 브라우저 주소창의 권한 설정에서 허용해 주세요."
         );
       } else if (name === "NotFoundError") {
-        window.alert("사용 가능한 마이크를 찾을 수 없습니다.");
+        alertDialog("사용 가능한 마이크를 찾을 수 없습니다.");
       } else {
-        window.alert("마이크를 사용할 수 없습니다.");
+        alertDialog("마이크를 사용할 수 없습니다.");
       }
       return null;
     }
@@ -458,7 +460,7 @@ export function MeetingRecorderProvider({ children }: { children: ReactNode }) {
   const start = useCallback(
     async (roomId: string, roomName: string) => {
       if (recordingRef.current || stoppingRef.current) {
-        window.alert("이미 다른 방에서 녹음 중입니다.");
+        alertDialog("이미 다른 방에서 녹음 중입니다.");
         return;
       }
       patchState({ phase: "acquiring" });
@@ -474,11 +476,11 @@ export function MeetingRecorderProvider({ children }: { children: ReactNode }) {
         stream.getTracks().forEach((t) => t.stop());
         patchState({ phase: "idle" });
         if (err instanceof ApiError && err.status === 409) {
-          window.alert("이 방에는 이미 진행 중인 회의가 있습니다.");
+          alertDialog("이 방에는 이미 진행 중인 회의가 있습니다.");
         } else if (err instanceof ApiError && err.status === 503) {
-          window.alert("회의록 AI 가 아직 설정되지 않았습니다. 관리자에게 문의해 주세요.");
+          alertDialog("회의록 AI 가 아직 설정되지 않았습니다. 관리자에게 문의해 주세요.");
         } else {
-          window.alert("회의 시작에 실패했습니다.");
+          alertDialog("회의 시작에 실패했습니다.");
         }
         return;
       }
@@ -492,7 +494,7 @@ export function MeetingRecorderProvider({ children }: { children: ReactNode }) {
   const resume = useCallback(
     async (meeting: Meeting, roomName: string) => {
       if (recordingRef.current || stoppingRef.current) {
-        window.alert("이미 녹음 중입니다.");
+        alertDialog("이미 녹음 중입니다.");
         return;
       }
       if (!meeting.roomId) return;
@@ -512,7 +514,7 @@ export function MeetingRecorderProvider({ children }: { children: ReactNode }) {
           // 이미 종료된 회의 — 헤더가 refresh 로 상태를 따라잡는다.
           return;
         }
-        window.alert("녹음 재개에 실패했습니다.");
+        alertDialog("녹음 재개에 실패했습니다.");
       }
     },
     [acquireMic, beginRecording, patchState]
@@ -524,7 +526,7 @@ export function MeetingRecorderProvider({ children }: { children: ReactNode }) {
         await meetingService.finishMeeting(meetingId);
         patchState({ lastFinishedMeetingId: meetingId });
       } catch {
-        window.alert("회의 종료에 실패했습니다.");
+        alertDialog("회의 종료에 실패했습니다.");
       }
     },
     [patchState]

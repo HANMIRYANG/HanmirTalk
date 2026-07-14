@@ -6,6 +6,7 @@ import type { Project } from "@hanmir/shared";
 import { projectService } from "@/services/project.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
+import { confirmDialog, alertDialog } from "@/components/ui/AppDialogHost";
 import { ProjectFormModal } from "@/app/(app)/projects/ProjectFormModal";
 
 interface ProjectActionsProps {
@@ -31,9 +32,10 @@ export function ProjectActions({ project }: ProjectActionsProps) {
   const onCancel = async () => {
     if (busy || cancelled) return;
     if (
-      !window.confirm(
-        `'${project.name}' 프로젝트를 취소(중단) 처리하시겠습니까?\n관련 업무와 메시지는 그대로 보존됩니다.`
-      )
+      !(await confirmDialog(
+        `'${project.name}' 프로젝트를 취소(중단) 처리하시겠습니까?\n관련 업무와 메시지는 그대로 보존됩니다.`,
+        { danger: true }
+      ))
     ) {
       return;
     }
@@ -46,7 +48,7 @@ export function ProjectActions({ project }: ProjectActionsProps) {
         handleSessionExpired(router);
         return;
       }
-      window.alert(describeError(err));
+      alertDialog(describeError(err));
     } finally {
       setBusy(false);
     }

@@ -10,6 +10,7 @@ import type {
   UserRole
 } from "@hanmir/shared";
 import { Avatar } from "@/components/ui/Avatar";
+import { alertDialog } from "@/components/ui/AppDialogHost";
 import { Tag } from "@/components/ui/Tag";
 import { SearchIcon } from "@/components/ui/icons";
 import { Modal } from "@/components/ui/Modal";
@@ -228,7 +229,7 @@ export function UsersAdminCard({ initialUsers, departments }: UsersAdminCardProp
         handleSessionExpired(router);
         return;
       }
-      window.alert(describeError(err));
+      alertDialog(describeError(err));
     } finally {
       setBusyUserId(null);
     }

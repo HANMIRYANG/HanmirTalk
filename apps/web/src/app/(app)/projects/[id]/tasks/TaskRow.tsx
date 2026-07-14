@@ -10,6 +10,7 @@ import { ProgressBar } from "@/components/ui/ProgressBar";
 import { taskService } from "@/services/task.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
+import { confirmDialog, alertDialog } from "@/components/ui/AppDialogHost";
 import { cn } from "@/lib/classNames";
 import styles from "./tasks.module.css";
 
@@ -68,7 +69,7 @@ export function TaskRow({ task, assignees, milestoneName, onAddSubtask }: TaskRo
         handleSessionExpired(router);
         return;
       }
-      window.alert(describeError(err));
+      alertDialog(describeError(err));
     } finally {
       setBusy(null);
     }
@@ -103,8 +104,8 @@ export function TaskRow({ task, assignees, milestoneName, onAddSubtask }: TaskRo
     }
   };
 
-  const onDelete = () => {
-    if (!window.confirm(`'${task.title}' 업무를 삭제하시겠습니까?`)) return;
+  const onDelete = async () => {
+    if (!(await confirmDialog(`'${task.title}' 업무를 삭제하시겠습니까?`, { danger: true }))) return;
     void run("delete", () => taskService.deleteTask(task.id));
   };
 

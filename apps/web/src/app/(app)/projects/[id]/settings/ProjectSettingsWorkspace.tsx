@@ -15,6 +15,7 @@ import { projectService } from "@/services/project.service";
 import { chatService } from "@/services/chat.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
+import { confirmDialog, alertDialog } from "@/components/ui/AppDialogHost";
 import { ProjectFormModal } from "../../ProjectFormModal";
 
 interface ProjectSettingsWorkspaceProps {
@@ -60,7 +61,7 @@ export function ProjectSettingsWorkspace({
         handleSessionExpired(router);
         return;
       }
-      window.alert(describeError(err));
+      alertDialog(describeError(err));
     } finally {
       setBusy(false);
     }
@@ -87,9 +88,10 @@ export function ProjectSettingsWorkspace({
   const onCancelProject = () =>
     run(async () => {
       if (
-        !window.confirm(
-          `'${project.name}' 프로젝트를 취소할까요?\n상태가 '취소'로 바뀌며 목록에서 진행 중 프로젝트로 표시되지 않습니다. (데이터는 보존)`
-        )
+        !(await confirmDialog(
+          `'${project.name}' 프로젝트를 취소할까요?\n상태가 '취소'로 바뀌며 목록에서 진행 중 프로젝트로 표시되지 않습니다. (데이터는 보존)`,
+          { danger: true }
+        ))
       ) {
         return;
       }

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { erpService } from "@/services/erp.service";
+import { confirmDialog, alertDialog } from "@/components/ui/AppDialogHost";
 
 export function CancelDocumentButton({ id }: { id: string; adminHint?: boolean }) {
   const router = useRouter();
@@ -10,13 +11,13 @@ export function CancelDocumentButton({ id }: { id: string; adminHint?: boolean }
 
   const onCancel = async () => {
     if (busy) return;
-    if (!window.confirm("이 전표를 취소하면 차감된 재고가 복원됩니다. 계속할까요?")) return;
+    if (!(await confirmDialog("이 전표를 취소하면 차감된 재고가 복원됩니다. 계속할까요?", { danger: true }))) return;
     setBusy(true);
     try {
       await erpService.cancelDocument(id);
       router.refresh();
     } catch {
-      window.alert("취소에 실패했습니다.");
+      alertDialog("취소에 실패했습니다.");
     } finally {
       setBusy(false);
     }

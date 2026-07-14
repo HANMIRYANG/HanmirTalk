@@ -18,6 +18,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Meeting } from "@hanmir/shared";
 import { MicIcon } from "@/components/ui/icons";
+import { confirmDialog } from "@/components/ui/AppDialogHost";
 import {
   formatElapsed,
   useMeetingRecorder,
@@ -107,7 +108,7 @@ export function MeetingHeaderControl({
 
   const onFinishRemote = useCallback(async () => {
     if (!ssrActive) return;
-    if (!window.confirm("진행 중인 회의 녹음을 종료할까요?")) return;
+    if (!(await confirmDialog("진행 중인 회의 녹음을 종료할까요?", { danger: true }))) return;
     await actions.finishRemote(ssrActive.id);
     router.refresh();
   }, [actions, ssrActive, router]);

@@ -6,6 +6,7 @@ import type { ChatMessage } from "@hanmir/shared";
 import { chatService } from "@/services/chat.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
+import { confirmDialog, alertDialog } from "@/components/ui/AppDialogHost";
 
 // Phase 2 E-1 — 수정/삭제 상태와 핸들러. busy 는 저장과 삭제가 공유한다
 // (원래 MessageItem 본체에 있던 단일 busy state 를 그대로 유지).
@@ -64,7 +65,7 @@ export function useMessageActions(message: ChatMessage) {
 
   const onConfirmDelete = async () => {
     if (busy) return;
-    if (!window.confirm("이 메시지를 삭제하시겠습니까? (복구 불가)")) return;
+    if (!(await confirmDialog("이 메시지를 삭제하시겠습니까? (복구 불가)", { danger: true }))) return;
     setBusy(true);
     try {
       await chatService.deleteMessage(message.id);
@@ -75,10 +76,10 @@ export function useMessageActions(message: ChatMessage) {
         return;
       }
       if (err instanceof ApiError && err.status === 403) {
-        window.alert("삭제 권한이 없습니다.");
+        alertDialog("삭제 권한이 없습니다.");
         return;
       }
-      window.alert("삭제에 실패했습니다.");
+      alertDialog("삭제에 실패했습니다.");
     } finally {
       setBusy(false);
     }

@@ -1,0 +1,26 @@
+/* "새 메시지 ↓" 배지 — 스크롤이 위에 있을 때 스크롤포트 하단에 sticky
+   로 떠 있고, 클릭하면 최신 메시지로 이동한다. */
+.newBadgeWrap {
+  position: sticky;
+  bottom: 8px;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.newBadge {
+  pointer-events: auto;
+  border: none;
+  border-radius: 999px;
+  padding: 7px 16px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--brand-blue);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.22);
+  cursor: pointer;
+}
+.newBadge:hover {
+  background: #1A4593;
+}

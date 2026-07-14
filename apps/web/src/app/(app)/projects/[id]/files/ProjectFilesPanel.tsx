@@ -8,6 +8,7 @@ import { UploadIcon } from "@/components/ui/icons";
 import { fileService } from "@/services/file.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
+import { confirmDialog } from "@/components/ui/AppDialogHost";
 import styles from "./files.module.css";
 
 const fileColorClass: Record<string, string> = {
@@ -85,7 +86,7 @@ export function ProjectFilesPanel({ projectId, initialFiles, users }: ProjectFil
 
   const onDelete = async (file: FileEntry) => {
     if (busyFileId) return;
-    if (!window.confirm(`'${file.name}' 파일을 삭제하시겠습니까?`)) return;
+    if (!(await confirmDialog(`'${file.name}' 파일을 삭제하시겠습니까?`, { danger: true }))) return;
     setBusyFileId(file.id);
     setError(null);
     try {

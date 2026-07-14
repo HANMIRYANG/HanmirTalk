@@ -8,6 +8,7 @@ import type {
   UpdateDepartmentInput
 } from "@hanmir/shared";
 import { Modal } from "@/components/ui/Modal";
+import { confirmDialog } from "@/components/ui/AppDialogHost";
 import { departmentService } from "@/services/department.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
@@ -122,7 +123,7 @@ export function DepartmentsAdminCard({ initialDepartments }: DepartmentsAdminCar
 
   const onDelete = async (dept: Department) => {
     if (busyId) return;
-    const confirmed = window.confirm(`'${dept.name}' 부서를 삭제할까요?`);
+    const confirmed = await confirmDialog(`'${dept.name}' 부서를 삭제할까요?`, { danger: true });
     if (!confirmed) return;
     setBusyId(dept.id);
     setRowError(null);

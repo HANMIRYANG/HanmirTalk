@@ -8,6 +8,7 @@ import { Tag } from "@/components/ui/Tag";
 import { decisionService } from "@/services/decision.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
+import { confirmDialog, alertDialog } from "@/components/ui/AppDialogHost";
 import { getSocket } from "@/lib/socket";
 import { cn } from "@/lib/classNames";
 import { DecisionReadStatusButton } from "./DecisionReadStatusButton";
@@ -123,7 +124,7 @@ function DecisionCard({
   const canConfirm = !decision.myConfirmed && !decision.isDeleted;
 
   const onDelete = async () => {
-    if (!window.confirm("이 결정 사항을 삭제하시겠습니까? 복구할 수 없습니다.")) return;
+    if (!(await confirmDialog("이 결정 사항을 삭제하시겠습니까? 복구할 수 없습니다.", { danger: true }))) return;
     try {
       await decisionService.deleteDecision(decision.id);
       router.refresh();
@@ -132,7 +133,7 @@ function DecisionCard({
         handleSessionExpired(router);
         return;
       }
-      window.alert("삭제에 실패했습니다.");
+      alertDialog("삭제에 실패했습니다.");
     }
   };
 
@@ -145,7 +146,7 @@ function DecisionCard({
         handleSessionExpired(router);
         return;
       }
-      window.alert("확인 처리에 실패했습니다.");
+      alertDialog("확인 처리에 실패했습니다.");
     }
   };
 

@@ -7,6 +7,7 @@ import { PinIcon } from "@/components/ui/icons";
 import { chatService } from "@/services/chat.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
+import { confirmDialog, alertDialog } from "@/components/ui/AppDialogHost";
 import styles from "./PinnedBanner.module.css";
 
 interface PinnedBannerProps {
@@ -20,7 +21,7 @@ export function PinnedBanner({ roomId, pinned }: PinnedBannerProps) {
 
   const onUnpin = async () => {
     if (busy) return;
-    if (!window.confirm("이 메시지의 고정을 해제하시겠습니까?")) return;
+    if (!(await confirmDialog("이 메시지의 고정을 해제하시겠습니까?"))) return;
     setBusy(true);
     try {
       await chatService.unpinMessage(roomId);
@@ -30,7 +31,7 @@ export function PinnedBanner({ roomId, pinned }: PinnedBannerProps) {
         handleSessionExpired(router);
         return;
       }
-      window.alert("고정 해제에 실패했습니다.");
+      alertDialog("고정 해제에 실패했습니다.");
     } finally {
       setBusy(false);
     }

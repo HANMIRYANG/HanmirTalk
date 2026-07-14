@@ -16,6 +16,7 @@ import { fileService } from "@/services/file.service";
 import { aiService } from "@/services/ai.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
+import { alertDialog } from "@/components/ui/AppDialogHost";
 import fstyles from "@/app/(app)/admin/admin-forms.module.css";
 
 const SALES_OPTIONS: SalesStatus[] = [
@@ -237,7 +238,7 @@ export function ProductFormModal({
           });
         }
       } catch {
-        window.alert(
+        alertDialog(
           "제품은 저장되었지만 사양/이미지 일부 저장에 실패했습니다. 상세 페이지에서 다시 시도해 주세요."
         );
       }

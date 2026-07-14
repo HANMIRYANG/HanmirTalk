@@ -8,6 +8,7 @@ import { MoreIcon } from "@/components/ui/icons";
 import { chatService } from "@/services/chat.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
+import { confirmDialog, alertDialog } from "@/components/ui/AppDialogHost";
 import { cn } from "@/lib/classNames";
 import { RoomEditModal } from "./RoomEditModal";
 import { AddMemberModal } from "./AddMemberModal";
@@ -71,7 +72,7 @@ export function ChatRoomActions({ room }: Props) {
         handleSessionExpired(router);
         return;
       }
-      window.alert("알림 설정에 실패했습니다.");
+      alertDialog("알림 설정에 실패했습니다.");
     } finally {
       setBusy(false);
     }
@@ -86,7 +87,7 @@ export function ChatRoomActions({ room }: Props) {
     const confirmText = isDirect
       ? `'${room.name}' 님과의 채팅방을 나가시겠습니까?\n목록에서 사라지며, 새 메시지가 오면 다시 표시됩니다.`
       : `'${room.name}' 채팅방에서 나가시겠습니까?`;
-    if (!window.confirm(confirmText)) return;
+    if (!(await confirmDialog(confirmText, { danger: true }))) return;
     setBusy(true);
     try {
       await chatService.leaveRoom(room.id);
@@ -98,7 +99,7 @@ export function ChatRoomActions({ room }: Props) {
         handleSessionExpired(router);
         return;
       }
-      window.alert("방 나가기에 실패했습니다.");
+      alertDialog("방 나가기에 실패했습니다.");
       setBusy(false);
     }
   };

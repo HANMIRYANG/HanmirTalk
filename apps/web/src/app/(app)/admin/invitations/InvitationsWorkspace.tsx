@@ -10,6 +10,7 @@ import type {
 } from "@hanmir/shared";
 import { userRoleLabel } from "@hanmir/shared";
 import { Tag } from "@/components/ui/Tag";
+import { confirmDialog, alertDialog } from "@/components/ui/AppDialogHost";
 import { Pagination } from "@/components/ui/Pagination";
 import { invitationService } from "@/services/invitation.service";
 import { ApiError } from "@/services/api-client";
@@ -131,7 +132,7 @@ export function InvitationsWorkspace({ initialInvitations, departments }: Props)
 
   const onRevoke = async (invitation: UserInvitation) => {
     if (busyId) return;
-    if (!window.confirm(`'${invitation.email}' 초대를 취소하시겠습니까?`)) return;
+    if (!(await confirmDialog(`'${invitation.email}' 초대를 취소하시겠습니까?`, { danger: true }))) return;
     setBusyId(invitation.id);
     setError(null);
     try {
@@ -143,7 +144,7 @@ export function InvitationsWorkspace({ initialInvitations, departments }: Props)
         handleSessionExpired(router);
         return;
       }
-      window.alert(describeError(err));
+      alertDialog(describeError(err));
     } finally {
       setBusyId(null);
     }

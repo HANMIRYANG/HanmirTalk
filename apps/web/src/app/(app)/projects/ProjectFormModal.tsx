@@ -16,6 +16,7 @@ import { taskService } from "@/services/task.service";
 import { aiService } from "@/services/ai.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
+import { alertDialog } from "@/components/ui/AppDialogHost";
 import fstyles from "@/app/(app)/admin/admin-forms.module.css";
 
 const STATUS_OPTIONS: ProjectStatus[] = [
@@ -286,7 +287,7 @@ export function ProjectFormModal({
               milestoneIdByTitle.set(m.title.trim(), saved.id);
             }
           } catch {
-            window.alert(
+            alertDialog(
               "프로젝트는 생성되었지만 마일스톤 일부 저장에 실패했습니다. 상세 페이지의 '주요 마일스톤'에서 다시 추가해 주세요."
             );
           }
@@ -306,7 +307,7 @@ export function ProjectFormModal({
               });
             }
           } catch {
-            window.alert(
+            alertDialog(
               "프로젝트는 생성되었지만 업무 일부 등록에 실패했습니다. '업무' 탭에서 다시 추가해 주세요."
             );
           }

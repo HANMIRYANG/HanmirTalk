@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { chatService } from "@/services/chat.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
+import { alertDialog } from "@/components/ui/AppDialogHost";
 
 interface Props {
   ownerId: string;
@@ -32,7 +33,7 @@ export function ProductOwnerChatButton({ ownerId, isSelf }: Props) {
         handleSessionExpired(router);
         return;
       }
-      window.alert("대화방을 열 수 없습니다. 잠시 후 다시 시도해주세요.");
+      alertDialog("대화방을 열 수 없습니다. 잠시 후 다시 시도해주세요.");
     } finally {
       setBusy(false);
     }

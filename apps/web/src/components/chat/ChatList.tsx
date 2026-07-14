@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import { chatService } from "@/services/chat.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
+import { confirmDialog, alertDialog } from "@/components/ui/AppDialogHost";
 import { cn } from "@/lib/classNames";
 import { NewChatModal } from "./NewChatModal";
 import styles from "./ChatList.module.css";
@@ -226,7 +227,7 @@ function RoomContextMenu({
         handleSessionExpired(router);
         return;
       }
-      window.alert(failMessage);
+      alertDialog(failMessage);
       setBusy(false);
     }
   };
@@ -249,13 +250,13 @@ function RoomContextMenu({
       "고정 변경에 실패했습니다."
     );
 
-  const onLeave = () => {
+  const onLeave = async () => {
     // direct 방 나가기 = 내 목록에서 숨김 (새 메시지가 오면 복귀).
     const confirmText =
       room.type === "direct"
         ? `'${room.name}' 님과의 채팅방을 나가시겠습니까?\n목록에서 사라지며, 새 메시지가 오면 다시 표시됩니다.`
         : `'${room.name}' 채팅방에서 나가시겠습니까?`;
-    if (!window.confirm(confirmText)) return;
+    if (!(await confirmDialog(confirmText, { danger: true }))) return;
     void run(async () => {
       await chatService.leaveRoom(room.id);
       // 보고 있던 방에서 나갔으면 목록으로 이동.

@@ -25,6 +25,7 @@ import {
   SearchIcon
 } from "@/components/ui/icons";
 import { Pagination } from "@/components/ui/Pagination";
+import { confirmDialog, alertDialog } from "@/components/ui/AppDialogHost";
 import { fileService } from "@/services/file.service";
 import { ApiError } from "@/services/api-client";
 import { cn } from "@/lib/classNames";
@@ -261,11 +262,11 @@ export function FileLibrary({
       if (uploadingRef.current) return;
       const limitMsg = limitError(items);
       if (limitMsg) {
-        window.alert(limitMsg);
+        alertDialog(limitMsg);
         return;
       }
       if (!currentFolderId && hasDirectories(items)) {
-        window.alert("폴더 업로드는 부서 폴더를 연 상태에서만 가능합니다.");
+        alertDialog("폴더 업로드는 부서 폴더를 연 상태에서만 가능합니다.");
         return;
       }
       uploadingRef.current = true;
@@ -340,7 +341,7 @@ export function FileLibrary({
     // DataTransferItem 은 핸들러 반환 후 무효화 — 동기 시점에 순회 시작.
     void collectDropItems(e.dataTransfer)
       .then(startUpload)
-      .catch(() => window.alert("드롭한 항목을 읽지 못했습니다. 다시 시도해 주세요."));
+      .catch(() => alertDialog("드롭한 항목을 읽지 못했습니다. 다시 시도해 주세요."));
   };
 
   const openFolder = useCallback((folder: FileFolder) => {
@@ -361,7 +362,7 @@ export function FileLibrary({
   };
 
   const onFolderDelete = async (folder: FileFolder) => {
-    if (!window.confirm(`"${folder.name}" 폴더를 삭제할까요? (빈 폴더만 삭제됩니다)`)) {
+    if (!(await confirmDialog(`"${folder.name}" 폴더를 삭제할까요? (빈 폴더만 삭제됩니다)`, { danger: true }))) {
       return;
     }
     try {
@@ -374,7 +375,7 @@ export function FileLibrary({
       }
       router.refresh();
     } catch (err) {
-      window.alert(
+      alertDialog(
         err instanceof ApiError && err.message === "folder_not_empty"
           ? "비어있지 않은 폴더는 삭제할 수 없습니다."
           : "폴더 삭제에 실패했습니다."

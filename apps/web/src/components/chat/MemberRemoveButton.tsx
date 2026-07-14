@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { chatService } from "@/services/chat.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
+import { confirmDialog, alertDialog } from "@/components/ui/AppDialogHost";
 import styles from "./MemberRemoveButton.module.css";
 
 interface Props {
@@ -22,7 +23,7 @@ export function MemberRemoveButton({ roomId, userId, userName }: Props) {
 
   const onClick = async () => {
     if (busy) return;
-    if (!window.confirm(`'${userName}' 님을 이 채팅방에서 추방하시겠습니까?`)) return;
+    if (!(await confirmDialog(`'${userName}' 님을 이 채팅방에서 추방하시겠습니까?`, { danger: true }))) return;
     setBusy(true);
     try {
       await chatService.removeMember(roomId, userId);
@@ -33,10 +34,10 @@ export function MemberRemoveButton({ roomId, userId, userName }: Props) {
         return;
       }
       if (err instanceof ApiError && err.status === 403) {
-        window.alert("추방 권한이 없습니다.");
+        alertDialog("추방 권한이 없습니다.");
         return;
       }
-      window.alert("추방에 실패했습니다.");
+      alertDialog("추방에 실패했습니다.");
     } finally {
       setBusy(false);
     }

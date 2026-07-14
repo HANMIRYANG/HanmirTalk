@@ -6,6 +6,7 @@ import type { Product, User } from "@hanmir/shared";
 import { productService } from "@/services/product.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
+import { confirmDialog, alertDialog } from "@/components/ui/AppDialogHost";
 import { ProductFormModal } from "@/app/(app)/products/ProductFormModal";
 import { SalesStatusChangeModal } from "./SalesStatusChangeModal";
 
@@ -32,9 +33,10 @@ export function ProductActions({ product, users }: ProductActionsProps) {
   const onDelete = async () => {
     if (busy) return;
     if (
-      !window.confirm(
-        `'${product.name}' 제품을 삭제하시겠습니까?\n복구할 수 없습니다.`
-      )
+      !(await confirmDialog(
+        `'${product.name}' 제품을 삭제하시겠습니까?\n복구할 수 없습니다.`,
+        { danger: true }
+      ))
     ) {
       return;
     }
@@ -47,7 +49,7 @@ export function ProductActions({ product, users }: ProductActionsProps) {
         handleSessionExpired(router);
         return;
       }
-      window.alert(describeError(err));
+      alertDialog(describeError(err));
       setBusy(false);
     }
   };

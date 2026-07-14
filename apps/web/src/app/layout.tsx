@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { AppDialogHost } from "@/components/ui/AppDialogHost";
 import "@/styles/globals.css";
 
 export const metadata: Metadata = {
@@ -27,7 +28,11 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ko">
-      <body>{children}</body>
+      <body>
+        {children}
+        {/* window.confirm/alert 대체 다이얼로그 — 전 라우트 공용 호스트 */}
+        <AppDialogHost />
+      </body>
     </html>
   );
 }

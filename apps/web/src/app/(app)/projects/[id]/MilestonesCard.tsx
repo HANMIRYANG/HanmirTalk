@@ -10,6 +10,7 @@ import { Pagination } from "@/components/ui/Pagination";
 import { projectService } from "@/services/project.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
+import { confirmDialog, alertDialog } from "@/components/ui/AppDialogHost";
 import { cn } from "@/lib/classNames";
 import fstyles from "@/app/(app)/admin/admin-forms.module.css";
 import styles from "./detail.module.css";
@@ -148,7 +149,7 @@ export function MilestonesCard({ projectId, milestones, canManage }: Props) {
 
   const onDelete = async (m: Milestone) => {
     if (busy) return;
-    if (!window.confirm(`'${m.title}' 마일스톤을 삭제하시겠습니까?`)) return;
+    if (!(await confirmDialog(`'${m.title}' 마일스톤을 삭제하시겠습니까?`, { danger: true }))) return;
     setBusy(true);
     try {
       await projectService.deleteMilestone(projectId, m.id);
@@ -158,7 +159,7 @@ export function MilestonesCard({ projectId, milestones, canManage }: Props) {
         handleSessionExpired(router);
         return;
       }
-      window.alert(describeError(err));
+      alertDialog(describeError(err));
     } finally {
       setBusy(false);
     }

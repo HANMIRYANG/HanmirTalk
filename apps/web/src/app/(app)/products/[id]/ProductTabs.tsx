@@ -32,6 +32,7 @@ import { fileService } from "@/services/file.service";
 import { productService } from "@/services/product.service";
 import { ApiError } from "@/services/api-client";
 import { handleSessionExpired } from "@/lib/client-auth";
+import { confirmDialog } from "@/components/ui/AppDialogHost";
 import { cn } from "@/lib/classNames";
 import styles from "./detail.module.css";
 
@@ -83,7 +84,7 @@ export function ProductTabs({
 
   const onDeleteDocument = async (doc: ProductDocument) => {
     if (deletingDocId) return;
-    if (!window.confirm(`'${doc.fileName}'을(를) 삭제하시겠습니까? 파일도 함께 삭제됩니다.`)) {
+    if (!(await confirmDialog(`'${doc.fileName}'을(를) 삭제하시겠습니까? 파일도 함께 삭제됩니다.`, { danger: true }))) {
       return;
     }
     setDeletingDocId(doc.id);

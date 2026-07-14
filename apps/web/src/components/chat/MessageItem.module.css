@@ -217,42 +217,6 @@
   color: var(--text-4);
   margin-left: 4px;
 }
-.actions {
-  margin-left: auto;
-  display: inline-flex;
-  gap: 4px;
-  opacity: 0;
-  transition: opacity 0.1s ease;
-}
-.msg:hover .actions {
-  opacity: 1;
-}
-.actionBtn {
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text-2);
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: var(--r-pill);
-  cursor: pointer;
-  line-height: 1.4;
-}
-.actionBtn:hover {
-  background: var(--surface-muted);
-  color: var(--text-1);
-}
-.actionBtn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.actionDanger {
-  color: var(--danger);
-}
-.actionDanger:hover {
-  background: var(--danger-bg, #FEE2E2);
-  color: var(--danger);
-}
-
 /* Phase 2 E-1 — inline edit composer. Replaces .body while editing. */
 .editor {
   margin-top: 4px;

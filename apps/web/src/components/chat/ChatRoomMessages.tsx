@@ -5,6 +5,7 @@ import type { ChatMessage, User } from "@hanmir/shared";
 import { chatService } from "@/services/chat.service";
 import { MessageItem } from "./MessageItem";
 import { ThreadDrawer } from "./ThreadDrawer";
+import styles from "./ChatRoomMessages.module.css";
 
 // Phase 11 — 채팅방 메시지 리스트 + ThreadDrawer 상태를 함께 관리하는
 // client wrapper. server component(`chat/[roomId]/page.tsx`) 는 SSR 로
@@ -52,6 +53,8 @@ export function ChatRoomMessages({
   // 있을 때만 새 메시지를 따라 내려간다 (과거 대화를 읽는 중이면 유지).
   const bottomRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
+  // 위쪽을 보고 있는 동안 남의 새 메시지가 도착하면 표시하는 배지.
+  const [showNewBadge, setShowNewBadge] = useState(false);
   // "이전 메시지 보기" 로 로드한 과거 메시지 — SSR refresh 가 와도 client
   // state 라 유지된다. SSR 윈도우와 겹치면 id 기준으로 중복 제거.
   const [older, setOlder] = useState<ChatMessage[]>([]);
@@ -118,17 +121,35 @@ export function ChatRoomMessages({
     const onScroll = () => {
       stickToBottom.current =
         scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
+      // 직접 스크롤해서 바닥에 닿으면 새 메시지 배지 해제.
+      if (stickToBottom.current) setShowNewBadge(false);
     };
     scroller.addEventListener("scroll", onScroll, { passive: true });
     return () => scroller.removeEventListener("scroll", onScroll);
   }, []);
 
-  const latestId = allMessages[allMessages.length - 1]?.id;
+  const latest = allMessages[allMessages.length - 1];
+  const latestId = latest?.id;
+  const latestIsMine = latest?.authorId === currentUserId;
+  const prevLatestId = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (stickToBottom.current) {
+    const isNewArrival =
+      prevLatestId.current !== undefined && prevLatestId.current !== latestId;
+    prevLatestId.current = latestId;
+    // 내가 보낸 메시지는 위를 보고 있었어도 항상 최신으로 내려간다.
+    // 남의 메시지는 바닥 근처에 있을 때만 따라가고, 아니면 배지 표시.
+    if (latestIsMine || stickToBottom.current) {
       bottomRef.current?.scrollIntoView({ block: "end" });
+      setShowNewBadge(false);
+    } else if (isNewArrival) {
+      setShowNewBadge(true);
     }
-  }, [latestId]);
+  }, [latestId, latestIsMine]);
+
+  const jumpToLatest = () => {
+    setShowNewBadge(false);
+    bottomRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+  };
 
   return (
     <>
@@ -160,6 +181,13 @@ export function ChatRoomMessages({
           onOpenThread={(target) => setOpenThreadId(target.id)}
         />
       ))}
+      {showNewBadge ? (
+        <div className={styles.newBadgeWrap}>
+          <button type="button" className={styles.newBadge} onClick={jumpToLatest}>
+            새 메시지 ↓
+          </button>
+        </div>
+      ) : null}
       <div ref={bottomRef} aria-hidden="true" />
       {parentMessage ? (
         <ThreadDrawer
