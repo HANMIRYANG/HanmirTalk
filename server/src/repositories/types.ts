@@ -105,6 +105,44 @@ export interface RefreshTokenRepository {
   revokeAllForUser(userId: string): Promise<void>;
 }
 
+// HanmirERP SSO — one-time authorization tickets (마이그레이션 036). Raw
+// tickets are returned only at issue time and stored as sha256 digests, same
+// policy as refresh tokens. `consume` is the single-use gate and MUST be
+// atomic: two concurrent exchanges of the same ticket may return a row to at
+// most one caller (PG: conditional UPDATE; memory: synchronous check-and-set).
+export interface IssueSsoTicketInput {
+  userId: string;
+  clientId: string;
+  redirectUri: string;
+  // sha256 hex of the state param — raw state is never persisted.
+  stateHash?: string;
+  // PKCE S256 challenge, stored verbatim (already a one-way derivation).
+  codeChallenge?: string;
+  ttlSec: number;
+}
+
+export interface IssuedSsoTicket {
+  // Raw ticket for the redirect (?code=). Never persisted.
+  ticket: string;
+  expiresAt: Date;
+}
+
+export interface ConsumedSsoTicket {
+  userId: string;
+  clientId: string;
+  redirectUri: string;
+  codeChallenge?: string;
+  expiresAt: Date;
+}
+
+export interface SsoTicketRepository {
+  issue(input: IssueSsoTicketInput): Promise<IssuedSsoTicket>;
+  // Marks the ticket consumed and returns its bindings. Returns undefined
+  // when the ticket is unknown, expired, or already consumed — the caller
+  // cannot distinguish these on purpose (uniform invalid_grant).
+  consume(rawTicket: string): Promise<ConsumedSsoTicket | undefined>;
+}
+
 export interface UserRepository {
   list(): Promise<User[]>;
   findById(id: string): Promise<User | undefined>;
@@ -782,6 +820,7 @@ export interface Repositories {
   pushSubscriptions: PushSubscriptionRepository;
   audit: AuditRepository;
   refreshTokens: RefreshTokenRepository;
+  ssoTickets: SsoTicketRepository;
   invitations: InvitationRepository;
   orgNotifications: OrgNotificationRepository;
   scheduledMessages: ScheduledMessageRepository;

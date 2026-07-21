@@ -31,7 +31,9 @@ export const ACCESS_MAX_AGE_SEC = 60 * 60;
 export const REFRESH_MAX_AGE_SEC = 30 * 24 * 60 * 60;
 export const PASSWORD_MIN_LENGTH = 8;
 
-function clientContext(req: Request): { userAgent?: string; ip?: string } {
+// Exported for routes/sso.ts — the SSO authorize endpoint issues sessions
+// through the same refresh-rotation path and needs the same client context.
+export function clientContext(req: Request): { userAgent?: string; ip?: string } {
   return {
     userAgent: req.header("user-agent") ?? undefined,
     ip:
@@ -138,12 +140,15 @@ function clearRotationGraceForUser(userId: string): void {
   }
 }
 
-type RefreshFailure = "missing_refresh" | "invalid_refresh" | "user_inactive";
+export type RefreshFailure = "missing_refresh" | "invalid_refresh" | "user_inactive";
 
 // POST /refresh 와 GET /bounce 가 공유하는 회전 본체. 성공 시 새 쿠키를
 // res 에 심고 user 를 돌려준다. 실패 시 쿠키 정리는 호출부 책임
 // (refresh 는 401 JSON, bounce 는 302 /login 으로 각자 마무리).
-async function rotateRefreshSession(
+// GET /auth/sso/authorize (routes/sso.ts) 도 같은 경로를 쓴다 — 리프레시
+// 쿠키가 Path=/api/v1/auth 스코프라 /auth/sso/* 요청에도 실리므로, access
+// 만료 상태로 authorize 에 진입한 브라우저를 재로그인 없이 복구한다.
+export async function rotateRefreshSession(
   repos: Repositories,
   req: Request,
   res: Response
@@ -182,7 +187,8 @@ async function rotateRefreshSession(
 // bounce 의 리다이렉트 목적지는 웹 오리진 기준. 운영(caddy 동일 오리진)
 // 에서는 상대경로로 충분하지만, dev 처럼 API(4000)와 웹(3000)이 다른
 // 오리진이면 상대경로가 API 오리진으로 풀리므로 CORS_ORIGIN 을 붙인다.
-function webUrl(path: string): string {
+// (routes/sso.ts 의 /login 리다이렉트도 같은 규칙을 쓴다.)
+export function webUrl(path: string): string {
   const origin = config.corsOrigin.split(",")[0]?.trim();
   if (!origin || !origin.startsWith("http")) return path;
   return `${origin.replace(/\/$/, "")}${path}`;

@@ -61,5 +61,15 @@ export const config = {
   meetingSegmentMaxMinutes: Number(process.env.MEETING_SEGMENT_MAX_MINUTES ?? 60),
   // awaiting_ppt(부서별 PPT 업로드 대기) 상한(시간). 초과 시 워커가 PPT
   // 없이 회의록 생성을 자동 진행한다.
-  meetingPptWaitHours: Number(process.env.MEETING_PPT_WAIT_HOURS ?? 24)
+  meetingPptWaitHours: Number(process.env.MEETING_PPT_WAIT_HOURS ?? 24),
+
+  // HanmirERP SSO — one-time authorization ticket TTL (seconds). The ticket
+  // only has to survive one browser redirect + one server-to-server exchange,
+  // so 60 s is generous. Clamped to [10, 300] so a bad env value can't turn
+  // tickets into long-lived bearer credentials. Client registry itself is
+  // SSO_CLIENTS (parsed in auth/sso.ts).
+  ssoTicketTtlSec: Math.min(
+    300,
+    Math.max(10, Number(process.env.SSO_TICKET_TTL_SEC ?? 60) || 60)
+  )
 };

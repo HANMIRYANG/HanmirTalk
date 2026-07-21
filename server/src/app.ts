@@ -9,6 +9,7 @@ import { createMemoryRepositories } from "./repositories/memory";
 import type { Repositories } from "./repositories/types";
 import { attachCurrentUser, requireAuth } from "./auth/middleware";
 import { createAuthRouter } from "./routes/auth";
+import { createSsoRouter } from "./routes/sso";
 import { createUsersRouter } from "./routes/users";
 import { createRoomsRouter } from "./routes/rooms";
 import { createMessagesRouter } from "./routes/messages";
@@ -57,6 +58,10 @@ export function createApp(deps: AppDeps = { repos: createMemoryRepositories() })
     res.json({ ok: true, ts: new Date().toISOString() });
   });
 
+  // HanmirERP SSO — mounted under /auth so the path-scoped refresh cookie
+  // (Path=/api/v1/auth) rides along with authorize requests. Manages its own
+  // auth (session → refresh rotation → login detour), so no requireAuth.
+  app.use(`${config.apiPrefix}/auth/sso`, createSsoRouter(deps.repos));
   // Auth router stays public (login + logout); `/auth/me` is guarded inside the router.
   app.use(`${config.apiPrefix}/auth`, createAuthRouter(deps.repos));
 

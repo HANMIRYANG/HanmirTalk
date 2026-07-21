@@ -122,6 +122,10 @@ import type {
   ResolvedRefreshToken,
   RoomRepository,
   ScheduledMessageRepository,
+  SsoTicketRepository,
+  IssueSsoTicketInput,
+  IssuedSsoTicket,
+  ConsumedSsoTicket,
   TaskRepository,
   UserRepository,
   CreateFolderRepoInput,
@@ -2876,6 +2880,63 @@ class MemoryRefreshTokenRepository implements RefreshTokenRepository {
   }
 }
 
+// HanmirERP SSO — one-time authorization tickets. Same digest policy as
+// refresh tokens: only sha256 hashes are kept, raw tickets never persist.
+// consume() is check-and-set with no await in between, so Node's single
+// thread makes it atomic — mirrors the PG conditional-UPDATE guarantee.
+interface SsoTicketRow {
+  ticketHash: string;
+  userId: string;
+  clientId: string;
+  redirectUri: string;
+  stateHash?: string;
+  codeChallenge?: string;
+  expiresAt: Date;
+  consumedAt: Date | null;
+}
+
+class MemorySsoTicketRepository implements SsoTicketRepository {
+  private readonly rows = new Map<string, SsoTicketRow>();
+
+  async issue(input: IssueSsoTicketInput): Promise<IssuedSsoTicket> {
+    // Opportunistic cleanup — tickets are seconds-lived; anything expired
+    // for over a day is pure dead weight.
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    for (const [hash, row] of this.rows) {
+      if (row.expiresAt.getTime() < cutoff) this.rows.delete(hash);
+    }
+    const raw = randomBytes(32).toString("base64url");
+    const row: SsoTicketRow = {
+      ticketHash: hashRefreshToken(raw),
+      userId: input.userId,
+      clientId: input.clientId,
+      redirectUri: input.redirectUri,
+      stateHash: input.stateHash,
+      codeChallenge: input.codeChallenge,
+      expiresAt: new Date(Date.now() + input.ttlSec * 1000),
+      consumedAt: null
+    };
+    this.rows.set(row.ticketHash, row);
+    return { ticket: raw, expiresAt: row.expiresAt };
+  }
+
+  async consume(rawTicket: string): Promise<ConsumedSsoTicket | undefined> {
+    if (!rawTicket) return undefined;
+    const row = this.rows.get(hashRefreshToken(rawTicket));
+    if (!row) return undefined;
+    if (row.consumedAt) return undefined;
+    if (row.expiresAt.getTime() <= Date.now()) return undefined;
+    row.consumedAt = new Date();
+    return {
+      userId: row.userId,
+      clientId: row.clientId,
+      redirectUri: row.redirectUri,
+      codeChallenge: row.codeChallenge,
+      expiresAt: row.expiresAt
+    };
+  }
+}
+
 // Phase 8 K-2 — 사용자 초대.
 interface InvitationRow {
   id: string;
@@ -3704,6 +3765,7 @@ export function createMemoryRepositories(): Repositories {
     pushSubscriptions: new MemoryPushSubscriptionRepository(),
     audit: new MemoryAuditRepository(),
     refreshTokens: new MemoryRefreshTokenRepository(),
+    ssoTickets: new MemorySsoTicketRepository(),
     invitations,
     orgNotifications,
     scheduledMessages,

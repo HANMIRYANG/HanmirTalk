@@ -1,7 +1,14 @@
 import { LoginForm } from "./LoginForm";
 import styles from "./login.module.css";
 
-export default function LoginPage() {
+// `next`: 로그인 후 복귀 경로. 현재 유일한 생산자는 ERP SSO authorize
+// (GET /api/v1/auth/sso/authorize) 의 /login 리다이렉트다. 상대경로만
+// 허용하는 검증은 LoginForm 쪽에서 수행한다.
+export default function LoginPage({
+  searchParams
+}: {
+  searchParams?: { next?: string };
+}) {
   return (
     <div className={styles.shellWrap}>
       <div className={styles.shell}>
@@ -48,7 +55,9 @@ export default function LoginPage() {
           </div>
         </section>
 
-        <LoginForm />
+        <LoginForm
+          nextPath={typeof searchParams?.next === "string" ? searchParams.next : undefined}
+        />
       </div>
     </div>
   );

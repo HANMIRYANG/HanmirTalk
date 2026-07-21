@@ -139,6 +139,10 @@ import type {
   ResolvedRefreshToken,
   RoomRepository,
   ScheduledMessageRepository,
+  SsoTicketRepository,
+  IssueSsoTicketInput,
+  IssuedSsoTicket,
+  ConsumedSsoTicket,
   TaskRepository,
   UserRepository
 } from "./types";
@@ -3569,6 +3573,70 @@ class PgRefreshTokenRepository implements RefreshTokenRepository {
   }
 }
 
+// HanmirERP SSO — one-time authorization tickets (마이그레이션 036). Raw
+// tickets never touch the DB: sha256 digests only, same policy as refresh
+// tokens above.
+class PgSsoTicketRepository implements SsoTicketRepository {
+  constructor(private readonly pool: Pool) {}
+
+  async issue(input: IssueSsoTicketInput): Promise<IssuedSsoTicket> {
+    // Opportunistic cleanup — tickets live for seconds; rows expired for
+    // over a day are dead weight kept only briefly for forensics.
+    await this.pool.query(
+      `DELETE FROM sso_authorization_tickets WHERE expires_at < NOW() - INTERVAL '1 day'`
+    );
+    const raw = randomBytes(32).toString("base64url");
+    const expiresAt = new Date(Date.now() + input.ttlSec * 1000);
+    await this.pool.query(
+      `INSERT INTO sso_authorization_tickets
+         (ticket_hash, user_id, client_id, redirect_uri, state_hash, code_challenge, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        hashRefreshToken(raw),
+        input.userId,
+        input.clientId,
+        input.redirectUri,
+        input.stateHash ?? null,
+        input.codeChallenge ?? null,
+        expiresAt
+      ]
+    );
+    return { ticket: raw, expiresAt };
+  }
+
+  // Single-use gate. The conditional UPDATE is the atomicity boundary: the
+  // row lock serializes concurrent exchanges and the consumed_at IS NULL /
+  // expires_at > NOW() predicates make every loser match zero rows — no
+  // transaction block needed for a single statement.
+  async consume(rawTicket: string): Promise<ConsumedSsoTicket | undefined> {
+    if (!rawTicket) return undefined;
+    const { rows } = await this.pool.query<{
+      user_id: string;
+      client_id: string;
+      redirect_uri: string;
+      code_challenge: string | null;
+      expires_at: Date;
+    }>(
+      `UPDATE sso_authorization_tickets
+          SET consumed_at = NOW()
+        WHERE ticket_hash = $1
+          AND consumed_at IS NULL
+          AND expires_at > NOW()
+        RETURNING user_id, client_id, redirect_uri, code_challenge, expires_at`,
+      [hashRefreshToken(rawTicket)]
+    );
+    const row = rows[0];
+    if (!row) return undefined;
+    return {
+      userId: row.user_id,
+      clientId: row.client_id,
+      redirectUri: row.redirect_uri,
+      codeChallenge: row.code_challenge ?? undefined,
+      expiresAt: new Date(row.expires_at)
+    };
+  }
+}
+
 // Phase 8 K-2 — 사용자 초대.
 interface InvitationRow {
   id: string;
@@ -5356,6 +5424,7 @@ export function createPostgresRepositories(pool: Pool): Repositories {
     pushSubscriptions: new PgPushSubscriptionRepository(pool),
     audit: new PgAuditRepository(pool),
     refreshTokens: new PgRefreshTokenRepository(pool),
+    ssoTickets: new PgSsoTicketRepository(pool),
     invitations: new PgInvitationRepository(pool),
     orgNotifications: new PgOrgNotificationRepository(pool),
     scheduledMessages: new PgScheduledMessageRepository(pool),
