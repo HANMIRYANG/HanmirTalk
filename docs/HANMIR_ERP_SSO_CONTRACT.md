@@ -77,8 +77,18 @@ HanmirTalk 이 사내 통합 로그인(Identity Provider) 역할을 하고, Hanm
 | `client_id` | ✔ | `[a-z0-9._-]{2,64}` | 등록된 클라이언트 ID (예: `hanmir-erp`) |
 | `redirect_uri` | ✔ | 절대 URL | **등록값과 문자열 정확 일치** |
 | `state` | ✔ | 출력 가능한 ASCII 8~512자 | ERP 가 생성한 CSRF 바인딩 난수. 그대로 반환됨 |
-| `code_challenge` | ✔ | base64url 43~128자 | PKCE S256 챌린지 = BASE64URL(SHA256(code_verifier)) |
+| `code_challenge` | ✔ | base64url **정확히 43자** | PKCE S256 챌린지 = BASE64URL(SHA256(code_verifier)) |
 | `code_challenge_method` | ✔ | `S256` 고정 | `plain` 불허 |
+
+PKCE 두 값의 규칙은 서로 다르다 — challenge 에 verifier 규칙을 적용하지 말 것:
+
+| 값 | 문자 집합 | 길이 |
+|---|---|---|
+| `code_verifier` (RFC 7636 §4.1) | `A-Z a-z 0-9 - . _ ~` | 43~128자 |
+| `code_challenge` (S256 산출값) | `A-Z a-z 0-9 - _` (base64url) | 정확히 43자, `=` padding 없음, `.`/`~` 불허 |
+
+S256 해시 산출값이 될 수 없는 형태(길이 42/44/128, `.` `~` `=` 포함 등)는
+authorize 가 `error=invalid_request` 로 거부한다.
 
 응답:
 
@@ -162,6 +172,35 @@ redirect_uri) → PKCE → 사용자 활성. secret 이 틀린 요청은 ticket 
   기록한다. ticket/code/secret/state 원문·쿠키·Authorization 헤더는 감사
   로그와 애플리케이션 로그 어디에도 남지 않는다.
 
+### 4.1 클라이언트 IP 신뢰 경계 (rate limit·감사 로그의 IP 판정)
+
+```
+Cloudflare Edge ─▶ cloudflared(호스트 systemd) ─▶ Caddy(127.0.0.1:80) ─▶ Express(server:4000)
+      │                                              │
+      │ CF-Connecting-IP = 실제 방문자 IP             │ X-Forwarded-For ← {client_ip} 단일 값으로 고정
+      │ (엣지가 강제 설정 — 방문자 위조 불가)           │ (방문자발 XFF 체인은 여기서 폐기)
+```
+
+- Caddy(2.8+)가 `trusted_proxies static private_ranges` + `client_ip_headers
+  CF-Connecting-IP` 로 실제 방문자 IP 를 판정하고, upstream 에는
+  `header_up X-Forwarded-For {client_ip}` 로 **단일 IP 만** 전달한다.
+- Express 는 `TRUST_PROXY_HOPS=1`(운영 compose 기본)로 Caddy 한 홉만
+  신뢰한다. dev/직접 노출 환경은 기본 0 — XFF 를 아예 무시하므로 위조
+  헤더로 rate limit 을 우회할 수 없다.
+- **사용자 입력 X-Forwarded-For 를 직접 신뢰하지 않는다.** 서버 코드는
+  `req.headers["x-forwarded-for"]` 를 파싱하지 않고 전부
+  `server/src/auth/client-ip.ts` 의 단일 함수(→ 검증된 `req.ip`)를 쓴다 —
+  로그인 브루트포스 카운터·SSO authorize/exchange 리미터·감사 로그가 모두
+  같은 판정을 공유한다.
+- CF 헤더가 없는 요청(호스트 로컬 smoke test 등)은 소켓 피어 주소로
+  안정적으로 귀결된다.
+- `server:4000` 은 호스트/외부에 노출하지 않는다(compose 에 ports 없음) —
+  Express 에 닿는 경로는 Caddy 뿐이다. Caddy 는 계속 `127.0.0.1:80` 만
+  바인딩한다.
+- **잔여 위험:** 리미터·회전 유예 맵은 in-app 단일 프로세스 전제다.
+  Express 를 다중 인스턴스로 확장하면 rate limit 은 Redis 등 공유 저장소
+  기반으로 교체해야 한다 (감사 로그는 DB 라 영향 없음).
+
 ---
 
 ## 5. ERP 클라이언트 등록 방법 (HanmirTalk 운영자)
@@ -193,6 +232,8 @@ redirect_uri) → PKCE → 사용자 활성. secret 이 틀린 요청은 ticket 
 |---|---|
 | `SSO_CLIENTS` | 등록 클라이언트 JSON 배열 (secret 은 sha256 해시만) |
 | `SSO_TICKET_TTL_SEC` | ticket TTL 초 (기본 60) |
+| `SSO_AUTHORIZE_RATE_PER_MIN` / `SSO_EXCHANGE_RATE_PER_MIN` | IP 당 분당 한도 (기본 30) |
+| `TRUST_PROXY_HOPS` | 프록시 신뢰 홉 수 — 운영 1(Caddy), 직접 노출 0 (§4.1) |
 
 **HanmirERP (권장 이름 — ERP 저장소 기준):**
 

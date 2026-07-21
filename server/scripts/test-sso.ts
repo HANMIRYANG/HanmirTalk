@@ -29,8 +29,14 @@ process.env.SSO_CLIENTS = JSON.stringify([
   }
 ]);
 process.env.SSO_TICKET_TTL_SEC = "60";
+// 이 하네스는 authorize/exchange 를 수십 회 호출한다 — 기본 30/분 한도에
+// 걸리지 않게 넉넉히 올린다. 한도 자체(35→30+429)와 IP 버킷 분리는
+// test-client-ip.ts / test-proxy-chain 이 기본값으로 검증한다.
+process.env.SSO_AUTHORIZE_RATE_PER_MIN = "500";
+process.env.SSO_EXCHANGE_RATE_PER_MIN = "500";
 delete process.env.CORS_ORIGIN; // default http://localhost:3000 → webUrl base
 delete process.env.DATABASE_URL; // 절대 실 DB 를 붙이지 않는다 — memory adapter 강제
+delete process.env.TRUST_PROXY_HOPS; // 기본 0 — XFF 무시 경로로 회귀 검증
 
 const WEB_ORIGIN = "http://localhost:3000";
 const API_PREFIX = "/api/v1";
@@ -481,15 +487,91 @@ async function main(): Promise<void> {
     await form(undefined, "POST", `${API_PREFIX}/auth/sso/exchange`, exchangeFields(code, verifier));
   }
 
-  // ════ 5. 레이트리밋 (마지막 — 이후 authorize 테스트를 막으므로) ════
-  console.log("\n■ 레이트리밋");
+  // ════ 5. PKCE 검증 규칙 — S256 challenge 는 verifier 와 다른 규칙 ════
+  console.log("\n■ PKCE 검증 규칙");
   {
-    let saw429 = false;
-    for (let i = 0; i < 40 && !saw429; i += 1) {
-      const res = await http(browser, "GET", authorizePath());
-      if (res.status === 429) saw429 = true;
+    const { isValidCodeChallenge, isValidCodeVerifier } = await import("../src/auth/sso");
+    const b64u = (n: number) => "A".repeat(n); // base64url 합법 문자로 길이만 조절
+
+    check("challenge: 정상 S256 산출값(43자 base64url) 통과",
+      isValidCodeChallenge(pkcePair().challenge));
+    check("challenge: 42자 거부", !isValidCodeChallenge(b64u(42)));
+    check("challenge: 44자 거부", !isValidCodeChallenge(b64u(44)));
+    check("challenge: 128자 거부", !isValidCodeChallenge(b64u(128)));
+    check("challenge: '.' 포함 거부", !isValidCodeChallenge(`${b64u(42)}.`));
+    check("challenge: '~' 포함 거부", !isValidCodeChallenge(`${b64u(42)}~`));
+    check("challenge: '=' padding 거부", !isValidCodeChallenge(`${b64u(42)}=`));
+    check("challenge: '-'/'_' 포함 base64url 43자 허용",
+      isValidCodeChallenge(`${b64u(41)}-_`));
+
+    check("verifier: 43자·128자 허용 ('-._~' 포함)",
+      isValidCodeVerifier(`${"a".repeat(39)}-._~`) && isValidCodeVerifier("b".repeat(128)));
+    check("verifier: 42자·129자 거부",
+      !isValidCodeVerifier("a".repeat(42)) && !isValidCodeVerifier("a".repeat(129)));
+    check("verifier: 금지 문자('+','=') 거부",
+      !isValidCodeVerifier(`${"a".repeat(42)}+`) && !isValidCodeVerifier(`${"a".repeat(42)}=`));
+  }
+  {
+    // authorize 흐름에서도 verifier 형태(길이 43~128, '.~' 포함)의 challenge
+    // 는 이제 거부된다 — S256 산출값이 아니므로.
+    const badChallenges: Array<[string, string]> = [
+      ["길이 42", "A".repeat(42)],
+      ["길이 44", "A".repeat(44)],
+      ["길이 128", "A".repeat(128)],
+      ["'.' 포함 43자", `${"A".repeat(42)}.`],
+      ["'~' 포함 43자", `${"A".repeat(42)}~`],
+      ["'=' padding 43자", `${"A".repeat(42)}=`]
+    ];
+    for (const [label, badChallenge] of badChallenges) {
+      const res = await http(browser, "GET", authorizePath({ code_challenge: badChallenge }));
+      const loc = res.status === 302 ? new URL(res.headers.get("location") ?? "") : undefined;
+      check(
+        `authorize: 비정상 challenge(${label}) → error=invalid_request`,
+        Boolean(loc) &&
+          loc!.searchParams.get("error") === "invalid_request" &&
+          !loc!.searchParams.get("code")
+      );
     }
-    check("authorize 연타 → 429 too_many_requests", saw429);
+    // '-'와 '_'가 실제로 포함된 challenge 로 전체 흐름 성공 — 자연 발생
+    // 확률이 높으므로 (각 문자 등장 확률 ~75%) 몇 번 뽑아서 찾는다.
+    let pair = pkcePair();
+    for (let i = 0; i < 500 && !(pair.challenge.includes("-") && pair.challenge.includes("_")); i += 1) {
+      pair = pkcePair();
+    }
+    if (pair.challenge.includes("-") && pair.challenge.includes("_")) {
+      const state = `st-${randomBytes(9).toString("base64url")}`;
+      const res = await http(browser, "GET", authorizePath({ state, code_challenge: pair.challenge }));
+      const loc = res.status === 302 ? new URL(res.headers.get("location") ?? "") : undefined;
+      const code = loc?.searchParams.get("code") ?? "";
+      const ex = code
+        ? await form(undefined, "POST", `${API_PREFIX}/auth/sso/exchange`, exchangeFields(code, pair.verifier))
+        : undefined;
+      check("'-','_' 포함 정상 challenge 로 발급+교환 성공", ex?.status === 200,
+        `authorize=${res.status} exchange=${ex?.status ?? "-"}`);
+    } else {
+      check("'-','_' 포함 정상 challenge 로 발급+교환 성공", false, "샘플 생성 실패(500회)");
+    }
+    // verifier 경계: 43자·128자('-._~' 포함) 는 exchange 를 통과해야 한다.
+    for (const verifier of [`${"v".repeat(39)}-._~`, "w".repeat(128)]) {
+      const challenge = createHash("sha256").update(verifier).digest("base64url");
+      const state = `st-${randomBytes(9).toString("base64url")}`;
+      const res = await http(browser, "GET", authorizePath({ state, code_challenge: challenge }));
+      const loc = res.status === 302 ? new URL(res.headers.get("location") ?? "") : undefined;
+      const code = loc?.searchParams.get("code") ?? "";
+      const ex = code
+        ? await form(undefined, "POST", `${API_PREFIX}/auth/sso/exchange`, exchangeFields(code, verifier))
+        : undefined;
+      check(`verifier 경계(${verifier.length}자) 교환 성공`, ex?.status === 200);
+    }
+    // verifier 길이 위반은 invalid_request (ticket 소비 전 형식 검증).
+    const { code, verifier } = await obtainCode(browser);
+    const short = await form(undefined, "POST", `${API_PREFIX}/auth/sso/exchange`,
+      exchangeFields(code, verifier, { code_verifier: "x".repeat(42) }));
+    const shortBody = (await short.json()) as { error?: string };
+    check("verifier 42자 → invalid_request (ticket 미소비)",
+      short.status === 400 && shortBody.error === "invalid_request");
+    const stillAlive = await form(undefined, "POST", `${API_PREFIX}/auth/sso/exchange`, exchangeFields(code, verifier));
+    check("형식 오류는 ticket 을 태우지 않음 → 정상 재교환 성공", stillAlive.status === 200);
   }
 
   server.close();

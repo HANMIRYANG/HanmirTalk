@@ -12,6 +12,7 @@ import {
   setAuthCookies,
   setBounceGuardCookie
 } from "../auth/token";
+import { clientIp } from "../auth/client-ip";
 import { auditLog } from "../audit";
 
 // Phase 1 D-3 — httpOnly cookie auth with refresh rotation.
@@ -33,13 +34,12 @@ export const PASSWORD_MIN_LENGTH = 8;
 
 // Exported for routes/sso.ts — the SSO authorize endpoint issues sessions
 // through the same refresh-rotation path and needs the same client context.
+// IP comes from the shared trust-proxy-aware resolver — never from a manual
+// X-Forwarded-For parse, which a direct client can forge at will.
 export function clientContext(req: Request): { userAgent?: string; ip?: string } {
   return {
     userAgent: req.header("user-agent") ?? undefined,
-    ip:
-      (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ??
-      req.socket.remoteAddress ??
-      undefined
+    ip: clientIp(req)
   };
 }
 

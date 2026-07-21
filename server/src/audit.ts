@@ -1,6 +1,7 @@
 import type { Request } from "express";
 import type { CreateAuditInput } from "@hanmir/shared";
 import type { Repositories } from "./repositories/types";
+import { clientIp } from "./auth/client-ip";
 
 // Single entry point for write-side audit logging. Failures are swallowed
 // so a missing audit row never fails the user-visible action.
@@ -29,12 +30,9 @@ export async function auditLog(
       actorUserId: me?.id,
       actorName: me?.name,
       actorRole: me?.role,
-      ip:
-        (req.headers?.["x-forwarded-for"] as string | undefined)
-          ?.split(",")[0]
-          ?.trim() ??
-        req.socket?.remoteAddress ??
-        undefined
+      // Same trust-proxy-aware resolution as the rate limiters — the audit
+      // trail must never disagree with the address enforcement keyed on.
+      ip: clientIp(req)
     });
   } catch (err) {
     // eslint-disable-next-line no-console

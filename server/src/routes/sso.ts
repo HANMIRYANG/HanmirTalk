@@ -36,10 +36,13 @@ const STATE_MAX_LENGTH = 512;
 const STATE_CHARSET = /^[\x20-\x7e]+$/;
 
 // Fixed-window per-IP rate limiting — same in-app approach as the login
-// brute-force counters in routes/auth.ts (single-process deployment).
+// brute-force counters in routes/auth.ts (single-process deployment; a
+// multi-instance rollout must move these to Redis or similar). The IP key
+// comes from clientContext → auth/client-ip.ts, i.e. the trust-proxy-aware
+// req.ip — never a raw X-Forwarded-For parse a caller could forge.
 const RATE_WINDOW_MS = 60 * 1000;
-const AUTHORIZE_MAX_PER_IP = 30;
-const EXCHANGE_MAX_PER_IP = 30;
+const AUTHORIZE_MAX_PER_IP = config.ssoAuthorizeRatePerMin;
+const EXCHANGE_MAX_PER_IP = config.ssoExchangeRatePerMin;
 const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 
 function allowRate(key: string, max: number): boolean {

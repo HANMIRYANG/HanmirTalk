@@ -127,16 +127,21 @@ export function verifyClientSecret(client: SsoClient, rawSecret: string): boolea
   return false;
 }
 
-// RFC 7636 §4.1 — verifier/challenge charset. S256 challenges are exactly 43
-// base64url chars but we accept the full RFC length range for the verifier.
-const PKCE_CHARSET = /^[A-Za-z0-9\-._~]{43,128}$/;
+// RFC 7636 §4.1 — code_verifier: unreserved charset [A-Za-z0-9-._~],
+// 43..128 chars.
+const PKCE_VERIFIER = /^[A-Za-z0-9\-._~]{43,128}$/;
+// S256 code_challenge is BASE64URL(SHA256(verifier)): 32 bytes → exactly 43
+// base64url chars [A-Za-z0-9_-], no "=" padding — and never "." or "~",
+// which are verifier-only characters. Stricter than the verifier rule on
+// purpose: anything else cannot be the output of the S256 derivation.
+const PKCE_S256_CHALLENGE = /^[A-Za-z0-9_-]{43}$/;
 
 export function isValidCodeChallenge(challenge: string): boolean {
-  return PKCE_CHARSET.test(challenge);
+  return PKCE_S256_CHALLENGE.test(challenge);
 }
 
 export function isValidCodeVerifier(verifier: string): boolean {
-  return PKCE_CHARSET.test(verifier);
+  return PKCE_VERIFIER.test(verifier);
 }
 
 // S256: challenge = BASE64URL(SHA256(ascii(verifier))). Constant-time compare.

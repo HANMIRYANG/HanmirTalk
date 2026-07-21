@@ -58,6 +58,10 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       # CORS·쿠키 기준 origin. https 면 서버가 쿠키에 Secure 플래그를 붙인다.
       CORS_ORIGIN: ${PUBLIC_ORIGIN}
+      # 클라이언트 IP 신뢰 경계 — Caddy 한 홉만 신뢰 (Caddyfile 이
+      # X-Forwarded-For 를 CF-Connecting-IP 유래 단일 값으로 고정해서 보냄).
+      # 직접 노출 환경(dev)은 기본 0 으로 XFF 를 아예 무시한다.
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
       # 업로드물은 컨테이너 내부 /data/uploads → 호스트 디스크에 bind mount.
       UPLOAD_DIR: /data/uploads
       UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-52428800}

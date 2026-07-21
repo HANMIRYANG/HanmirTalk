@@ -45,6 +45,11 @@ export interface AppDeps {
 
 export function createApp(deps: AppDeps = { repos: createMemoryRepositories() }): Express {
   const app = express();
+  // Client-IP resolution boundary. 0 (default) ignores X-Forwarded-For
+  // entirely; production sets TRUST_PROXY_HOPS=1 so exactly the Caddy hop is
+  // trusted — Caddy pins the header to one Cloudflare-derived IP (Caddyfile).
+  // Every consumer (rate limits, audit) must go through auth/client-ip.ts.
+  app.set("trust proxy", config.trustProxyHops);
   app.use(
     cors({
       origin: config.corsOrigin === "*" ? true : config.corsOrigin.split(",").map((s) => s.trim()),

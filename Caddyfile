@@ -3,6 +3,23 @@
 # 외부 HTTPS 는 Cloudflare 가 담당한다. VM 내부에서는 cloudflared(systemd)
 # 가 http://127.0.0.1:80 으로 Caddy 에 전달하므로 이 파일은 :80 을 유지한다.
 # Caddy 에서 443, Let's Encrypt, tls 인증서 설정을 직접 추가하지 않는다.
+#
+# ── 클라이언트 IP 신뢰 경계 ─────────────────────────────────────────────
+# Cloudflare Edge → cloudflared(호스트) → Caddy(127.0.0.1:80) → Express.
+# Caddy 에 도달하는 피어는 전부 사설 대역(도커 브리지/로컬호스트)이므로
+# trusted_proxies 로 신뢰하고, 실제 방문자 IP 는 Cloudflare 가 엣지에서
+# 강제 설정하는 CF-Connecting-IP 헤더에서만 읽는다 (client_ip_headers,
+# Caddy 2.8+). 방문자가 보낸 X-Forwarded-For 는 이 판정에 관여하지 못하며,
+# upstream 으로는 header_up 이 {client_ip} 단일 값으로 덮어써 전달한다 —
+# Express 는 TRUST_PROXY_HOPS=1 로 이 한 홉만 신뢰한다 (app.ts).
+# CF 헤더가 없는 요청(로컬 smoke test 등)은 피어 주소로 안전하게 귀결된다.
+
+{
+	servers {
+		trusted_proxies static private_ranges
+		client_ip_headers CF-Connecting-IP
+	}
+}
 
 :80 {
 	encode gzip zstd
@@ -13,16 +30,24 @@
 	}
 
 	# API + socket.io(WebSocket) + 파일 다운로드 → server 컨테이너.
+	# X-Forwarded-For 는 사용자 입력이 섞인 체인을 통과시키지 않고 Caddy 가
+	# 판정한 {client_ip} 하나로 고정한다.
 	handle /api/* {
-		reverse_proxy server:4000
+		reverse_proxy server:4000 {
+			header_up X-Forwarded-For {client_ip}
+		}
 	}
 	handle /socket.io/* {
-		reverse_proxy server:4000
+		reverse_proxy server:4000 {
+			header_up X-Forwarded-For {client_ip}
+		}
 	}
 
 	# 그 외 전부 → web (Next.js).
 	handle {
-		reverse_proxy web:3000
+		reverse_proxy web:3000 {
+			header_up X-Forwarded-For {client_ip}
+		}
 	}
 
 	log {

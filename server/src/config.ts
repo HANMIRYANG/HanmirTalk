@@ -71,5 +71,22 @@ export const config = {
   ssoTicketTtlSec: Math.min(
     300,
     Math.max(10, Number(process.env.SSO_TICKET_TTL_SEC ?? 60) || 60)
-  )
+  ),
+
+  // SSO endpoint fixed-window limits (requests per IP per minute). Defaults
+  // match the login limiter's posture; overridable for load tests and the
+  // integration harnesses (which need many authorize calls in one window).
+  ssoAuthorizeRatePerMin: Number(process.env.SSO_AUTHORIZE_RATE_PER_MIN ?? 30) || 30,
+  ssoExchangeRatePerMin: Number(process.env.SSO_EXCHANGE_RATE_PER_MIN ?? 30) || 30,
+
+  // Proxy trust for client-IP resolution (Express `trust proxy` hop count).
+  // 0 = trust nothing: X-Forwarded-For is ignored, socket peer wins — the
+  //     right answer whenever clients can reach Express directly (dev).
+  // 1 = production topology: Cloudflare → cloudflared → Caddy → Express.
+  //     Exactly one hop (Caddy) is trusted; Caddy pins X-Forwarded-For to
+  //     the single CF-Connecting-IP-derived address (see Caddyfile), so
+  //     nothing attacker-controlled survives to the parse.
+  // Values are clamped to [0, 4] — a huge hop count would walk into the
+  // attacker-controllable part of a forwarded chain.
+  trustProxyHops: Math.min(4, Math.max(0, Number(process.env.TRUST_PROXY_HOPS ?? 0) || 0))
 };
